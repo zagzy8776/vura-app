@@ -1,22 +1,78 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Copy, CheckCircle, QrCode, Share2 } from "lucide-react";
+import { Copy, CheckCircle, QrCode, Share2, Link2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import AppSidebar from "@/components/AppSidebar";
 import DashboardHeader from "@/components/DashboardHeader";
+import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/hooks/use-toast";
+import QRCode from "qrcode";
 
 const Receive = () => {
+  const { user } = useAuth();
   const [copied, setCopied] = useState(false);
   const [requestAmount, setRequestAmount] = useState("");
-  const tag = "@adaeze";
+  const [qrDataUrl, setQrDataUrl] = useState<string>("");
+  const [paymentLink, setPaymentLink] = useState<string>("");
+  const tag = user?.vuraTag ? `@${user.vuraTag}` : "@user";
+
+  // Generate QR code when user changes
+  useEffect(() => {
+    if (user?.vuraTag) {
+      const baseUrl = window.location.origin;
+      const qrData = `${baseUrl}/send?to=${user.vuraTag}`;
+      
+      QRCode.toDataURL(qrData, {
+        width: 256,
+        margin: 2,
+        color: {
+          dark: "#10b981",
+          light: "#ffffff",
+        },
+      })
+        .then((url) => setQrDataUrl(url))
+        .catch((err) => console.error("QR generation failed:", err));
+    }
+  }, [user]);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(tag);
     setCopied(true);
     toast({ title: "Copied!", description: "Your tag has been copied to clipboard" });
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleGenerateLink = () => {
+    if (!user?.vuraTag) return;
+    
+    const baseUrl = window.location.origin;
+    const link = `${baseUrl}/send?to=${user.vuraTag}${requestAmount ? `&amount=${requestAmount}` : ""}`;
+    setPaymentLink(link);
+    
+    navigator.clipboard.writeText(link);
+    toast({ 
+      title: "Payment Link Generated!", 
+      description: "Link copied to clipboard. Share it to receive payment." 
+    });
+  };
+
+  const handleShare = async () => {
+    const shareData = {
+      title: "Send me money on Vura",
+      text: `Send money to ${tag} on Vura - the easiest way to pay!`,
+      url: paymentLink || `${window.location.origin}/send?to=${user?.vuraTag}`,
+    };
+
+    if (navigator.share) {
+      try {
+        await navigator.share(shareData);
+      } catch (err) {
+        console.log("Share cancelled");
+      }
+    } else {
+      handleCopy();
+    }
   };
 
   return (
@@ -32,17 +88,22 @@ const Receive = () => {
 
           {/* QR / Tag Card */}
           <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="rounded-2xl gradient-card p-8 text-center text-primary-foreground shadow-elevated">
-            <div className="flex h-32 w-32 mx-auto items-center justify-center rounded-2xl bg-primary-foreground/10 backdrop-blur-sm mb-6">
-              <QrCode className="h-16 w-16 opacity-80" />
+            <div className="flex h-48 w-48 mx-auto items-center justify-center rounded-2xl bg-white p-3 mb-6">
+              {qrDataUrl ? (
+                <img src={qrDataUrl} alt="Payment QR Code" className="h-full w-full" />
+              ) : (
+                <QrCode className="h-16 w-16 opacity-80" />
+              )}
             </div>
             <p className="text-sm opacity-70 mb-1">Your Vura Tag</p>
             <p className="text-3xl font-bold mb-4">{tag}</p>
+            <p className="text-xs opacity-60 mb-4">Scan to send money instantly</p>
             <div className="flex justify-center gap-3">
               <Button onClick={handleCopy} variant="outline" className="rounded-xl bg-primary-foreground/10 border-primary-foreground/20 text-primary-foreground hover:bg-primary-foreground/20 hover:text-primary-foreground">
                 {copied ? <CheckCircle className="h-4 w-4 mr-1" /> : <Copy className="h-4 w-4 mr-1" />}
                 {copied ? "Copied" : "Copy Tag"}
               </Button>
-              <Button variant="outline" className="rounded-xl bg-primary-foreground/10 border-primary-foreground/20 text-primary-foreground hover:bg-primary-foreground/20 hover:text-primary-foreground">
+              <Button onClick={handleShare} variant="outline" className="rounded-xl bg-primary-foreground/10 border-primary-foreground/20 text-primary-foreground hover:bg-primary-foreground/20 hover:text-primary-foreground">
                 <Share2 className="h-4 w-4 mr-1" /> Share
               </Button>
             </div>
@@ -55,9 +116,25 @@ const Receive = () => {
               <label className="text-sm font-medium text-foreground mb-1.5 block">Amount (₦)</label>
               <Input type="number" placeholder="0.00" value={requestAmount} onChange={(e) => setRequestAmount(e.target.value)} className="h-12 rounded-xl text-xl font-bold" />
             </div>
-            <Button disabled={!requestAmount} className="w-full h-12 rounded-xl gradient-brand text-primary-foreground font-semibold border-0 hover:opacity-90">
+            <Button 
+              onClick={handleGenerateLink} 
+              disabled={!requestAmount} 
+              className="w-full h-12 rounded-xl gradient-brand text-primary-foreground font-semibold border-0 hover:opacity-90"
+            >
+              <Link2 className="h-4 w-4 mr-2" />
               Generate Payment Link
             </Button>
+            
+            {paymentLink && (
+              <motion.div 
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                className="p-3 bg-primary/10 rounded-xl"
+              >
+                <p className="text-xs text-muted-foreground mb-1">Payment link copied!</p>
+                <p className="text-sm font-medium text-primary truncate">{paymentLink}</p>
+              </motion.div>
+            )}
           </motion.div>
         </div>
       </main>

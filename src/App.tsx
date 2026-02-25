@@ -15,20 +15,42 @@ import Accounts from "./pages/Accounts";
 import Settings from "./pages/Settings";
 import Help from "./pages/Help";
 import NotFound from "./pages/NotFound";
+import CryptoDeposit from "./pages/CryptoDeposit";
+
 
 const queryClient = new QueryClient();
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const { user, loading } = useAuth();
-  if (loading) return <div className="flex min-h-screen items-center justify-center bg-background"><div className="flex h-10 w-10 items-center justify-center rounded-lg gradient-brand animate-pulse"><span className="text-lg font-bold text-primary-foreground">V</span></div></div>;
-  if (!user) return <Navigate to="/login" replace />;
+  
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <div className="flex h-10 w-10 items-center justify-center rounded-lg gradient-brand animate-pulse">
+          <span className="text-lg font-bold text-primary-foreground">V</span>
+        </div>
+      </div>
+    );
+  }
+  
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
+  
   return <>{children}</>;
 };
 
 const PublicRoute = ({ children }: { children: React.ReactNode }) => {
   const { user, loading } = useAuth();
-  if (loading) return null;
-  if (user) return <Navigate to="/" replace />;
+  
+  if (loading) {
+    return null;
+  }
+  
+  if (user) {
+    return <Navigate to="/" replace />;
+  }
+  
   return <>{children}</>;
 };
 
@@ -44,7 +66,9 @@ const AppRoutes = () => (
     <Route path="/accounts" element={<ProtectedRoute><Accounts /></ProtectedRoute>} />
     <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
     <Route path="/help" element={<ProtectedRoute><Help /></ProtectedRoute>} />
+    <Route path="/crypto-deposit" element={<ProtectedRoute><CryptoDeposit /></ProtectedRoute>} />
     <Route path="*" element={<NotFound />} />
+
   </Routes>
 );
 

@@ -1,17 +1,51 @@
 import { motion } from "framer-motion";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 
-const data = [
-  { name: "Jan", income: 520000, expenses: 180000 },
-  { name: "Feb", income: 480000, expenses: 150000 },
-  { name: "Mar", income: 630000, expenses: 200000 },
-  { name: "Apr", income: 550000, expenses: 170000 },
-  { name: "May", income: 690000, expenses: 220000 },
-  { name: "Jun", income: 610000, expenses: 190000 },
-  { name: "Jul", income: 720000, expenses: 160000 },
-];
+interface Transaction {
+  id: string;
+  type: string;
+  amount: number;
+  currency: string;
+  status: string;
+  direction: string;
+  createdAt: string;
+}
 
-const SpendingChart = () => {
+interface SpendingChartProps {
+  transactions?: Transaction[];
+}
+
+const SpendingChart = ({ transactions = [] }: SpendingChartProps) => {
+  // Calculate monthly data from real transactions
+  const calculateMonthlyData = () => {
+    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const monthlyData = months.map((month) => ({ name: month, income: 0, expenses: 0 }));
+
+    transactions.forEach((tx) => {
+      if (tx.status !== "COMPLETED") return;
+      
+      const txDate = new Date(tx.createdAt);
+      const monthIndex = txDate.getMonth();
+      
+      if (tx.direction === "incoming") {
+        monthlyData[monthIndex].income += tx.amount;
+      } else if (tx.direction === "outgoing") {
+        monthlyData[monthIndex].expenses += tx.amount;
+      }
+    });
+
+    // Return last 6 months with data, or all months if less data
+    const currentMonth = new Date().getMonth();
+    const last6Months = [];
+    for (let i = 5; i >= 0; i--) {
+      const monthIndex = (currentMonth - i + 12) % 12;
+      last6Months.push(monthlyData[monthIndex]);
+    }
+    
+    return last6Months;
+  };
+
+  const data = calculateMonthlyData();
   return (
     <motion.div
       initial={{ opacity: 0, y: 8 }}

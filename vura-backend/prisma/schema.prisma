@@ -1,0 +1,254 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Users Table
+model User {
+  id                   String    @id @default(uuid())
+  vuraTag              String    @unique @map("vura_tag")
+  phoneEncrypted       String    @map("phone_encrypted")
+  emailEncrypted       String?   @map("email_encrypted")
+  kycTier              Int       @default(1) @map("kyc_tier")
+  bvnHash              String?   @map("bvn_hash")
+  bvnVerified          Boolean   @default(false) @map("bvn_verified")
+  bvnVerifiedAt        DateTime? @map("bvn_verified_at")
+  biometricVerified    Boolean   @default(false) @map("biometric_verified")
+
+  lastDeviceFingerprint String?  @map("last_device_fingerprint")
+  lastLoginAt          DateTime? @map("last_login_at")
+  fraudScore           Int       @default(0) @map("fraud_score")
+  pinHash              String?   @map("pin_hash")
+  failedPinAttempts    Int       @default(0) @map("failed_pin_attempts")
+  lockedUntil          DateTime? @map("locked_until")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  balances      Balance[]
+  sentTransactions     Transaction[] @relation("Sender")
+  receivedTransactions Transaction[] @relation("Receiver")
+  auditLogs    AuditLog[]
+  cryptoDeposits       CryptoDeposit[]
+  cryptoDepositTxs     CryptoDepositTransaction[]
+  sessions     Session[]
+  otps         OTP[]
+  beneficiaries Beneficiary[]
+
+  @@map("users")
+
+
+
+
+}
+
+// Balances Table (Naira + Crypto)
+model Balance {
+  id            String   @id @default(uuid())
+  userId        String   @map("user_id")
+  currency      String   // 'NGN' or 'USDT'
+  amount        Decimal  @db.Decimal(18, 8) @default(0)
+  lastUpdatedBy String   @default("system") @map("last_updated_by")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, currency])
+  @@map("balances")
+}
+
+// Transactions Table (With Idempotency + Balance Snapshots)
+model Transaction {
+  id              String   @id @default(uuid())
+  senderId        String?  @map("sender_id")
+  receiverId      String?  @map("receiver_id")
+  amount          Decimal  @db.Decimal(18, 8)
+  currency        String   @default("NGN")
+  type            String   // 'send', 'receive', 'deposit', 'withdrawal', 'crypto_deposit'
+  status          String   @default("PENDING")
+  idempotencyKey  String   @unique @map("idempotency_key")
+  providerTxId    String?  @map("provider_tx_id")
+  beforeBalance   Decimal? @db.Decimal(18, 2) @map("before_balance")
+  afterBalance    Decimal? @db.Decimal(18, 2) @map("after_balance")
+  heldUntil       DateTime? @map("held_until") // 16-day hold for flagged transactions
+  isFlagged       Boolean  @default(false) @map("is_flagged")
+  flagReason      String?  @map("flag_reason")
+  reference       String?  @unique
+
+  externalReference String? @map("external_reference")
+  metadata        Json     @default("{}")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  sender   User? @relation("Sender", fields: [senderId], references: [id])
+  receiver User? @relation("Receiver", fields: [receiverId], references: [id])
+
+  @@map("transactions")
+}
+
+// Audit Logs (Append-Only + Auto-Log)
+model AuditLog {
+  id         String   @id @default(uuid())
+  action     String
+  userId     String?  @map("user_id")
+  actorType  String?  @map("actor_type") // 'user', 'system', 'admin'
+  actorId    String?  @map("actor_id")
+  metadata   Json     @default("{}")
+  ipAddress  String?  @map("ip_address")
+  userAgent  String?  @map("user_agent")
+  timestamp  DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@map("audit_logs")
+}
+
+// Idempotency Tracking (Enhanced for Crypto)
+model ProcessedWebhook {
+  id            String   @id @default(uuid())
+  provider      String   @default("yellowcard") // 'yellowcard', 'onramper'
+  providerTxId  String   @unique @map("provider_tx_id")
+  eventType     String   @map("event_type") // 'deposit.received', 'deposit.confirmed'
+  rawPayload    Json     @map("raw_payload") // Full webhook for audit
+  signatureValid Boolean @map("signature_valid")
+  processedAt   DateTime @default(now()) @map("processed_at")
+
+  @@map("processed_webhooks")
+}
+
+// Crypto Deposit Addresses (Per-User, Per-Network)
+model CryptoDeposit {
+  id                String   @id @default(uuid())
+  userId            String   @map("user_id")
+  asset             String   // 'USDT', 'BTC', 'ETH'
+  network           String   // 'TRC20', 'BEP20', 'ERC20', 'BTC', 'ETH'
+  address           String   // Deposit address from Yellow Card
+  memo              String?  // For networks requiring memo (e.g., BEP2)
+  providerRef       String   @map("provider_ref") // Yellow Card internal ID
+  status            String   @default("active") // 'active', 'expired', 'suspended'
+  createdAt         DateTime @default(now()) @map("created_at")
+  expiresAt         DateTime? @map("expires_at") // Optional address rotation
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deposits CryptoDepositTransaction[]
+
+  @@unique([userId, asset, network])
+  @@map("crypto_deposits")
+}
+
+// Individual Crypto Deposit Transactions
+model CryptoDepositTransaction {
+  id                  String   @id @default(uuid())
+  depositId           String   @map("deposit_id")
+  userId              String   @map("user_id")
+  providerTxId        String   @unique @map("provider_tx_id") // Yellow Card transaction ID
+  asset               String   // 'USDT', 'BTC', 'ETH'
+  network             String   // 'TRC20', 'BEP20', 'ERC20', etc.
+  cryptoAmount        Decimal  @db.Decimal(18, 8) @map("crypto_amount")
+  cryptoCurrency      String   @map("crypto_currency") // 'USDT', 'BTC', 'ETH'
+  exchangeRate        Decimal  @db.Decimal(18, 8) @map("exchange_rate") // Rate at time of deposit
+  ngnAmount           Decimal  @db.Decimal(18, 2) @map("ngn_amount") // Credited NGN amount
+  confirmations       Int      @default(0)
+  minConfirmations    Int      @map("min_confirmations") // Required: TRC20=19, ERC20=12, BTC=3
+  status              String   @default("pending") // 'pending', 'confirming', 'confirmed', 'failed', 'flagged'
+  ewsScore            Int      @default(0) @map("ews_score") // Early Warning System score
+  ewsFlags            String[] @map("ews_flags") // Array of triggered rules
+  holdUntil           DateTime? @map("hold_until") // For flagged/large deposits
+  creditedAt          DateTime? @map("credited_at")
+  metadata            Json     @default("{}") // Block hash, tx hash, etc.
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  deposit CryptoDeposit @relation(fields: [depositId], references: [id])
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("crypto_deposit_transactions")
+}
+
+// Exchange Rates (Cached with Expiry)
+model ExchangeRate {
+  id          String   @id @default(uuid())
+  pair        String   // 'USDT_NGN', 'BTC_NGN', 'ETH_NGN'
+  rate        Decimal  @db.Decimal(18, 8)
+  provider    String   @default("yellowcard") // 'yellowcard', 'coingecko'
+  expiresAt   DateTime @map("expires_at") // 15-minute time-lock
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@unique([pair, provider])
+  @@map("exchange_rates")
+}
+
+// EWS Rules Configuration
+model EWSRule {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String
+  ruleType    String   @map("rule_type") // 'velocity', 'amount', 'device', 'first_time', 'tier'
+  threshold   Decimal  @db.Decimal(18, 2)
+  action      String   // 'flag', 'delay', 'block'
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@map("ews_rules")
+}
+
+// Sessions (Token Revocation + Device Tracking)
+model Session {
+  id              String   @id @default(uuid())
+  userId          String   @map("user_id")
+  tokenHash       String   @map("token_hash") // Hash of JWT token for lookup
+  deviceFingerprint String? @map("device_fingerprint")
+  ipAddress       String?  @map("ip_address")
+  userAgent       String?  @map("user_agent")
+  isRevoked       Boolean  @default(false) @map("is_revoked")
+  revokedAt       DateTime? @map("revoked_at")
+  expiresAt       DateTime @map("expires_at") // JWT expiry
+  lastActiveAt    DateTime @default(now()) @map("last_active_at")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([tokenHash])
+  @@map("sessions")
+}
+
+// OTP for PIN reset and phone verification
+model OTP {
+  id          String   @id @default(uuid())
+  userId      String   @map("user_id")
+  otpHash     String   @map("otp_hash") // SHA-256 hash of OTP
+  purpose     String   // 'pin_reset', 'phone_verify'
+  expiresAt   DateTime @map("expires_at")
+  attempts    Int      @default(0)
+  used        Boolean  @default(false)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, purpose])
+  @@map("otps")
+}
+
+// Beneficiaries (Saved recipients)
+model Beneficiary {
+  id            String   @id @default(uuid())
+  userId        String   @map("user_id")
+  name          String   // Display name/nickname
+  vuraTag       String?  @map("vura_tag") // For Vura-to-Vura transfers
+  accountNumber String?  @map("account_number") // For bank transfers
+  bankCode      String?  @map("bank_code") // For bank transfers
+  bankName      String?  @map("bank_name") // For bank transfers
+  type          String   @default("vura") // 'vura' or 'bank'
+  isFavorite    Boolean  @default(false) @map("is_favorite")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, vuraTag])
+  @@index([userId])
+  @@map("beneficiaries")
+}

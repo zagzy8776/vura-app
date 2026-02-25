@@ -8,27 +8,42 @@ import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/hooks/use-toast";
 
 const Register = () => {
-  const [fullName, setFullName] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
+  const [phone, setPhone] = useState("");
+  const [vuraTag, setVuraTag] = useState("");
+  const [pin, setPin] = useState("");
+  const [showPin, setShowPin] = useState(false);
   const [loading, setLoading] = useState(false);
   const { signUp } = useAuth();
   const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (password.length < 6) {
-      toast({ title: "Password too short", description: "Must be at least 6 characters", variant: "destructive" });
+    
+    if (phone.length < 10) {
+      toast({ title: "Invalid phone", description: "Enter a valid phone number", variant: "destructive" });
       return;
     }
+    
+    if (!/^[a-zA-Z0-9_]{3,15}$/.test(vuraTag)) {
+      toast({ title: "Invalid tag", description: "Tag must be 3-15 alphanumeric characters", variant: "destructive" });
+      return;
+    }
+    
+    if (pin.length !== 6) {
+      toast({ title: "Invalid PIN", description: "PIN must be 6 digits", variant: "destructive" });
+      return;
+    }
+    
     setLoading(true);
     try {
-      await signUp(email, password, fullName);
+      // Clean phone - remove any non-digits
+      const cleanPhone = phone.replace(/\D/g, "");
+      await signUp(cleanPhone, pin, vuraTag);
       toast({ title: "Account created!", description: "Welcome to Vura" });
       navigate("/");
-    } catch (err: any) {
-      toast({ title: "Registration failed", description: err.message, variant: "destructive" });
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : "Registration failed";
+      toast({ title: "Registration failed", description: errorMessage, variant: "destructive" });
     } finally {
       setLoading(false);
     }
@@ -71,53 +86,63 @@ const Register = () => {
           </div>
 
           <h1 className="text-2xl font-bold text-foreground mb-1">Create account</h1>
-          <p className="text-muted-foreground mb-8">Get started with Vura in seconds</p>
+          <p className="text-muted-foreground mb-8">Choose your Vura Tag and 6-digit PIN</p>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="text-sm font-medium text-foreground mb-1.5 block">Full Name</label>
+              <label className="text-sm font-medium text-foreground mb-1.5 block">Phone Number</label>
               <Input
-                type="text"
-                placeholder="Adaeze Okafor"
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
+                type="tel"
+                placeholder="08012345678"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value.replace(/\D/g, "").slice(0, 11))}
                 required
                 className="h-12 rounded-xl"
               />
             </div>
             <div>
-              <label className="text-sm font-medium text-foreground mb-1.5 block">Email</label>
-              <Input
-                type="email"
-                placeholder="you@example.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                className="h-12 rounded-xl"
-              />
+              <label className="text-sm font-medium text-foreground mb-1.5 block">Choose Vura Tag</label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">@</span>
+                <Input
+                  type="text"
+                  placeholder="yourname"
+                  value={vuraTag}
+                  onChange={(e) => setVuraTag(e.target.value.replace(/[^a-zA-Z0-9_]/g, "").toLowerCase())}
+                  required
+                  className="h-12 rounded-xl pl-7"
+                />
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">This is how others will send you money</p>
             </div>
             <div>
-              <label className="text-sm font-medium text-foreground mb-1.5 block">Password</label>
+              <label className="text-sm font-medium text-foreground mb-1.5 block">6-digit PIN</label>
               <div className="relative">
                 <Input
-                  type={showPassword ? "text" : "password"}
-                  placeholder="Min. 6 characters"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  type={showPin ? "text" : "password"}
+                  placeholder="••••••"
+                  value={pin}
+                  onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 6))}
                   required
-                  className="h-12 rounded-xl pr-10"
+                  maxLength={6}
+                  className="h-12 rounded-xl pr-10 text-center tracking-widest font-mono"
                 />
                 <button
                   type="button"
-                  onClick={() => setShowPassword(!showPassword)}
+                  onClick={() => setShowPin(!showPin)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                 >
-                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  {showPin ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
+              <p className="text-xs text-muted-foreground mt-1">You'll need this PIN to authorize transactions</p>
             </div>
 
-            <Button type="submit" disabled={loading} className="w-full h-12 rounded-xl gradient-brand text-primary-foreground font-semibold text-sm hover:opacity-90 border-0">
+            <Button 
+              type="submit" 
+              disabled={loading || pin.length !== 6} 
+              className="w-full h-12 rounded-xl gradient-brand text-primary-foreground font-semibold text-sm hover:opacity-90 border-0"
+            >
               {loading ? "Creating account..." : "Create Account"}
               {!loading && <ArrowRight className="h-4 w-4 ml-1" />}
             </Button>

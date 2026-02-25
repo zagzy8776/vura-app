@@ -1,63 +1,117 @@
 import { useState, useEffect, createContext, useContext, ReactNode } from "react";
-import { supabase } from "@/integrations/supabase/client";
-import { Session, User } from "@supabase/supabase-js";
+import { toast } from "@/hooks/use-toast";
+
+interface User {
+  id: string;
+  vuraTag: string;
+  kycTier: number;
+}
 
 interface AuthContextType {
-  session: Session | null;
   user: User | null;
+  token: string | null;
   loading: boolean;
-  signUp: (email: string, password: string, fullName: string) => Promise<void>;
-  signIn: (email: string, password: string) => Promise<void>;
-  signOut: () => Promise<void>;
+  signUp: (phone: string, pin: string, vuraTag: string) => Promise<void>;
+  signIn: (vuraTag: string, pin: string) => Promise<void>;
+  signOut: () => void;
 }
 
 const AuthContext = createContext<AuthContextType>({} as AuthContextType);
 
+const API_URL = "http://localhost:3000";
+
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
-  const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
+  const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      setLoading(false);
-    });
-
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      setLoading(false);
-    });
-
-    return () => subscription.unsubscribe();
+    // Check for stored auth
+    const storedToken = localStorage.getItem("vura_token");
+    const storedUser = localStorage.getItem("vura_user");
+    
+    if (storedToken && storedUser) {
+      setToken(storedToken);
+      setUser(JSON.parse(storedUser));
+    }
+    setLoading(false);
   }, []);
 
-  const signUp = async (email: string, password: string, fullName: string) => {
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: { data: { full_name: fullName } },
+  const signUp = async (phone: string, pin: string, vuraTag: string) => {
+    const response = await fetch(`${API_URL}/auth/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ phone, pin, vuraTag }),
     });
-    if (error) throw error;
+
+    const data = await response.json();
+    
+    if (!response.ok) {
+      throw new Error(data.message || "Registration failed");
+    }
+
+    // Store auth
+    localStorage.setItem("vura_token", data.token);
+    localStorage.setItem("vura_user", JSON.stringify(data.user));
+    setToken(data.token);
+    setUser(data.user);
   };
 
-  const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) throw error;
+  const signIn = async (vuraTag: string, pin: string) => {
+    const response = await fetch(`${API_URL}/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ vuraTag, pin }),
+    });
+
+    const data = await response.json();
+    
+    if (!response.ok) {
+      throw new Error(data.message || "Login failed");
+    }
+
+    // Store auth
+    localStorage.setItem("vura_token", data.token);
+    localStorage.setItem("vura_user", JSON.stringify(data.user));
+    setToken(data.token);
+    setUser(data.user);
   };
 
-  const signOut = async () => {
-    const { error } = await supabase.auth.signOut();
-    if (error) throw error;
+  const signOut = () => {
+    localStorage.removeItem("vura_token");
+    localStorage.removeItem("vura_user");
+    setToken(null);
+    setUser(null);
   };
 
   return (
-    <AuthContext.Provider value={{ session, user, loading, signUp, signIn, signOut }}>
+    <AuthContext.Provider value={{ user, token, loading, signUp, signIn, signOut }}>
       {children}
     </AuthContext.Provider>
   );
 };
 
 export const useAuth = () => useContext(AuthContext);
+
+// API helper with auth
+export const apiFetch = async (endpoint: string, options: RequestInit = {}) => {
+  const token = localStorage.getItem("vura_token");
+  
+  const response = await fetch(`${API_URL}${endpoint}`, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...(token && { Authorization: `Bearer ${token}` }),
+      ...options.headers,
+    },
+  });
+
+  if (response.status === 401) {
+    localStorage.removeItem("vura_token");
+    localStorage.removeItem("vura_user");
+    window.location.href = "/login";
+    throw new Error("Session expired");
+  }
+
+  return response;
+};

@@ -1,17 +1,69 @@
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Wallet, Plus, ArrowRightLeft } from "lucide-react";
+import { Wallet, Plus, ArrowRightLeft, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import AppSidebar from "@/components/AppSidebar";
 import DashboardHeader from "@/components/DashboardHeader";
+import { apiFetch } from "@/hooks/useAuth";
 
-const accounts = [
-  { currency: "NGN", name: "Nigerian Naira", symbol: "₦", balance: 2847500, flag: "🇳🇬", dailyLimit: 5000000, spent: 87350 },
-  { currency: "GHS", name: "Ghanaian Cedi", symbol: "₵", balance: 45200, flag: "🇬🇭", dailyLimit: 500000, spent: 12000 },
-  { currency: "USD", name: "US Dollar", symbol: "$", balance: 1250, flag: "🇺🇸", dailyLimit: 10000, spent: 0 },
-  { currency: "XAF", name: "Central African CFA", symbol: "FCFA", balance: 380000, flag: "🇨🇲", dailyLimit: 2000000, spent: 50000 },
-];
+interface Balance {
+  currency: string;
+  amount: number;
+}
+
+const currencyInfo: Record<string, { name: string; symbol: string; flag: string; dailyLimit: number }> = {
+  NGN: { name: "Nigerian Naira", symbol: "₦", flag: "🇳🇬", dailyLimit: 5000000 },
+  USDT: { name: "Tether USD", symbol: "USDT", flag: "₮", dailyLimit: 10000 },
+  USD: { name: "US Dollar", symbol: "$", flag: "🇺🇸", dailyLimit: 10000 },
+  GHS: { name: "Ghanaian Cedi", symbol: "₵", flag: "🇬🇭", dailyLimit: 500000 },
+  XAF: { name: "Central African CFA", symbol: "FCFA", flag: "🇨🇲", dailyLimit: 2000000 },
+};
 
 const Accounts = () => {
+  const [balances, setBalances] = useState<Balance[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchBalances = async () => {
+      try {
+        const res = await apiFetch("/transactions/balance");
+        if (res.ok) {
+          const data = await res.json();
+          setBalances(data);
+        }
+      } catch (error) {
+        console.error("Failed to fetch balances:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchBalances();
+  }, []);
+
+  // Calculate total in NGN (simplified - in real app would use exchange rates)
+  const totalNgn = balances.reduce((sum, b) => {
+    if (b.currency === "NGN") return sum + b.amount;
+    return sum; // For now, only count NGN in total
+  }, 0);
+
+  const accounts = balances.map((b) => {
+    const info = currencyInfo[b.currency] || { 
+      name: b.currency, 
+      symbol: b.currency, 
+      flag: "💰", 
+      dailyLimit: 1000000 
+    };
+    return {
+      currency: b.currency,
+      name: info.name,
+      symbol: info.symbol,
+      balance: b.amount,
+      flag: info.flag,
+      dailyLimit: info.dailyLimit,
+      spent: 0, // Would need to calculate from transactions
+    };
+  });
   return (
     <div className="flex min-h-screen bg-background">
       <AppSidebar />
@@ -36,13 +88,20 @@ const Accounts = () => {
           {/* Total Balance */}
           <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="rounded-2xl gradient-card p-6 text-primary-foreground shadow-elevated mb-6">
             <p className="text-sm opacity-70">Total Balance (NGN equivalent)</p>
-            <p className="text-3xl font-bold mt-1">₦3,542,700.00</p>
+            <p className="text-3xl font-bold mt-1">₦{totalNgn.toLocaleString()}</p>
             <p className="text-xs opacity-50 mt-1">Across {accounts.length} currencies</p>
           </motion.div>
 
+          {/* Loading State */}
+          {loading && (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            </div>
+          )}
+
           {/* Account Cards */}
           <div className="grid gap-4">
-            {accounts.map((acc, i) => {
+            {!loading && accounts.map((acc, i) => {
               const limitPct = (acc.spent / acc.dailyLimit) * 100;
               return (
                 <motion.div

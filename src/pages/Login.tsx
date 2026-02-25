@@ -8,18 +8,24 @@ import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/hooks/use-toast";
 
 const Login = () => {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
+  const [vuraTag, setVuraTag] = useState("");
+  const [pin, setPin] = useState("");
+  const [showPin, setShowPin] = useState(false);
   const [loading, setLoading] = useState(false);
   const { signIn } = useAuth();
   const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (pin.length !== 6) {
+      toast({ title: "Invalid PIN", description: "PIN must be 6 digits", variant: "destructive" });
+      return;
+    }
     setLoading(true);
     try {
-      await signIn(email, password);
+      // Add @ if not present
+      const tag = vuraTag.startsWith("@") ? vuraTag.slice(1) : vuraTag;
+      await signIn(tag, pin);
       navigate("/");
     } catch (err: any) {
       toast({ title: "Login failed", description: err.message, variant: "destructive" });
@@ -65,42 +71,47 @@ const Login = () => {
           </div>
 
           <h1 className="text-2xl font-bold text-foreground mb-1">Welcome back</h1>
-          <p className="text-muted-foreground mb-8">Sign in to your account</p>
+          <p className="text-muted-foreground mb-8">Enter your Vura Tag and PIN</p>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="text-sm font-medium text-foreground mb-1.5 block">Email</label>
+              <label className="text-sm font-medium text-foreground mb-1.5 block">Vura Tag</label>
               <Input
-                type="email"
-                placeholder="you@example.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                type="text"
+                placeholder="@yourtag"
+                value={vuraTag}
+                onChange={(e) => setVuraTag(e.target.value)}
                 required
                 className="h-12 rounded-xl"
               />
             </div>
             <div>
-              <label className="text-sm font-medium text-foreground mb-1.5 block">Password</label>
+              <label className="text-sm font-medium text-foreground mb-1.5 block">6-digit PIN</label>
               <div className="relative">
                 <Input
-                  type={showPassword ? "text" : "password"}
-                  placeholder="••••••••"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  type={showPin ? "text" : "password"}
+                  placeholder="••••••"
+                  value={pin}
+                  onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 6))}
                   required
-                  className="h-12 rounded-xl pr-10"
+                  maxLength={6}
+                  className="h-12 rounded-xl pr-10 text-center tracking-widest font-mono"
                 />
                 <button
                   type="button"
-                  onClick={() => setShowPassword(!showPassword)}
+                  onClick={() => setShowPin(!showPin)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                 >
-                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  {showPin ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
             </div>
 
-            <Button type="submit" disabled={loading} className="w-full h-12 rounded-xl gradient-brand text-primary-foreground font-semibold text-sm hover:opacity-90 border-0">
+            <Button 
+              type="submit" 
+              disabled={loading || pin.length !== 6} 
+              className="w-full h-12 rounded-xl gradient-brand text-primary-foreground font-semibold text-sm hover:opacity-90 border-0"
+            >
               {loading ? "Signing in..." : "Sign In"}
               {!loading && <ArrowRight className="h-4 w-4 ml-1" />}
             </Button>
