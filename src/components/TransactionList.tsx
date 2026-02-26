@@ -18,7 +18,7 @@ interface TransactionListProps {
   transactions?: Transaction[];
 }
 
-// Mock icons mapping
+// Icons mapping based on transaction type
 const getIcon = (type: string) => {
   if (type === "send" || type === "debit") return ArrowUpRight;
   if (type === "receive" || type === "credit") return ArrowDownLeft;
@@ -28,13 +28,8 @@ const getIcon = (type: string) => {
   return ArrowDownLeft;
 };
 
-const defaultTransactions = [
-  { id: "1", type: "receive", amount: 450000, currency: "NGN", status: "completed", reference: "TXN001", createdAt: new Date().toISOString(), counterparty: "Dangote Ltd", direction: "received" },
-  { id: "2", type: "shopping", amount: 12350, currency: "NGN", status: "completed", reference: "TXN002", createdAt: new Date().toISOString(), counterparty: "Shoprite Mall", direction: "sent" },
-  { id: "3", type: "send", amount: 75000, currency: "NGN", status: "completed", reference: "TXN003", createdAt: new Date().toISOString(), counterparty: "@emeka", direction: "sent" },
-];
-
-const TransactionList = ({ transactions = defaultTransactions }: TransactionListProps) => {
+// No default transactions - must be fetched from API
+const TransactionList = ({ transactions = [] }: TransactionListProps) => {
   const navigate = useNavigate();
 
   const formatDate = (dateStr: string) => {
@@ -65,7 +60,12 @@ const TransactionList = ({ transactions = defaultTransactions }: TransactionList
         </button>
       </div>
       <div className="space-y-2">
-        {transactions.map((tx, i) => {
+        {transactions.length === 0 ? (
+          <div className="text-center py-8 text-muted-foreground">
+            <p className="text-sm">No transactions yet</p>
+            <p className="text-xs mt-1">Your transaction history will appear here</p>
+          </div>
+        ) : transactions.map((tx, i) => {
           const Icon = getIcon(tx.type);
           return (
             <motion.div

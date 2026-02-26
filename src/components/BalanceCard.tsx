@@ -57,10 +57,12 @@ const BalanceCard = ({ ngnBalance = 0, usdtBalance = 0, loading = false }: Balan
               <p className="text-xs opacity-50 mt-2">@{user.vuraTag}</p>
             )}
           </div>
-          <div className="flex h-10 items-center gap-1 rounded-full bg-primary/20 px-3 text-xs font-medium">
-            <ArrowUpRight className="h-3.5 w-3.5" />
-            +12.5%
-          </div>
+          {ngnBalance > 0 && (
+            <div className="flex h-10 items-center gap-1 rounded-full bg-primary/20 px-3 text-xs font-medium">
+              <ArrowUpRight className="h-3.5 w-3.5" />
+              Active
+            </div>
+          )}
         </div>
 
         <div className="flex gap-3">
