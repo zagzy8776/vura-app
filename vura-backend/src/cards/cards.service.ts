@@ -10,9 +10,9 @@ export interface Card {
   expiry: string;
   balance: number;
   status: 'active' | 'frozen';
-  cardNumber: string;
-  cvv: string;
-  pin: string;
+  cardNumber: string; // Masked
+  cvv: string; // Should NEVER be returned
+  pin: string; // Should NEVER be returned
   createdAt: Date;
 }
 
@@ -50,17 +50,16 @@ export class CardsService {
       throw new BadRequestException(`You already have a ${type.toLowerCase()} card. Delete it first to create a new one.`);
     }
 
-    // Generate card details with Luhn-valid card numbers
-    const cardNumber = this.generateLuhnValidCardNumber();
-    const last4 = cardNumber.slice(-4);
+    // Generate last4 and expiry only - cardToken should come from payment provider in production
+    const last4 = this.generateLast4();
     const expiry = this.generateExpiry();
-    const cvv = this.generateCVV();
-    const pin = this.generatePIN();
     
-    // Encrypt PIN before storing
-    const encryptedPin = EncryptionService.encrypt(pin);
+    // Generate a hash of the card for display purposes (NOT the actual card number)
+    // In production: This would be a token from Paystack/Monnify
+    const cardHash = EncryptionService.encrypt(`VURA-${last4}-${Date.now()}`);
+    const cardToken = `vrt_${uuidv4().replace(/-/g, '').substring(0, 16)}`;
 
-    // Create card in database
+    // Create card in database - NO raw card number, CVV, or PIN stored
     const card = await this.prisma.card.create({
       data: {
         id: uuidv4(),
@@ -70,9 +69,8 @@ export class CardsService {
         expiry,
         balance: 0,
         status: 'active',
-        cardNumber: cardNumber, // Store full card number (in production, this would come from Yellow Card API)
-        cvv,
-        pin: encryptedPin, // Store encrypted PIN
+        cardToken: cardToken, // Token from provider
+        cardHash: cardHash,    // Encrypted hash for display
         currency,
         createdAt: new Date(),
         updatedAt: new Date()
@@ -96,7 +94,8 @@ export class CardsService {
       }
     });
 
-    // Return card with masked card number for security
+    // Return card details - NEVER return CVV or PIN
+    // PIN would need to be set via the card provider's PIN management
     return {
       id: card.id,
       type: card.type as 'Virtual' | 'Physical',
@@ -104,9 +103,9 @@ export class CardsService {
       expiry: card.expiry,
       balance: Number(card.balance),
       status: card.status as 'active' | 'frozen',
-      cardNumber: this.maskCardNumber(card.cardNumber),
-      cvv: card.cvv,
-      pin: pin, // Return unencrypted PIN only at creation time
+      cardNumber: `•••• •••• •••• ${last4}`,
+      cvv: '***', // NEVER return actual CVV
+      pin: '****', // NEVER return PIN - user must set via provider
       createdAt: card.createdAt
     };
   }
@@ -127,9 +126,9 @@ export class CardsService {
       expiry: card.expiry,
       balance: Number(card.balance),
       status: card.status as 'active' | 'frozen',
-      cardNumber: this.maskCardNumber(card.cardNumber),
-      cvv: card.cvv,
-      pin: '****', // Never return PIN in list
+      cardNumber: `•••• •••• •••• ${card.last4}`,
+      cvv: '***', // NEVER return CVV
+      pin: '****', // NEVER return PIN
       createdAt: card.createdAt
     }));
   }
@@ -178,8 +177,8 @@ export class CardsService {
       expiry: updatedCard.expiry,
       balance: Number(updatedCard.balance),
       status: updatedCard.status as 'active' | 'frozen',
-      cardNumber: this.maskCardNumber(updatedCard.cardNumber),
-      cvv: updatedCard.cvv,
+      cardNumber: `•••• •••• •••• ${updatedCard.last4}`,
+      cvv: '***',
       pin: '****',
       createdAt: updatedCard.createdAt
     };
@@ -227,129 +226,40 @@ export class CardsService {
   }
 
   async getCardPin(userId: string, cardId: string): Promise<{ pin: string }> {
+    // PIN should be managed through the card provider, not stored locally
+    // This endpoint is kept for backward compatibility but should be deprecated
+    
     const card = await this.prisma.card.findFirst({
       where: {
         id: cardId,
         userId,
         status: { not: 'deleted' }
       },
-      select: { pin: true, last4: true }
+      select: { last4: true }
     });
 
     if (!card) {
       throw new NotFoundException('Card not found');
     }
 
-    // Decrypt PIN
-    let decryptedPin: string;
-    try {
-      decryptedPin = EncryptionService.decrypt(card.pin);
-    } catch (error) {
-      this.logger.error(`Failed to decrypt PIN for card ${cardId}`, error);
-      throw new BadRequestException('Unable to retrieve card PIN. Please contact support.');
-    }
-
-    // Create audit log for PIN access
+    // Create audit log for PIN access attempt
     await this.prisma.auditLog.create({
       data: {
-        action: 'ACCESS_CARD_PIN',
+        action: 'ACCESS_CARD_PIN_ATTEMPT',
         userId,
         actorType: 'user',
-        metadata: { cardId, last4: card.last4 }
+        metadata: { cardId, last4: card.last4, note: 'PIN should be managed via card provider' }
       }
     });
 
-    return { pin: decryptedPin };
+    // Return a message indicating PIN must be set via provider
+    throw new BadRequestException('Card PIN must be set through the card provider mobile app. Download the Vura Cards app to manage your PIN.');
   }
 
   /**
-   * Generate a Luhn-valid 16-digit card number
-   * Format: 4xxx xxxx xxxx xxxx (starts with 4 for Visa)
+   * Generate last 4 digits for display
    */
-  private generateLuhnValidCardNumber(): string {
-    // Generate first 15 digits (Visa cards start with 4)
-    let cardNumber = '4';
-    for (let i = 0; i < 14; i++) {
-      cardNumber += Math.floor(Math.random() * 10).toString();
-    }
-    
-    // Calculate check digit using Luhn algorithm
-    const checkDigit = this.calculateLuhnCheckDigit(cardNumber);
-    cardNumber += checkDigit;
-    
-    return cardNumber;
-  }
-
-  /**
-   * Calculate Luhn check digit for a card number
-   */
-  private calculateLuhnCheckDigit(partialNumber: string): string {
-    let sum = 0;
-    let isEven = false;
-
-    // Process from right to left
-    for (let i = partialNumber.length - 1; i >= 0; i--) {
-      let digit = parseInt(partialNumber[i], 10);
-
-      if (isEven) {
-        digit *= 2;
-        if (digit > 9) {
-          digit -= 9;
-        }
-      }
-
-      sum += digit;
-      isEven = !isEven;
-    }
-
-    const checkDigit = (10 - (sum % 10)) % 10;
-    return checkDigit.toString();
-  }
-
-  /**
-   * Validate a card number using Luhn algorithm
-   */
-  private isValidLuhn(cardNumber: string): boolean {
-    const digits = cardNumber.replace(/\D/g, '');
-    let sum = 0;
-    let isEven = false;
-
-    for (let i = digits.length - 1; i >= 0; i--) {
-      let digit = parseInt(digits[i], 10);
-
-      if (isEven) {
-        digit *= 2;
-        if (digit > 9) {
-          digit -= 9;
-        }
-      }
-
-      sum += digit;
-      isEven = !isEven;
-    }
-
-    return sum % 10 === 0;
-  }
-
-  /**
-   * Mask card number for display (show only last 4 digits)
-   */
-  private maskCardNumber(cardNumber: string): string {
-    // Remove any spaces or special characters
-    const cleanNumber = cardNumber.replace(/\D/g, '');
-    
-    // If it's already masked (contains •), return as is
-    if (cardNumber.includes('•')) {
-      return cardNumber;
-    }
-    
-    // Show only last 4 digits
-    const last4 = cleanNumber.slice(-4);
-    return `•••• •••• •••• ${last4}`;
-  }
-
   private generateLast4(): string {
-    // Generate 4 random digits
     const digits = [];
     for (let i = 0; i < 4; i++) {
       digits.push(Math.floor(Math.random() * 10).toString());
@@ -357,17 +267,12 @@ export class CardsService {
     return digits.join('');
   }
 
+  /**
+   * Generate expiry date (MM/YY)
+   */
   private generateExpiry(): string {
     const month = Math.floor(1 + Math.random() * 12).toString().padStart(2, '0');
     const year = (new Date().getFullYear() + Math.floor(2 + Math.random() * 3)).toString().slice(-2);
     return `${month}/${year}`;
-  }
-
-  private generateCVV(): string {
-    return Math.floor(100 + Math.random() * 900).toString();
-  }
-
-  private generatePIN(): string {
-    return Math.floor(1000 + Math.random() * 9000).toString();
   }
 }

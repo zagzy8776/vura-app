@@ -19,8 +19,6 @@ interface CardData {
   color: string;
   status: "active" | "frozen";
   cardNumber: string;
-  cvv: string;
-  pin: string;
   createdAt: string;
 }
 
