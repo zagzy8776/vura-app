@@ -6,27 +6,32 @@ import { AppModule } from './app.module';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  // Security: HTTP headers protection (configured to allow CORS)
+  const isProduction = process.env.NODE_ENV === 'production';
+  const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+
+  // Security: HTTP headers protection
   app.use(
     helmet({
-      contentSecurityPolicy: false,
-      crossOriginEmbedderPolicy: false,
+      contentSecurityPolicy: isProduction ? undefined : false,
+      crossOriginEmbedderPolicy: isProduction ? undefined : false,
     }),
   );
 
   // Enable CORS for frontend communication
+  // ⚠️ IMPORTANT: In production, replace with your actual domain!
   app.enableCors({
-    origin: [
-      'http://localhost:8080',
-      'http://localhost:8081',
-      'http://localhost:5173',
-      'http://localhost:8087',
-    ],
+    origin: isProduction 
+      ? [frontendUrl, 'https://yourdomain.com', 'https://www.yourdomain.com']
+      : [
+          'http://localhost:8080',
+          'http://localhost:8081',
+          'http://localhost:5173',
+          'http://localhost:8087',
+        ],
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Device-Fingerprint'],
   });
-
 
   // Security: Global input validation
   app.useGlobalPipes(
@@ -34,10 +39,20 @@ async function bootstrap() {
       whitelist: true,
       forbidNonWhitelisted: true,
       transform: true,
+      transformOptions: {
+        enableImplicitConversion: true,
+      },
     }),
   );
 
-  await app.listen(process.env.PORT ?? 3000);
+  // Security: Disable server banner
+  app.setGlobalPrefix('api');
+
+  const port = process.env.PORT ?? 3000;
+  await app.listen(port);
+  
+  console.log(`🚀 Vura API running on port ${port}`);
+  console.log(`📦 Environment: ${isProduction ? 'PRODUCTION' : 'DEVELOPMENT'}`);
 }
 
 bootstrap();
