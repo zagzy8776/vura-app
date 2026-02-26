@@ -6,26 +6,30 @@ import Decimal from 'decimal.js';
 export class LimitsService {
   constructor(private prisma: PrismaService) {}
 
-  // Tier limits configuration
+  // Tier limits configuration (2026 CBN standards)
   private readonly TIER_LIMITS: Record<number, {
     dailySendLimit: Decimal;
     maxBalance: Decimal;
     requiresBiometric: boolean;
+    cumulativeLimit: Decimal; // Annual cumulative limit
   }> = {
     1: {
-      dailySendLimit: new Decimal(50000), // ₦50k
+      dailySendLimit: new Decimal(30000), // ₦30k (2026 CBN standard for Tier 1)
       maxBalance: new Decimal(300000), // ₦300k
       requiresBiometric: false,
+      cumulativeLimit: new Decimal(300000), // ₦300k annual cumulative
     },
     2: {
       dailySendLimit: new Decimal(200000), // ₦200k
       maxBalance: new Decimal(500000), // ₦500k
       requiresBiometric: false,
+      cumulativeLimit: new Decimal(5000000), // ₦5m annual cumulative
     },
     3: {
       dailySendLimit: new Decimal(5000000), // ₦5m
       maxBalance: new Decimal(10000000), // ₦10m
       requiresBiometric: true,
+      cumulativeLimit: new Decimal(50000000), // ₦50m annual cumulative
     },
   };
 

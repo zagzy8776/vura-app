@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma.service';
 import Decimal from 'decimal.js';
 import * as crypto from 'crypto';
+import { Prisma } from '@prisma/client';
 
 // Network configuration with confirmation requirements
 const NETWORK_CONFIG = {
@@ -161,6 +162,20 @@ export class YellowCardService {
   }
 
   /**
+   * Get all available exchange rates
+   */
+  async getAllExchangeRates(): Promise<Record<string, Decimal>> {
+    const pairs = ['USDT_NGN', 'BTC_NGN', 'ETH_NGN'];
+    const rates: Record<string, Decimal> = {};
+
+    for (const pair of pairs) {
+      rates[pair] = await this.getExchangeRate(pair);
+    }
+
+    return rates;
+  }
+
+  /**
    * Calculate NGN amount from crypto amount
    * Security: Use Decimal.js for exact precision, no floating point errors
    */
@@ -177,6 +192,227 @@ export class YellowCardService {
     const ngnAmount = cryptoAmount.mul(adjustedRate);
     
     return { ngnAmount, rate: adjustedRate };
+  }
+
+  /**
+   * Calculate crypto amount from NGN (for buying crypto)
+   */
+  async calculateCryptoAmount(
+    ngnAmount: Decimal,
+    asset: string,
+  ): Promise<{ cryptoAmount: Decimal; rate: Decimal; exchangeFee: Decimal }> {
+    const pair = `${asset}_NGN`;
+    const rate = await this.getExchangeRate(pair);
+    
+    // Apply 1% spread (you keep this as revenue for buy)
+    const adjustedRate = rate.mul(1.01);
+    
+    // Calculate crypto amount with 0.5% platform fee
+    const ngnWithFee = ngnAmount.mul(1.005);
+    const cryptoAmount = ngnWithFee.div(adjustedRate);
+    const exchangeFee = ngnAmount.mul(0.005); // 0.5% fee
+    
+    return { cryptoAmount, rate: adjustedRate, exchangeFee };
+  }
+
+  /**
+   * Buy Crypto - Convert Naira to USDT
+   * This triggers when a user wants to move their Vura Naira balance into USDT
+   * 
+   * @param userId - The user's ID
+   * @param ngnAmount - Amount in Naira to convert
+   * @param asset - Target crypto asset (default: USDT)
+   * @param network - Target network (default: TRC20)
+   */
+  async buyCrypto(
+    userId: string,
+    ngnAmount: Decimal,
+    asset: 'USDT' | 'BTC' | 'ETH' = 'USDT',
+    network: string = 'TRC20',
+  ): Promise<{
+    success: boolean;
+    cryptoAmount: Decimal;
+    exchangeRate: Decimal;
+    fee: Decimal;
+    destinationAddress: string;
+    transactionId: string;
+  }> {
+    // Validate network is supported for asset
+    const config = (NETWORK_CONFIG as any)[asset]?.[network];
+    if (!config) {
+      throw new BadRequestException(`Network ${network} not supported for ${asset}`);
+    }
+
+    // Check user has sufficient NGN balance
+    const balance = await this.prisma.balance.findUnique({
+      where: {
+        userId_currency: {
+          userId,
+          currency: 'NGN',
+        },
+      },
+    });
+
+    const currentBalance = balance ? new Decimal(balance.amount.toString()) : new Decimal(0);
+    
+    if (currentBalance.lessThan(ngnAmount)) {
+      throw new BadRequestException('Insufficient NGN balance');
+    }
+
+    // Calculate crypto amount
+    const { cryptoAmount, rate, exchangeFee } = await this.calculateCryptoAmount(ngnAmount, asset);
+
+    // Get or create user's deposit address for receiving crypto
+    const depositAddress = await this.getOrCreateDepositAddress(userId, asset, network);
+
+    // Generate transaction ID
+    const transactionId = `buy_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+    // ATOMIC TRANSACTION: Debit NGN and create swap order
+    await this.prisma.$transaction(async (tx) => {
+      // 1. Get current balance with lock
+      const currentBal = await tx.balance.findUnique({
+        where: {
+          userId_currency: {
+            userId,
+            currency: 'NGN',
+          },
+        },
+      });
+
+      const beforeBalance = currentBal ? new Decimal(currentBal.amount.toString()) : new Decimal(0);
+      const afterBalance = beforeBalance.sub(ngnAmount);
+
+      // 2. Debit NGN balance
+      await tx.balance.update({
+        where: {
+          userId_currency: {
+            userId,
+            currency: 'NGN',
+          },
+        },
+        data: {
+          amount: afterBalance.toNumber(),
+          lastUpdatedBy: 'crypto_swap',
+        },
+      });
+
+      // 3. Create crypto deposit transaction (pending until webhook confirms)
+      await tx.cryptoDepositTransaction.create({
+        data: {
+          depositId: depositAddress.id,
+          userId,
+          providerTxId: transactionId,
+          asset,
+          network,
+          cryptoAmount: cryptoAmount.toNumber(),
+          cryptoCurrency: asset,
+          exchangeRate: rate.toNumber(),
+          ngnAmount: ngnAmount.toNumber(),
+          confirmations: 0,
+          minConfirmations: config.minConfirmations,
+          status: 'pending',
+          metadata: {
+            type: 'crypto_buy',
+            fee: exchangeFee.toString(),
+            destinationAddress: depositAddress.address,
+          },
+        },
+      });
+
+      // 4. Create main transaction record
+      await tx.transaction.create({
+        data: {
+          senderId: userId,
+          amount: ngnAmount.toNumber(),
+          currency: 'NGN',
+          type: 'crypto_swap',
+          status: 'PENDING',
+          idempotencyKey: transactionId,
+          providerTxId: transactionId,
+          beforeBalance: beforeBalance.toNumber(),
+          afterBalance: afterBalance.toNumber(),
+          reference: `SWAP-${transactionId}`,
+          metadata: {
+            cryptoAmount: cryptoAmount.toString(),
+            cryptoCurrency: asset,
+            network,
+            exchangeRate: rate.toString(),
+            fee: exchangeFee.toString(),
+            destinationAddress: depositAddress.address,
+          },
+        },
+      });
+
+      // 5. Create audit log
+      await tx.auditLog.create({
+        data: {
+          action: 'CRYPTO_BUY_INITIATED',
+          userId,
+          actorType: 'user',
+          metadata: {
+            transactionId,
+            ngnAmount: ngnAmount.toString(),
+            cryptoAmount: cryptoAmount.toString(),
+            asset,
+            network,
+            exchangeRate: rate.toString(),
+            fee: exchangeFee.toString(),
+          },
+        },
+      });
+    });
+
+    this.logger.log(`Crypto buy initiated: ${ngnAmount.toString()} NGN -> ${cryptoAmount.toString()} ${asset}`, {
+      userId,
+      transactionId,
+    });
+
+    return {
+      success: true,
+      cryptoAmount,
+      exchangeRate: rate,
+      fee: exchangeFee,
+      destinationAddress: depositAddress.address,
+      transactionId,
+    };
+  }
+
+  /**
+   * Get or create deposit address for user
+   */
+  private async getOrCreateDepositAddress(
+    userId: string,
+    asset: string,
+    network: string,
+  ) {
+    const existing = await this.prisma.cryptoDeposit.findUnique({
+      where: {
+        userId_asset_network: {
+          userId,
+          asset,
+          network,
+        },
+      },
+    });
+
+    if (existing && existing.status === 'active') {
+      return existing;
+    }
+
+    const mockAddress = this.generateMockAddress(asset, network);
+    
+    return await this.prisma.cryptoDeposit.create({
+      data: {
+        userId,
+        asset,
+        network,
+        address: mockAddress.address,
+        memo: mockAddress.memo,
+        providerRef: `yc_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        status: 'active',
+      },
+    });
   }
 
   /**

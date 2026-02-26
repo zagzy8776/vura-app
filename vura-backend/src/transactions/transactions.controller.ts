@@ -1,10 +1,18 @@
 import { Controller, Post, Get, Body, UseGuards, Request, Query } from '@nestjs/common';
 import { TransactionsService } from './transactions.service';
 import { AuthGuard } from '../auth/auth.guard';
+import { PaystackService } from '../services/paystack.service';
+import { MonnifyService } from '../services/monnify.service';
+import { BankCodesService } from '../services/bank-codes.service';
 
 @Controller('transactions')
 export class TransactionsController {
-  constructor(private transactionsService: TransactionsService) {}
+  constructor(
+    private transactionsService: TransactionsService,
+    private paystackService: PaystackService,
+    private monnifyService: MonnifyService,
+    private bankCodesService: BankCodesService
+  ) {}
 
   @UseGuards(AuthGuard)
   @Post('send')
@@ -19,6 +27,64 @@ export class TransactionsController {
       body.description,
       body.pin
     );
+  }
+
+  @UseGuards(AuthGuard)
+  @Post('send-to-bank')
+  async sendToBank(
+    @Request() req: { user: { userId: string } },
+    @Body() body: { 
+      accountNumber: string; 
+      bankCode: string; 
+      accountName: string; 
+      amount: number; 
+      description?: string; 
+      pin?: string;
+      paymentProvider?: 'paystack' | 'monnify';
+    }
+  ) {
+    const { accountNumber, bankCode, accountName, amount, description, pin, paymentProvider = 'paystack' } = body;
+    
+    // Verify account first
+    let verificationResult;
+    if (paymentProvider === 'paystack') {
+      verificationResult = await this.paystackService.verifyAccount(accountNumber, bankCode);
+    } else {
+      verificationResult = await this.monnifyService.verifyAccount(accountNumber, bankCode);
+    }
+
+    // Send to bank using the selected provider
+    const reference = `BANK-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    let transferResult;
+    
+    if (paymentProvider === 'paystack') {
+      transferResult = await this.paystackService.initiateTransfer(
+        accountNumber,
+        bankCode,
+        accountName || verificationResult.accountName,
+        amount,
+        reference,
+        description
+      );
+    } else {
+      transferResult = await this.monnifyService.initiateTransfer(
+        accountNumber,
+        bankCode,
+        accountName || verificationResult.accountName,
+        amount,
+        reference,
+        description
+      );
+    }
+
+    return {
+      success: true,
+      reference: transferResult.reference,
+      status: transferResult.status,
+      accountName: verificationResult.accountName,
+      amount,
+      fee: Math.max(10, amount * 0.015), // 1.5% fee for bank transfers
+    };
   }
 
   @UseGuards(AuthGuard)
@@ -46,5 +112,26 @@ export class TransactionsController {
   @Get('lookup')
   lookupTag(@Query('tag') tag: string) {
     return this.transactionsService.lookupTag(tag);
+  }
+
+  @Get('verify-account')
+  async verifyAccount(
+    @Query('accountNumber') accountNumber: string,
+    @Query('bankCode') bankCode: string,
+    @Query('provider') provider: 'paystack' | 'monnify' = 'paystack'
+  ) {
+    if (provider === 'paystack') {
+      const result = await this.paystackService.verifyAccount(accountNumber, bankCode);
+      return {
+        success: true,
+        accountName: result.accountName,
+      };
+    } else {
+      const result = await this.monnifyService.verifyAccount(accountNumber, bankCode);
+      return {
+        success: true,
+        accountName: result.accountName,
+      };
+    }
   }
 }

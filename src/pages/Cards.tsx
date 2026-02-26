@@ -1,23 +1,21 @@
 import { motion } from "framer-motion";
-import { CreditCard, Plus, Lock, Eye, EyeOff, Snowflake, Trash2, Copy, CheckCircle, CreditCard as CardIcon, AlertTriangle, Shield } from "lucide-react";
+import { CreditCard, Plus, Lock, Eye, EyeOff, Snowflake, Trash2, Copy, CheckCircle, CreditCard as CardIcon, AlertTriangle, Shield, Loader2 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import AppSidebar from "@/components/AppSidebar";
 import DashboardHeader from "@/components/DashboardHeader";
-import { useAuth } from "@/hooks/useAuth";
+import { useAuth, apiFetch } from "@/hooks/useAuth";
 import { toast } from "@/hooks/use-toast";
 
 interface CardData {
-  id: number;
+  id: string;
   type: "Virtual" | "Physical";
   last4: string;
   expiry: string;
-  balance: string;
+  balance: number;
   color: string;
   status: "active" | "frozen";
   cardNumber: string;
@@ -26,33 +24,17 @@ interface CardData {
   createdAt: string;
 }
 
-const generateCardNumber = () => {
-  return "•••• •••• •••• " + Math.floor(1000 + Math.random() * 9000);
-};
-
-const generateLast4 = () => {
-  return Math.floor(1000 + Math.random() * 9000).toString();
-};
-
-const generateExpiry = () => {
-  const month = Math.floor(1 + Math.random() * 12).toString().padStart(2, "0");
-  const year = (new Date().getFullYear() + Math.floor(2 + Math.random() * 3)).toString().slice(-2);
-  return `${month}/${year}`;
-};
-
-const generateCVV = () => {
-  return Math.floor(100 + Math.random() * 900).toString();
-};
-
-const generatePIN = () => {
-  return Math.floor(1000 + Math.random() * 9000).toString();
+const getCardColor = (type: "Virtual" | "Physical", index: number) => {
+  const colors = ["gradient-card", "gradient-brand", "gradient-purple", "gradient-teal"];
+  return colors[index % colors.length];
 };
 
 const Cards = () => {
   const { user } = useAuth();
   const [cards, setCards] = useState<CardData[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showDetails, setShowDetails] = useState<Record<number, boolean>>({});
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [showDetails, setShowDetails] = useState<Record<string, boolean>>({});
   const [newCardOpen, setNewCardOpen] = useState(false);
   const [pinDialogOpen, setPinDialogOpen] = useState(false);
   const [selectedCard, setSelectedCard] = useState<CardData | null>(null);
@@ -63,49 +45,44 @@ const Cards = () => {
   // Check if user is KYC verified (tier 2+ required for cards)
   const isKycVerified = user?.kycTier && user.kycTier >= 2;
 
-  // Load cards from localStorage on mount
-  useEffect(() => {
-    const loadCards = () => {
-      setLoading(true);
-      const userId = user?.id || "guest";
-      const stored = localStorage.getItem(`vura_cards_${userId}`);
-      
-      if (stored) {
-        setCards(JSON.parse(stored));
-      } else {
-        // Initialize with demo cards for first-time users
-        const demoCards: CardData[] = [
-          {
-            id: Date.now(),
-            type: "Virtual",
-            last4: generateLast4(),
-            expiry: generateExpiry(),
-            balance: "₦0.00",
-            color: "gradient-card",
-            status: "active",
-            cardNumber: generateCardNumber(),
-            cvv: generateCVV(),
-            pin: generatePIN(),
-            createdAt: new Date().toISOString(),
-          },
-        ];
-        setCards(demoCards);
-        localStorage.setItem(`vura_cards_${userId}`, JSON.stringify(demoCards));
-      }
+  // Fetch cards from API
+  const fetchCards = async () => {
+    if (!user?.id) {
       setLoading(false);
-    };
+      return;
+    }
 
-    loadCards();
+    try {
+      setLoading(true);
+      const response = await apiFetch("/cards", { method: "GET" });
+      
+      if (response.ok) {
+        const data = await response.json();
+        // Add color to cards for UI
+        const cardsWithColor = data.map((card: CardData, index: number) => ({
+          ...card,
+          color: getCardColor(card.type, index),
+          balance: typeof card.balance === 'string' ? parseFloat(card.balance) : card.balance
+        }));
+        setCards(cardsWithColor);
+      } else if (response.status === 401) {
+        // Session expired - handled by apiFetch
+      } else {
+        console.error("Failed to fetch cards");
+      }
+    } catch (error) {
+      console.error("Error fetching cards:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Load cards on mount and when user changes
+  useEffect(() => {
+    fetchCards();
   }, [user?.id]);
 
-  // Save cards to localStorage whenever they change
-  useEffect(() => {
-    if (!loading && user?.id) {
-      localStorage.setItem(`vura_cards_${user?.id || "guest"}`, JSON.stringify(cards));
-    }
-  }, [cards, loading, user?.id]);
-
-  const toggleDetails = (id: number) => {
+  const toggleDetails = (id: string) => {
     setShowDetails((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
@@ -117,63 +94,191 @@ const Cards = () => {
     setNewCardOpen(true);
   };
 
-  const handleCreateCard = () => {
-    const newCard: CardData = {
-      id: Date.now(),
-      type: newCardType,
-      last4: generateLast4(),
-      expiry: generateExpiry(),
-      balance: "₦0.00",
-      color: newCardType === "Virtual" ? "gradient-card" : "gradient-brand",
-      status: "active",
-      cardNumber: generateCardNumber(),
-      cvv: generateCVV(),
-      pin: generatePIN(),
-      createdAt: new Date().toISOString(),
-    };
+  const handleCreateCard = async () => {
+    try {
+      setActionLoading("creating");
+      const response = await apiFetch("/cards", {
+        method: "POST",
+        body: JSON.stringify({ type: newCardType, currency: "NGN" }),
+      });
 
-    setCards((prev) => [...prev, newCard]);
-    setNewCardOpen(false);
-    toast({
-      title: "Card Created!",
-      description: `Your new ${newCardType.toLowerCase()} card ending in ${newCard.last4} is ready to use.`,
-    });
-  };
+      const data = await response.json();
 
-  const handleFreezeCard = (cardId: number) => {
-    setCards((prev) =>
-      prev.map((card) => {
-        if (card.id === cardId) {
-          const newStatus = card.status === "active" ? "frozen" : "active";
+      if (!response.ok) {
+        // Handle specific error cases
+        if (response.status === 400 && data.message?.includes("already have")) {
           toast({
-            title: newStatus === "frozen" ? "Card Frozen" : "Card Unfrozen",
-            description: `Your card ending in ${card.last4} has been ${newStatus === "frozen" ? "frozen" : "unfrozen"}.`,
+            title: "Card Exists",
+            description: data.message,
+            variant: "destructive",
           });
-          return { ...card, status: newStatus };
+        } else if (response.status === 400 && data.message?.includes("KYC")) {
+          setNewCardOpen(false);
+          setKycDialogOpen(true);
+        } else {
+          toast({
+            title: "Error",
+            description: data.message || "Failed to create card",
+            variant: "destructive",
+          });
         }
-        return card;
-      })
-    );
+        return;
+      }
+
+      // Add new card to list with color
+      const newCard: CardData = {
+        ...data,
+        color: getCardColor(data.type, cards.length),
+        balance: typeof data.balance === 'string' ? parseFloat(data.balance) : data.balance
+      };
+      
+      setCards((prev) => [newCard, ...prev]);
+      setNewCardOpen(false);
+      
+      toast({
+        title: "Card Created!",
+        description: `Your new ${newCardType.toLowerCase()} card ending in ${data.last4} is ready to use. PIN: ${data.pin}`,
+      });
+
+      // Show PIN dialog for newly created card
+      setSelectedCard(newCard);
+      setPinDialogOpen(true);
+      setCopiedPin(false);
+
+    } catch (error) {
+      console.error("Error creating card:", error);
+      toast({
+        title: "Error",
+        description: "Failed to create card. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setActionLoading(null);
+    }
   };
 
-  const handleDeleteCard = (cardId: number) => {
+  const handleFreezeCard = async (cardId: string) => {
     const card = cards.find((c) => c.id === cardId);
-    setCards((prev) => prev.filter((c) => c.id !== cardId));
-    toast({
-      title: "Card Deleted",
-      description: `Your ${card?.type.toLowerCase()} card ending in ${card?.last4} has been deleted.`,
-      variant: "destructive",
-    });
+    if (!card) return;
+
+    const newStatus = card.status === "active" ? "frozen" : "active";
+
+    try {
+      setActionLoading(cardId);
+      const response = await apiFetch(`/cards/${cardId}/status`, {
+        method: "PUT",
+        body: JSON.stringify({ status: newStatus }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        toast({
+          title: "Error",
+          description: data.message || "Failed to update card status",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      setCards((prev) =>
+        prev.map((c) => {
+          if (c.id === cardId) {
+            return { ...c, status: newStatus };
+          }
+          return c;
+        })
+      );
+
+      toast({
+        title: newStatus === "frozen" ? "Card Frozen" : "Card Unfrozen",
+        description: `Your card ending in ${card.last4} has been ${newStatus === "frozen" ? "frozen" : "unfrozen"}.`,
+      });
+    } catch (error) {
+      console.error("Error updating card status:", error);
+      toast({
+        title: "Error",
+        description: "Failed to update card status. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setActionLoading(null);
+    }
   };
 
-  const handleShowPIN = (card: CardData) => {
-    setSelectedCard(card);
-    setPinDialogOpen(true);
-    setCopiedPin(false);
+  const handleDeleteCard = async (cardId: string) => {
+    const card = cards.find((c) => c.id === cardId);
+    if (!card) return;
+
+    try {
+      setActionLoading(cardId);
+      const response = await apiFetch(`/cards/${cardId}`, {
+        method: "DELETE",
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        toast({
+          title: "Error",
+          description: data.message || "Failed to delete card",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      setCards((prev) => prev.filter((c) => c.id !== cardId));
+      
+      toast({
+        title: "Card Deleted",
+        description: `Your ${card.type.toLowerCase()} card ending in ${card.last4} has been deleted.`,
+        variant: "destructive",
+      });
+    } catch (error) {
+      console.error("Error deleting card:", error);
+      toast({
+        title: "Error",
+        description: "Failed to delete card. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleShowPIN = async (card: CardData) => {
+    try {
+      setActionLoading(card.id);
+      const response = await apiFetch(`/cards/${card.id}/pin`, {
+        method: "GET",
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        toast({
+          title: "Error",
+          description: data.message || "Failed to retrieve PIN",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const data = await response.json();
+      setSelectedCard({ ...card, pin: data.pin });
+      setPinDialogOpen(true);
+      setCopiedPin(false);
+    } catch (error) {
+      console.error("Error fetching PIN:", error);
+      toast({
+        title: "Error",
+        description: "Failed to retrieve card PIN. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setActionLoading(null);
+    }
   };
 
   const copyPIN = () => {
-    if (selectedCard) {
+    if (selectedCard?.pin) {
       navigator.clipboard.writeText(selectedCard.pin);
       setCopiedPin(true);
       toast({
@@ -182,6 +287,13 @@ const Cards = () => {
       });
       setTimeout(() => setCopiedPin(false), 2000);
     }
+  };
+
+  const formatBalance = (balance: number) => {
+    return new Intl.NumberFormat('en-NG', {
+      style: 'currency',
+      currency: 'NGN',
+    }).format(balance);
   };
 
   return (
@@ -197,6 +309,7 @@ const Cards = () => {
             </div>
             <Button 
               onClick={handleNewCardClick}
+              disabled={actionLoading !== null}
               className="rounded-xl gradient-brand text-primary-foreground font-semibold border-0 hover:opacity-90"
             >
               <Plus className="h-4 w-4 mr-1" /> New Card
@@ -243,7 +356,6 @@ const Cards = () => {
                   <Button 
                     onClick={() => {
                       setKycDialogOpen(false);
-                      // Navigate to KYC/Settings page
                       window.location.href = "/settings";
                     }}
                     className="gradient-brand text-primary-foreground"
@@ -296,7 +408,14 @@ const Cards = () => {
                   <Button variant="outline" onClick={() => setNewCardOpen(false)}>
                     Cancel
                   </Button>
-                  <Button onClick={handleCreateCard} className="gradient-brand text-primary-foreground">
+                  <Button 
+                    onClick={handleCreateCard} 
+                    disabled={actionLoading === "creating"}
+                    className="gradient-brand text-primary-foreground"
+                  >
+                    {actionLoading === "creating" ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : null}
                     Create {newCardType} Card
                   </Button>
                 </DialogFooter>
@@ -370,7 +489,7 @@ const Cards = () => {
                     <div className="flex items-center justify-between">
                       <div>
                         <p className="text-xs opacity-60">Balance</p>
-                        <p className="text-lg font-bold">{showDetails[card.id] ? card.balance : "₦•••••••"}</p>
+                        <p className="text-lg font-bold">{showDetails[card.id] ? formatBalance(card.balance) : "₦•••••••"}</p>
                       </div>
                       <div className="text-right">
                         <p className="text-xs opacity-60">Expires</p>
@@ -394,18 +513,29 @@ const Cards = () => {
                       variant="outline" 
                       size="sm" 
                       className={`rounded-lg ${card.status === "frozen" ? "text-amber-500 hover:text-amber-600" : ""}`}
+                      disabled={actionLoading === card.id}
                       onClick={() => handleFreezeCard(card.id)}
                     >
-                      <Snowflake className="h-3.5 w-3.5 mr-1" /> 
+                      {actionLoading === card.id ? (
+                        <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+                      ) : (
+                        <Snowflake className="h-3.5 w-3.5 mr-1" />
+                      )}
                       {card.status === "frozen" ? "Unfreeze" : "Freeze"}
                     </Button>
                     <Button 
                       variant="outline" 
                       size="sm" 
                       className="rounded-lg"
+                      disabled={actionLoading === card.id}
                       onClick={() => handleShowPIN(card)}
                     >
-                      <Lock className="h-3.5 w-3.5 mr-1" /> PIN
+                      {actionLoading === card.id ? (
+                        <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+                      ) : (
+                        <Lock className="h-3.5 w-3.5 mr-1" />
+                      )}
+                      PIN
                     </Button>
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
@@ -425,8 +555,12 @@ const Cards = () => {
                           <AlertDialogCancel>Cancel</AlertDialogCancel>
                           <AlertDialogAction 
                             onClick={() => handleDeleteCard(card.id)}
+                            disabled={actionLoading === card.id}
                             className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                           >
+                            {actionLoading === card.id ? (
+                              <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+                            ) : null}
                             Delete Card
                           </AlertDialogAction>
                         </AlertDialogFooter>

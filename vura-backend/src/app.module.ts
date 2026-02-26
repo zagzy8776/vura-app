@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
+import { ConfigModule } from '@nestjs/config';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { PrismaService } from './prisma.service';
@@ -16,17 +17,12 @@ import { KYCModule } from './kyc/kyc.module';
 import { ReceiptsModule } from './receipts/receipts.module';
 import { BeneficiariesModule } from './beneficiaries/beneficiaries.module';
 import { BillsModule } from './bills/bills.module';
-
-
-
+import { CardsModule } from './cards/cards.module';
+import { BankAccountsModule } from './bank-accounts/bank-accounts.module';
+import { PaystackService } from './services/paystack.service';
+import { MonnifyService } from './services/monnify.service';
 
 @Module({
-
-
-
-
-
-
   imports: [
     ThrottlerModule.forRoot([
       {
@@ -34,6 +30,9 @@ import { BillsModule } from './bills/bills.module';
         limit: 10,
       },
     ]),
+    ConfigModule.forRoot({
+      isGlobal: true,
+    }),
     AuthModule,
     CryptoModule,
     LimitsModule,
@@ -44,26 +43,20 @@ import { BillsModule } from './bills/bills.module';
     ReceiptsModule,
     BeneficiariesModule,
     BillsModule,
+    CardsModule,
+    BankAccountsModule,
   ],
-
-
-
-
-
-
-
-
-
   controllers: [AppController, TransactionsController],
   providers: [
     AppService,
     PrismaService,
     TransactionsService,
+    PaystackService,
+    MonnifyService,
     {
       provide: APP_GUARD,
       useClass: ThrottlerGuard,
     },
   ],
-
 })
 export class AppModule {}

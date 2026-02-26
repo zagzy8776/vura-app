@@ -90,7 +90,14 @@ const ASSETS = [
   { id: "ETH", name: "Ethereum", icon: "💠", color: "bg-blue-500" },
 ];
 
-const API_URL = "http://localhost:3000";
+// Get API URL from environment - must be HTTPS in production
+const getApiUrl = (): string => {
+  const url = import.meta.env.VITE_API_URL || "http://localhost:3000";
+  if (import.meta.env.PROD && url.startsWith("http:")) {
+    console.error("SECURITY WARNING: Using HTTP in production!");
+  }
+  return url;
+};
 
 interface Deposit {
   id: string;
@@ -127,7 +134,7 @@ const CryptoDeposit = () => {
 
   const fetchRecentDeposits = async () => {
     try {
-      const response = await fetch(`${API_URL}/crypto/deposits`, {
+const response = await fetch(`${getApiUrl()}/crypto/deposits`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       
@@ -142,7 +149,7 @@ const CryptoDeposit = () => {
 
   const fetchExchangeRate = async () => {
     try {
-      const response = await fetch(`${API_URL}/crypto/rates`, {
+const response = await fetch(`${getApiUrl()}/crypto/rates`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       

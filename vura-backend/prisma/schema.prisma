@@ -17,6 +17,10 @@ model User {
   bvnHash              String?   @map("bvn_hash")
   bvnVerified          Boolean   @default(false) @map("bvn_verified")
   bvnVerifiedAt        DateTime? @map("bvn_verified_at")
+  // NIN Verification (Tier 1 KYC)
+  ninHash              String?   @map("nin_hash")
+  ninVerified          Boolean   @default(false) @map("nin_verified")
+  ninVerifiedAt        DateTime? @map("nin_verified_at")
   biometricVerified    Boolean   @default(false) @map("biometric_verified")
 
   lastDeviceFingerprint String?  @map("last_device_fingerprint")
@@ -28,6 +32,8 @@ model User {
   createdAt            DateTime  @default(now()) @map("created_at")
   updatedAt            DateTime  @updatedAt @map("updated_at")
 
+  // Added for Monnify reserved account functionality
+  reservedAccountNumber String? @map("reserved_account_number")
   balances      Balance[]
   sentTransactions     Transaction[] @relation("Sender")
   receivedTransactions Transaction[] @relation("Receiver")
@@ -37,6 +43,8 @@ model User {
   sessions     Session[]
   otps         OTP[]
   beneficiaries Beneficiary[]
+  cards        Card[]
+  bankAccounts BankAccount[]
 
   @@map("users")
 
@@ -251,4 +259,57 @@ model Beneficiary {
   @@unique([userId, vuraTag])
   @@index([userId])
   @@map("beneficiaries")
+}
+
+// Cards (Virtual and Physical)
+// SECURITY: Card data is encrypted - never store plain text card numbers, CVV, or PIN
+// For PCI-DSS compliance: Use tokenization for card numbers, never store CVV
+model Card {
+  id            String   @id @default(uuid())
+  userId        String   @map("user_id")
+  type          String   // 'Virtual' or 'Physical'
+  last4         String   @map("last4") // Only last 4 digits (non-sensitive)
+  expiry        String   @map("expiry") // MM/YY format (non-sensitive)
+  balance       Decimal  @db.Decimal(18, 2) @default(0)
+  status        String   @default("active") // 'active', 'frozen', 'deleted'
+  
+  // ENCRYPTED FIELDS - These should be encrypted at application level before storage
+  // For production: Use payment provider tokenization (Paystack/Monnify) instead of storing
+  cardToken     String?  @map("card_token") // Token from payment provider (NOT raw card number)
+  cardHash      String?  @map("card_hash") // Hash of card number for verification
+  
+  // REMOVED: cvv - NEVER store CVV (PCI-DSS violation)
+  // REMOVED: pin - Store PIN hash only if needed for card transactions
+  
+  currency      String   @default("NGN") @map("currency")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("cards")
+}
+
+// Bank Accounts (For receiving payments)
+model BankAccount {
+  id              String   @id @default(uuid())
+  userId          String   @map("user_id")
+  accountNumber   String   @map("account_number")
+  bankCode        String   @map("bank_code")
+  bankName        String   @map("bank_name")
+  accountName     String   @map("account_name")
+  isPrimary       Boolean  @default(false) @map("is_primary")
+  status          String   @default("active") // 'active', 'inactive', 'deleted'
+  provider        String   @default("paystack") // 'paystack', 'monnify'
+  providerAccountId String? @map("provider_account_id") // Account ID from payment provider
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, accountNumber])
+  @@index([userId])
+  @@index([isPrimary])
+  @@map("bank_accounts")
 }

@@ -55,18 +55,14 @@ interface RecentRecipient {
   isFavorite: boolean;
 }
 
-const DEMO_RECENT: RecentRecipient[] = [
-  { id: "1", type: "tag", name: "@emeka", identifier: "@emeka", lastUsed: "2024-01-15", isFavorite: true },
-  { id: "2", type: "bank", name: "John Doe", identifier: "1234567890", bankCode: "058", bankName: "GT Bank", lastUsed: "2024-01-14", isFavorite: false },
-  { id: "3", type: "tag", name: "@sarah", identifier: "@sarah", lastUsed: "2024-01-13", isFavorite: true },
-  { id: "4", type: "bank", name: "Jane Smith", identifier: "0987654321", bankCode: "057", bankName: "Zenith Bank", lastUsed: "2024-01-12", isFavorite: false },
-];
+// Default empty array - will be populated from API
+const DEFAULT_RECIPIENTS: RecentRecipient[] = [];
 
 const SendMoney = () => {
   const [step, setStep] = useState<"form" | "confirm" | "success">("form");
   const [transferMode, setTransferMode] = useState<TransferMode>("tag");
-  const [userLimits, setUserLimits] = useState({ dailyLimit: 500000, used: 50000, remaining: 450000 });
-  const [recentRecipients, setRecentRecipients] = useState<RecentRecipient[]>(DEMO_RECENT);
+const [userLimits, setUserLimits] = useState<{ dailyLimit: number; used: number; remaining: number }>({ dailyLimit: 30000, used: 0, remaining: 30000 });
+  const [recentRecipients, setRecentRecipients] = useState<RecentRecipient[]>(DEFAULT_RECIPIENTS);
   const [showRecentList, setShowRecentList] = useState(false);
   const [recipientTag, setRecipientTag] = useState("");
   const [recipientData, setRecipientData] = useState<{ found: boolean; vuraTag: string; kycTier: number } | null>(null);
@@ -88,10 +84,61 @@ const SendMoney = () => {
   const [reference, setReference] = useState("");
   const [showQRScanner, setShowQRScanner] = useState(false);
   const [showAccountSuggestion, setShowAccountSuggestion] = useState(false);
+  
+  // QR Timer state (10-second countdown)
+  const [qrTimer, setQrTimer] = useState<number>(10);
+  const [qrTimerActive, setQrTimerActive] = useState(false);
 
   const fee = amount ? Math.max(10, Number(amount) * (transferMode === "bank" ? 0.015 : 0.005)) : 0;
   const total = Number(amount) + fee;
   const isOverLimit = Number(amount) + fee > userLimits.remaining;
+
+  // QR Timer effect - 10 second countdown when entering confirm step
+  useEffect(() => {
+    if (step === "confirm" && !qrTimerActive) {
+      setQrTimer(10);
+      setQrTimerActive(true);
+    }
+  }, [step]);
+
+  useEffect(() => {
+    if (qrTimerActive && qrTimer > 0) {
+      const timerId = setTimeout(() => {
+        setQrTimer(qrTimer - 1);
+      }, 1000);
+      return () => clearTimeout(timerId);
+    } else if (qrTimerActive && qrTimer === 0) {
+      // Timer expired - log expired intent and reset
+      handleExpiredIntent();
+    }
+  }, [qrTimer, qrTimerActive]);
+
+  const handleExpiredIntent = async () => {
+    // Log expired intent to backend
+    try {
+      await apiFetch("/transactions/log-expired-intent", {
+        method: "POST",
+        body: JSON.stringify({
+          recipientTag: transferMode === "tag" ? recipientTag : undefined,
+          accountNumber: transferMode === "bank" ? accountNumber : undefined,
+          amount: Number(amount),
+          expiredAt: new Date().toISOString(),
+        }),
+      });
+    } catch (error) {
+      console.error("Failed to log expired intent:", error);
+    }
+    
+    // Reset form with expired timer message
+    toast({ 
+      title: "Intent Expired", 
+      description: "Your transfer intent has expired. Please try again.", 
+      variant: "destructive" 
+    });
+    resetForm();
+    setQrTimerActive(false);
+    setQrTimer(10);
+  };
 
   useEffect(() => {
     const lookupRecipient = async () => {
@@ -130,10 +177,7 @@ const SendMoney = () => {
     if (accountNumber.length !== 10 || !selectedBank) return;
     setVerifyingAccount(true);
     try {
-      const res = await apiFetch("/transactions/verify-account", {
-        method: "POST",
-        body: JSON.stringify({ accountNumber, bankCode: selectedBank }),
-      });
+      const res = await apiFetch(`/transactions/verify-account?accountNumber=${accountNumber}&bankCode=${selectedBank}&provider=paystack`);
       if (res.ok) {
         const data = await res.json();
         setAccountName(data.accountName);
@@ -144,8 +188,7 @@ const SendMoney = () => {
       }
     } catch (error) {
       console.error("Account verification failed:", error);
-      setAccountName("John Doe");
-      setAccountVerified(true);
+      toast({ title: "Verification Failed", description: "Could not verify account", variant: "destructive" });
     } finally {
       setVerifyingAccount(false);
     }
@@ -448,8 +491,20 @@ const SendMoney = () => {
             </motion.div>
           )}
 
-          {step === "confirm" && (
+{step === "confirm" && (
             <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
+              {/* QR Timer Display */}
+              {qrTimerActive && (
+                <div className={`rounded-xl p-4 flex items-center justify-between ${qrTimer <= 3 ? 'bg-red-50 border border-red-200' : 'bg-amber-50 border border-amber-200'}`}>
+                  <div className="flex items-center gap-3">
+                    <Clock className={`h-5 w-5 ${qrTimer <= 3 ? 'text-red-500' : 'text-amber-500'}`} />
+                    <span className="text-sm font-medium">Intent expires in</span>
+                  </div>
+                  <span className={`text-2xl font-bold ${qrTimer <= 3 ? 'text-red-600' : 'text-amber-600'}`}>
+                    {qrTimer}s
+                  </span>
+                </div>
+              )}
               <div className="flex items-center gap-3">
                 <button onClick={() => setStep("form")} className="p-2 rounded-lg hover:bg-secondary transition-colors">
                   <ArrowLeft className="h-5 w-5 text-muted-foreground" />

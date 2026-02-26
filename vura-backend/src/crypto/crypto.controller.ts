@@ -11,11 +11,6 @@ import { AuthGuard } from '../auth/auth.guard';
 import { YellowCardService } from './yellowcard.service';
 import { PrismaService } from '../prisma.service';
 
-class GenerateAddressDto {
-  asset: 'USDT' | 'BTC' | 'ETH';
-  network: string;
-}
-
 @Controller('crypto')
 @UseGuards(AuthGuard)
 export class CryptoController {
@@ -29,7 +24,8 @@ export class CryptoController {
    */
   @Post('deposit-address')
   async getDepositAddress(
-    @Body() dto: GenerateAddressDto,
+    @Body('asset') asset: 'USDT' | 'BTC' | 'ETH',
+    @Body('network') network: string,
     @Request() req: any,
   ) {
     const userId = req.user.userId;
@@ -41,17 +37,17 @@ export class CryptoController {
       ETH: ['ETH'],
     };
 
-    if (!validNetworks[dto.asset]?.includes(dto.network)) {
+    if (!validNetworks[asset]?.includes(network)) {
       throw new BadRequestException(
-        `Invalid network ${dto.network} for ${dto.asset}. Valid: ${validNetworks[dto.asset]?.join(', ')}`,
+        `Invalid network ${network} for ${asset}. Valid: ${validNetworks[asset]?.join(', ')}`,
       );
     }
 
     // Generate or retrieve address
     const address = await this.yellowcard.generateDepositAddress(
       userId,
-      dto.asset,
-      dto.network,
+      asset,
+      network,
     );
 
     return {
@@ -67,21 +63,21 @@ export class CryptoController {
   async getDepositHistory(@Request() req: any) {
     const userId = req.user.userId;
 
-    const deposits = await this.prisma.cryptoDepositTransaction.findMany({
+    const deposits = await this.prisma.cryptoDeposit.findMany({
       where: { userId },
       orderBy: { createdAt: 'desc' },
       take: 50,
     });
 
-    return {
+return {
       success: true,
       data: deposits.map((d: any) => ({
         id: d.id,
         asset: d.asset,
         network: d.network,
-        cryptoAmount: d.cryptoAmount.toString(),
-        ngnAmount: d.ngnAmount?.toString(),
-        exchangeRate: d.exchangeRate?.toString(),
+        cryptoAmount: d.cryptoAmount ? d.cryptoAmount.toString() : '0',
+        ngnAmount: d.ngnAmount ? d.ngnAmount.toString() : '0',
+        exchangeRate: d.exchangeRate ? d.exchangeRate.toString() : '0',
         status: d.status,
         confirmations: d.confirmations,
         minConfirmations: d.minConfirmations,
@@ -98,7 +94,7 @@ export class CryptoController {
    */
   @Get('rates')
   async getExchangeRates() {
-    const pairs = ['USDT_NGN', 'BTC_NGN', 'ETH_NGN'];
+const pairs = ['USDT_NGN', 'BTC_NGN', 'ETH_NGN'];
     const rates: Record<string, string> = {};
 
     for (const pair of pairs) {
