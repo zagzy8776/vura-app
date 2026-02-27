@@ -26,7 +26,7 @@ const SESSION_TIMEOUT = 15 * 60 * 1000;
 const getApiUrl = (): string => {
   const isProduction = import.meta.env.PROD;
   if (isProduction) {
-    return "https://api.vura.app";
+    return "https://vura-app.onrender.com";
   }
   return "http://localhost:3000";
 };
