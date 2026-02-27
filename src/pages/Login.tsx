@@ -25,10 +25,24 @@ const Login = () => {
     try {
       // Add @ if not present
       const tag = vuraTag.startsWith("@") ? vuraTag.slice(1) : vuraTag;
-      await signIn(tag, pin);
+      const result = await signIn(tag, pin);
+      
+      // Check if device verification is required
+      if (result && result.requiresVerification) {
+        navigate("/verify-otp", {
+          state: {
+            vuraTag: tag,
+            deviceFingerprint: result.deviceFingerprint,
+            message: result.message,
+          },
+        });
+        return;
+      }
+      
       navigate("/");
-    } catch (err: any) {
-      toast({ title: "Login failed", description: err.message, variant: "destructive" });
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : "Login failed";
+      toast({ title: "Login failed", description: errorMessage, variant: "destructive" });
     } finally {
       setLoading(false);
     }

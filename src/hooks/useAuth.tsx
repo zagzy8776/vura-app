@@ -13,7 +13,8 @@ interface AuthContextType {
   token: string | null;
   loading: boolean;
   signUp: (phone: string, pin: string, vuraTag: string, email?: string, password?: string) => Promise<void>;
-  signIn: (vuraTag: string, pin: string) => Promise<void>;
+  signIn: (vuraTag: string, pin: string) => Promise<any>;
+  verifyDeviceOtp: (vuraTag: string, otp: string, deviceFingerprint: string) => Promise<void>;
   signOut: () => void;
 }
 
@@ -100,7 +101,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         "Content-Type": "application/json",
         "X-Device-Fingerprint": deviceFingerprint
       },
-      body: JSON.stringify({ phone, pin, vuraTag }),
+      body: JSON.stringify({ phone, email, pin, vuraTag }),
     });
 
     const data = await response.json();
@@ -135,6 +136,42 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       throw new Error(data.message || "Login failed");
     }
 
+    // Check if device verification is required
+    if (data.requiresVerification) {
+      return {
+        requiresVerification: true,
+        method: data.method,
+        message: data.message,
+        vuraTag,
+        deviceFingerprint,
+      };
+    }
+
+    setSecureStorage("vura_token", data.token);
+    setSecureStorage("vura_user", JSON.stringify(data.user));
+    setToken(data.token);
+    setUser(data.user);
+    setSessionExpiry(Date.now() + SESSION_TIMEOUT);
+    return { requiresVerification: false };
+  };
+
+  const verifyDeviceOtp = async (vuraTag: string, otp: string, deviceFingerprint: string) => {
+    const API_URL = getApiUrl();
+    
+    const response = await fetch(`${API_URL}/auth/verify-otp`, {
+      method: "POST",
+      headers: { 
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ vuraTag, otp, deviceFingerprint }),
+    });
+
+    const data = await response.json();
+    
+    if (!response.ok) {
+      throw new Error(data.message || "Verification failed");
+    }
+
     setSecureStorage("vura_token", data.token);
     setSecureStorage("vura_user", JSON.stringify(data.user));
     setToken(data.token);
@@ -151,7 +188,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, loading, signUp, signIn, signOut }}>
+    <AuthContext.Provider value={{ user, token, loading, signUp, signIn, verifyDeviceOtp, signOut }}>
       {children}
     </AuthContext.Provider>
   );

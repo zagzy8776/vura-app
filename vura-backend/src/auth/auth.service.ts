@@ -9,13 +9,19 @@ import * as jwt from 'jsonwebtoken';
 import { encrypt, normalizePhone, validatePhone } from '../utils/encryption';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
+import { EmailService } from '../services/email.service';
 
 @Injectable()
 export class AuthService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private emailService: EmailService,
+  ) {}
+
 
   async register(dto: RegisterDto) {
-    const { phone, pin, vuraTag } = dto;
+    const { phone, email, pin, vuraTag } = dto;
+
 
     // Validate phone format
     if (!validatePhone(phone)) {
@@ -57,14 +63,19 @@ export class AuthService {
     // Encrypt phone with AES-256-GCM
     const phoneEncrypted = encrypt(normalizedPhone);
 
+    // Encrypt email if provided
+    const emailEncrypted = email ? encrypt(email) : null;
+
     const user = await this.prisma.user.create({
       data: {
         vuraTag,
         phoneEncrypted,
+        emailEncrypted,
         hashedPin,
         kycTier: 1,
       },
     });
+
 
 
     // Create default balances
@@ -130,14 +141,46 @@ export class AuthService {
       throw new UnauthorizedException('Invalid PIN');
     }
 
-    // Validate device fingerprint
-    this.validateDeviceFingerprint(
+    // Check for new device
+    const isNewDevice = this.validateDeviceFingerprint(
       user.lastDeviceFingerprint,
       deviceFingerprint || null,
     );
 
+    if (isNewDevice === 'new_device') {
+      // Generate and send OTP
+      const otp = this.generateOtp();
+      const otpHash = await bcrypt.hash(otp, 10);
+      const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+      // Store OTP in database
+      await this.prisma.oTP.create({
+        data: {
+          userId: user.id,
+          otpHash,
+          purpose: 'device_verification',
+          expiresAt,
+        },
+      });
+
+      // Send OTP email
+      const deviceInfo = this.parseDeviceFingerprint(deviceFingerprint);
+      await this.emailService.sendDeviceVerificationOtp(
+        user.id,
+        otp,
+        deviceInfo,
+      );
+
+      // Return pending verification response
+      return {
+        requiresVerification: true,
+        method: 'email_otp',
+        message: 'Please check your email for verification code',
+      };
+    }
 
     // Reset failed attempts and update login info
+
     await this.prisma.user.update({
       where: { id: user.id },
       data: {
@@ -269,5 +312,108 @@ export class AuthService {
     }
 
     return null;
+  }
+
+  /**
+   * Generate 6-digit OTP
+   */
+  private generateOtp(): string {
+    return Math.floor(100000 + Math.random() * 900000).toString();
+  }
+
+  /**
+   * Parse device fingerprint into readable info
+   */
+  private parseDeviceFingerprint(fingerprint: string | undefined): {
+    browser: string;
+    os: string;
+    ip?: string;
+  } {
+    if (!fingerprint) {
+      return { browser: 'Unknown', os: 'Unknown' };
+    }
+
+    try {
+      const parts = fingerprint.split('|');
+      return {
+        browser: parts[0] || 'Unknown',
+        os: parts[1] || 'Unknown',
+        ip: parts[2],
+      };
+    } catch {
+      return { browser: 'Unknown', os: 'Unknown' };
+    }
+  }
+
+  /**
+   * Verify device OTP and complete login
+   */
+  async verifyDeviceOtp(
+    vuraTag: string,
+    otp: string,
+    deviceFingerprint: string,
+  ): Promise<any> {
+    const user = await this.prisma.user.findUnique({
+      where: { vuraTag },
+    });
+
+    if (!user) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    // Find valid OTP
+    const otpRecord = await this.prisma.oTP.findFirst({
+      where: {
+        userId: user.id,
+        purpose: 'device_verification',
+        used: false,
+        expiresAt: { gt: new Date() },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (!otpRecord) {
+      throw new UnauthorizedException('OTP expired or invalid');
+    }
+
+    // Verify OTP
+    const otpValid = await bcrypt.compare(otp, otpRecord.otpHash);
+    if (!otpValid) {
+      // Increment attempts
+      await this.prisma.oTP.update({
+        where: { id: otpRecord.id },
+        data: { attempts: { increment: 1 } },
+      });
+      throw new UnauthorizedException('Invalid OTP');
+    }
+
+    // Mark OTP as used
+    await this.prisma.oTP.update({
+      where: { id: otpRecord.id },
+      data: { used: true },
+    });
+
+    // Update user device and login info
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        failedPinAttempts: 0,
+        lockedUntil: null,
+        lastLoginAt: new Date(),
+        lastDeviceFingerprint: deviceFingerprint,
+      },
+    });
+
+    // Generate JWT
+    const token = this.generateToken(user.id, user.vuraTag);
+
+    return {
+      user: {
+        id: user.id,
+        vuraTag: user.vuraTag,
+        kycTier: user.kycTier,
+      },
+      token,
+    };
   }
 }

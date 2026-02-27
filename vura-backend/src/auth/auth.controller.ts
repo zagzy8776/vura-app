@@ -32,6 +32,14 @@ export class AuthController {
     return this.authService.login(dto);
   }
 
+  // Verify device OTP for new device login
+  @Throttle({ default: { limit: 3, ttl: 300000 } }) // 3 attempts per 5 minutes
+  @Post('verify-otp')
+  verifyOtp(@Body() body: { vuraTag: string; otp: string; deviceFingerprint: string }) {
+    return this.authService.verifyDeviceOtp(body.vuraTag, body.otp, body.deviceFingerprint);
+  }
+
+
 
   @UseGuards(AuthGuard)
   @Get('profile')
