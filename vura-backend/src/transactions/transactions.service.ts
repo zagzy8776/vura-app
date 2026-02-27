@@ -39,7 +39,8 @@ export class TransactionsService {
         throw new UnauthorizedException('User not found');
       }
 
-      const pinValid = await bcrypt.compare(pin, user.pinHash || '');
+      const pinValid = await bcrypt.compare(pin, user.hashedPin || '');
+
       if (!pinValid) {
         throw new UnauthorizedException('Invalid PIN');
       }
