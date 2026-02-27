@@ -120,18 +120,36 @@ export class TransactionsController {
     @Query('bankCode') bankCode: string,
     @Query('provider') provider: 'paystack' | 'monnify' = 'paystack'
   ) {
-    if (provider === 'paystack') {
-      const result = await this.paystackService.verifyAccount(accountNumber, bankCode);
-      return {
-        success: true,
-        accountName: result.accountName,
-      };
-    } else {
-      const result = await this.monnifyService.verifyAccount(accountNumber, bankCode);
-      return {
-        success: true,
-        accountName: result.accountName,
-      };
+    try {
+      if (provider === 'paystack') {
+        const result = await this.paystackService.verifyAccount(accountNumber, bankCode);
+        return {
+          success: true,
+          accountName: result.accountName,
+        };
+      } else {
+        const result = await this.monnifyService.verifyAccount(accountNumber, bankCode);
+        return {
+          success: true,
+          accountName: result.accountName,
+        };
+      }
+    } catch (error: any) {
+      // If Paystack fails, try Monnify as fallback
+      if (provider === 'paystack') {
+        try {
+          const monnifyResult = await this.monnifyService.verifyAccount(accountNumber, bankCode);
+          return {
+            success: true,
+            accountName: monnifyResult.accountName,
+            provider: 'monnify',
+          };
+        } catch {
+          // Return original error
+          throw error;
+        }
+      }
+      throw error;
     }
   }
 }
