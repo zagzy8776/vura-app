@@ -7,6 +7,14 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// KYC Status Enum
+enum KycStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+  EXPIRED
+}
+
 // Users Table
 model User {
   id                   String    @id @default(uuid())
@@ -14,6 +22,7 @@ model User {
   phoneEncrypted       String    @map("phone_encrypted")
   emailEncrypted       String?   @map("email_encrypted")
   kycTier              Int       @default(1) @map("kyc_tier")
+  kycStatus            KycStatus @default(PENDING) @map("kyc_status")
   bvnHash              String?   @map("bvn_hash")
   bvnVerified          Boolean   @default(false) @map("bvn_verified")
   bvnVerifiedAt        DateTime? @map("bvn_verified_at")
@@ -26,7 +35,8 @@ model User {
   lastDeviceFingerprint String?  @map("last_device_fingerprint")
   lastLoginAt          DateTime? @map("last_login_at")
   fraudScore           Int       @default(0) @map("fraud_score")
-  pinHash              String?   @map("pin_hash")
+  hashedPin            String    @map("hashed_pin")
+  korapayReference     String?   @map("korapay_reference")
   failedPinAttempts    Int       @default(0) @map("failed_pin_attempts")
   lockedUntil          DateTime? @map("locked_until")
   createdAt            DateTime  @default(now()) @map("created_at")

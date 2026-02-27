@@ -18,20 +18,40 @@ async function bootstrap() {
   );
 
   // Enable CORS for frontend communication
-  // ⚠️ IMPORTANT: In production, replace with your actual domain!
+  // ✅ Updated with Vercel frontend and Render backend support
   app.enableCors({
     origin: isProduction 
-      ? [frontendUrl, 'https://yourdomain.com', 'https://www.yourdomain.com']
+      ? [
+          frontendUrl,
+          'https://vura-app.vercel.app',
+          'https://www.vura-app.vercel.app',
+          // Render backend URL (if needed for webhooks)
+          'https://vura-backend.onrender.com',
+          'https://*.onrender.com',
+        ]
       : [
           'http://localhost:8080',
           'http://localhost:8081',
           'http://localhost:5173',
           'http://localhost:8087',
+          'https://vura-app.vercel.app', // Allow Vercel in dev too
         ],
+
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Device-Fingerprint'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'X-Requested-With',
+      'X-Device-Fingerprint',
+      // Korapay webhook headers
+      'x-korapay-signature',
+      'x-korapay-timestamp',
+      // Paystack webhook headers
+      'x-paystack-signature',
+    ],
   });
+
 
   // Security: Global input validation
   app.useGlobalPipes(

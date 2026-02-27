@@ -87,3 +87,55 @@ export const removeSecureStorage = (key: string): void => {
   const storageKey = STORAGE_KEYS[key as keyof typeof STORAGE_KEYS] || key;
   localStorage.removeItem(storageKey);
 };
+
+// Password Strength Checker
+export interface PasswordStrengthResult {
+  strength: number; // 0-5
+  message: string;
+  requirements: {
+    length: boolean;
+    uppercase: boolean;
+    lowercase: boolean;
+    numbers: boolean;
+    special: boolean;
+  };
+}
+
+export const checkPasswordStrength = (password: string): PasswordStrengthResult => {
+  const requirements = {
+    length: password.length >= 8,
+    uppercase: /[A-Z]/.test(password),
+    lowercase: /[a-z]/.test(password),
+    numbers: /[0-9]/.test(password),
+    special: /[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]/.test(password),
+
+  };
+
+  const metRequirements = Object.values(requirements).filter(Boolean).length;
+  
+  let strength = 0;
+  let message = "";
+
+  if (password.length === 0) {
+    strength = 0;
+    message = "";
+  } else if (metRequirements <= 2) {
+    strength = 2;
+    message = "Weak password";
+  } else if (metRequirements === 3) {
+    strength = 3;
+    message = "Fair password";
+  } else if (metRequirements === 4) {
+    strength = 4;
+    message = "Good password";
+  } else if (metRequirements === 5) {
+    strength = 5;
+    message = "Strong password";
+  }
+
+  return {
+    strength,
+    message,
+    requirements,
+  };
+};
