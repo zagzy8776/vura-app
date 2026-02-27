@@ -2,6 +2,8 @@ import { Injectable, NotFoundException, BadRequestException, UnauthorizedExcepti
 import { PrismaService } from '../prisma.service';
 import { EncryptionService } from '../services/encryption.service';
 import { v4 as uuidv4 } from 'uuid';
+import * as bcrypt from 'bcrypt';
+
 
 export interface Card {
   id: string;
@@ -59,6 +61,9 @@ export class CardsService {
     const cardHash = EncryptionService.encrypt(`VURA-${last4}-${Date.now()}`);
     const cardToken = `vrt_${uuidv4().replace(/-/g, '').substring(0, 16)}`;
 
+    // Generate a PIN hash for the card (user will set actual PIN via provider)
+    const pinHash = await bcrypt.hash(uuidv4(), 10);
+
     // Create card in database - NO raw card number, CVV, or PIN stored
     const card = await this.prisma.card.create({
       data: {
@@ -71,11 +76,13 @@ export class CardsService {
         status: 'active',
         cardToken: cardToken, // Token from provider
         cardHash: cardHash,    // Encrypted hash for display
+        pinHash,               // Required by schema, will be updated when user sets PIN
         currency,
         createdAt: new Date(),
         updatedAt: new Date()
       }
     });
+
 
     this.logger.log(`Created ${type} card for user ${userId} with last4: ${last4}`);
 

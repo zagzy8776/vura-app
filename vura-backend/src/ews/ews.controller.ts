@@ -9,9 +9,11 @@ import {
   Query,
   BadRequestException,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { AuthGuard } from '../auth/auth.guard';
 import { EWSService } from '../services/ews.service';
 import { PrismaService } from '../prisma.service';
+
 
 @Controller('api/ews')
 @UseGuards(AuthGuard)
@@ -345,10 +347,11 @@ export class EWSController {
             status: 'COMPLETED',
             metadata: {
               path: ['holdReleasedAt'],
-              not: null,
+              not: Prisma.JsonNull,
             },
           },
         }),
+
         this.prisma.transaction.count({
           where: {
             createdAt: {
