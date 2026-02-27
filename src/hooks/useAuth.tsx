@@ -100,7 +100,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         "Content-Type": "application/json",
         "X-Device-Fingerprint": deviceFingerprint
       },
-      body: JSON.stringify({ phone, pin, vuraTag, email, password, deviceFingerprint }),
+      body: JSON.stringify({ phone, pin, vuraTag }),
     });
 
     const data = await response.json();
