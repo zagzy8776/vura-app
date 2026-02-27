@@ -7,8 +7,10 @@ import {
   UseGuards,
   Request,
 } from '@nestjs/common';
+import { Request as ExpressRequest } from 'express';
 import { PaymentRequestsService } from './payment-requests.service';
 import { AuthGuard } from '../auth/auth.guard';
+
 
 @Controller('payment-requests')
 @UseGuards(AuthGuard)
@@ -21,7 +23,7 @@ export class PaymentRequestsController {
    */
   @Post('create')
   async createRequest(
-    @Request() req,
+    @Request() req: ExpressRequest & { user: { userId: string } },
     @Body()
     body: {
       payerVuraTag: string;
@@ -30,6 +32,7 @@ export class PaymentRequestsController {
       expiresInMinutes?: number;
     },
   ) {
+
     return this.paymentRequestsService.createRequest(
       req.user.userId,
       body.payerVuraTag,
@@ -44,7 +47,8 @@ export class PaymentRequestsController {
    * GET /payment-requests/pending
    */
   @Get('pending')
-  async getPendingRequests(@Request() req) {
+  async getPendingRequests(@Request() req: ExpressRequest & { user: { userId: string } }) {
+
     return this.paymentRequestsService.getPendingRequests(req.user.userId);
   }
 
@@ -53,7 +57,8 @@ export class PaymentRequestsController {
    * GET /payment-requests/my-requests
    */
   @Get('my-requests')
-  async getMyRequests(@Request() req, @Body() body: { status?: string }) {
+  async getMyRequests(@Request() req: ExpressRequest & { user: { userId: string } }, @Body() body: { status?: string }) {
+
     return this.paymentRequestsService.getMyRequests(req.user.userId, body?.status);
   }
 
@@ -63,10 +68,11 @@ export class PaymentRequestsController {
    */
   @Post(':id/accept')
   async acceptRequest(
-    @Request() req,
+    @Request() req: ExpressRequest & { user: { userId: string } },
     @Param('id') requestId: string,
     @Body() body: { pin: string },
   ) {
+
     return this.paymentRequestsService.acceptRequest(
       req.user.userId,
       requestId,
@@ -79,7 +85,8 @@ export class PaymentRequestsController {
    * POST /payment-requests/:id/decline
    */
   @Post(':id/decline')
-  async declineRequest(@Request() req, @Param('id') requestId: string) {
+  async declineRequest(@Request() req: ExpressRequest & { user: { userId: string } }, @Param('id') requestId: string) {
+
     return this.paymentRequestsService.declineRequest(req.user.userId, requestId);
   }
 }
