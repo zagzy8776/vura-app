@@ -45,8 +45,13 @@ model User {
   beneficiaries Beneficiary[]
   cards        Card[]
   bankAccounts BankAccount[]
+  paymentRequests PaymentRequest[] @relation("Requester")
+  paymentRequestsAsPayer PaymentRequest[] @relation("Payer")
+  qrCodes      QrPaymentCode[] @relation("Merchant")
+  qrCodesAsPayer QrPaymentCode[] @relation("QrPayer")
 
   @@map("users")
+
 
 
 
@@ -262,8 +267,7 @@ model Beneficiary {
 }
 
 // Cards (Virtual and Physical)
-// SECURITY: Card data is encrypted - never store plain text card numbers, CVV, or PIN
-// For PCI-DSS compliance: Use tokenization for card numbers, never store CVV
+// PCI-DSS COMPLIANT: No CVV storage, encrypted card data, tokenization only
 model Card {
   id            String   @id @default(uuid())
   userId        String   @map("user_id")
@@ -273,13 +277,22 @@ model Card {
   balance       Decimal  @db.Decimal(18, 2) @default(0)
   status        String   @default("active") // 'active', 'frozen', 'deleted'
   
-  // ENCRYPTED FIELDS - These should be encrypted at application level before storage
-  // For production: Use payment provider tokenization (Paystack/Monnify) instead of storing
-  cardToken     String?  @map("card_token") // Token from payment provider (NOT raw card number)
-  cardHash      String?  @map("card_hash") // Hash of card number for verification
+  // PCI-DSS: Tokenization - Never store raw card numbers
+  // Payment provider token (Paystack/Monnify/YellowCard)
+  cardToken     String   @map("card_token")
   
-  // REMOVED: cvv - NEVER store CVV (PCI-DSS violation)
-  // REMOVED: pin - Store PIN hash only if needed for card transactions
+  // PCI-DSS: Encrypted card data (AES-256)
+  encryptedCardData String? @map("encrypted_card_data") // For provider tokens that need encryption
+  
+  // PCI-DSS: Card number hash for duplicate detection (SHA-256)
+  cardHash      String   @map("card_hash") @unique
+  
+  // Card PIN: Hashed only (bcrypt), never plaintext
+  pinHash       String   @map("pin_hash")
+  
+  // Provider reference
+  provider      String   @default("yellowcard") // 'yellowcard', 'paystack', 'monnify'
+  providerCardId String?  @map("provider_card_id") // Card ID from provider
   
   currency      String   @default("NGN") @map("currency")
   createdAt     DateTime @default(now()) @map("created_at")
@@ -288,8 +301,10 @@ model Card {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+  @@index([cardHash])
   @@map("cards")
 }
+
 
 // Bank Accounts (For receiving payments)
 model BankAccount {
@@ -312,4 +327,51 @@ model BankAccount {
   @@index([userId])
   @@index([isPrimary])
   @@map("bank_accounts")
+}
+
+// Payment Requests (P2P request/accept flow)
+model PaymentRequest {
+  id          String   @id @default(uuid())
+  requesterId String   @map("requester_id")
+  payerId     String?  @map("payer_id")
+  amount      Decimal  @db.Decimal(18, 8)
+  currency    String   @default("NGN")
+  description String?
+  status      String   @default("pending") // 'pending', 'accepted', 'declined', 'expired'
+  reference   String   @unique
+  expiresAt   DateTime @map("expires_at")
+  completedAt DateTime? @map("completed_at")
+  metadata    Json     @default("{}")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  requester User @relation("Requester", fields: [requesterId], references: [id], onDelete: Cascade)
+  payer     User? @relation("Payer", fields: [payerId], references: [id], onDelete: SetNull)
+
+  @@index([requesterId])
+  @@index([payerId])
+  @@index([status])
+  @@map("payment_requests")
+}
+
+// QR Payment Codes (Merchant QR for instant payments)
+model QrPaymentCode {
+  id          String   @id @default(uuid())
+  merchantId  String   @map("merchant_id")
+  code        String   @unique // Unique QR code string
+  amount      Decimal? @db.Decimal(18, 8) // Optional fixed amount
+  description String?
+  status      String   @default("active") // 'active', 'used', 'expired'
+  expiresAt   DateTime @map("expires_at")
+  usedAt      DateTime? @map("used_at")
+  usedBy      String?  @map("used_by")
+  metadata    Json     @default("{}")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  merchant User @relation("Merchant", fields: [merchantId], references: [id], onDelete: Cascade)
+  payer    User? @relation("QrPayer", fields: [usedBy], references: [id], onDelete: SetNull)
+
+  @@index([merchantId])
+  @@index([status])
+  @@map("qr_payment_codes")
 }

@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import AppSidebar from "@/components/AppSidebar";
 import DashboardHeader from "@/components/DashboardHeader";
+import { SecurityCountdownModal } from "@/components/SecurityCountdownModal";
 import { apiFetch } from "@/hooks/useAuth";
 import { toast } from "@/hooks/use-toast";
 
@@ -84,61 +85,11 @@ const [userLimits, setUserLimits] = useState<{ dailyLimit: number; used: number;
   const [reference, setReference] = useState("");
   const [showQRScanner, setShowQRScanner] = useState(false);
   const [showAccountSuggestion, setShowAccountSuggestion] = useState(false);
-  
-  // QR Timer state (10-second countdown)
-  const [qrTimer, setQrTimer] = useState<number>(10);
-  const [qrTimerActive, setQrTimerActive] = useState(false);
+  const [showSecurityModal, setShowSecurityModal] = useState(false);
 
   const fee = amount ? Math.max(10, Number(amount) * (transferMode === "bank" ? 0.015 : 0.005)) : 0;
   const total = Number(amount) + fee;
   const isOverLimit = Number(amount) + fee > userLimits.remaining;
-
-  // QR Timer effect - 10 second countdown when entering confirm step
-  useEffect(() => {
-    if (step === "confirm" && !qrTimerActive) {
-      setQrTimer(10);
-      setQrTimerActive(true);
-    }
-  }, [step]);
-
-  useEffect(() => {
-    if (qrTimerActive && qrTimer > 0) {
-      const timerId = setTimeout(() => {
-        setQrTimer(qrTimer - 1);
-      }, 1000);
-      return () => clearTimeout(timerId);
-    } else if (qrTimerActive && qrTimer === 0) {
-      // Timer expired - log expired intent and reset
-      handleExpiredIntent();
-    }
-  }, [qrTimer, qrTimerActive]);
-
-  const handleExpiredIntent = async () => {
-    // Log expired intent to backend
-    try {
-      await apiFetch("/transactions/log-expired-intent", {
-        method: "POST",
-        body: JSON.stringify({
-          recipientTag: transferMode === "tag" ? recipientTag : undefined,
-          accountNumber: transferMode === "bank" ? accountNumber : undefined,
-          amount: Number(amount),
-          expiredAt: new Date().toISOString(),
-        }),
-      });
-    } catch (error) {
-      console.error("Failed to log expired intent:", error);
-    }
-    
-    // Reset form with expired timer message
-    toast({ 
-      title: "Intent Expired", 
-      description: "Your transfer intent has expired. Please try again.", 
-      variant: "destructive" 
-    });
-    resetForm();
-    setQrTimerActive(false);
-    setQrTimer(10);
-  };
 
   useEffect(() => {
     const lookupRecipient = async () => {
@@ -200,6 +151,11 @@ const [userLimits, setUserLimits] = useState<{ dailyLimit: number; used: number;
       return () => clearTimeout(debounce);
     }
   }, [accountNumber, selectedBank]);
+
+  const handleSecurityConfirm = () => {
+    setShowSecurityModal(false);
+    handleSend();
+  };
 
   const handleSend = async () => {
     if (pin.length !== 6) {
@@ -486,25 +442,13 @@ const [userLimits, setUserLimits] = useState<{ dailyLimit: number; used: number;
                   </div>
                 )}
 
-                <Button onClick={() => setStep("confirm")} disabled={!isFormValid()} className="w-full h-12 rounded-xl gradient-brand text-primary-foreground font-semibold border-0 hover:opacity-90">Continue</Button>
+                <Button onClick={() => setShowSecurityModal(true)} disabled={!isFormValid()} className="w-full h-12 rounded-xl gradient-brand text-primary-foreground font-semibold border-0 hover:opacity-90">Continue</Button>
               </div>
             </motion.div>
           )}
 
-{step === "confirm" && (
+          {step === "confirm" && (
             <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
-              {/* QR Timer Display */}
-              {qrTimerActive && (
-                <div className={`rounded-xl p-4 flex items-center justify-between ${qrTimer <= 3 ? 'bg-red-50 border border-red-200' : 'bg-amber-50 border border-amber-200'}`}>
-                  <div className="flex items-center gap-3">
-                    <Clock className={`h-5 w-5 ${qrTimer <= 3 ? 'text-red-500' : 'text-amber-500'}`} />
-                    <span className="text-sm font-medium">Intent expires in</span>
-                  </div>
-                  <span className={`text-2xl font-bold ${qrTimer <= 3 ? 'text-red-600' : 'text-amber-600'}`}>
-                    {qrTimer}s
-                  </span>
-                </div>
-              )}
               <div className="flex items-center gap-3">
                 <button onClick={() => setStep("form")} className="p-2 rounded-lg hover:bg-secondary transition-colors">
                   <ArrowLeft className="h-5 w-5 text-muted-foreground" />
@@ -529,12 +473,24 @@ const [userLimits, setUserLimits] = useState<{ dailyLimit: number; used: number;
                   <Label className="text-sm font-medium text-foreground">Enter 6-digit PIN</Label>
                   <Input type="password" inputMode="numeric" maxLength={6} value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))} placeholder="••••••" className="h-12 rounded-xl text-center text-2xl tracking-widest" />
                 </div>
-                <Button onClick={handleSend} disabled={sending || pin.length !== 6} className="w-full h-12 rounded-xl gradient-brand text-primary-foreground font-semibold border-0 hover:opacity-90">
+                <Button onClick={() => setShowSecurityModal(true)} disabled={sending || pin.length !== 6} className="w-full h-12 rounded-xl gradient-brand text-primary-foreground font-semibold border-0 hover:opacity-90">
                   {sending ? "Processing..." : `Send ₦${Number(amount).toLocaleString()}`}
                 </Button>
               </div>
             </motion.div>
           )}
+
+          {/* Security Countdown Modal */}
+          <SecurityCountdownModal
+            isOpen={showSecurityModal}
+            onClose={() => setShowSecurityModal(false)}
+            onConfirm={handleSecurityConfirm}
+            recipientName={transferMode === "tag" ? recipientData?.vuraTag || recipientTag : accountName}
+            recipientTag={transferMode === "tag" ? recipientTag : accountNumber}
+            amount={Number(amount)}
+            currency="NGN"
+            countdownSeconds={10}
+          />
 
           {step === "success" && (
             <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="space-y-6 text-center">

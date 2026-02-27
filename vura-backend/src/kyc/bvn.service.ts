@@ -1,22 +1,26 @@
-import { Injectable, BadRequestException, ConflictException } from '@nestjs/common';
+import {
+  Injectable,
+  BadRequestException,
+  ConflictException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
-import * as crypto from 'crypto';
+import { QoreIDService } from './qoreid.service';
 
 @Injectable()
 export class BVNService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private qoreIdService: QoreIDService,
+  ) {}
 
   /**
-   * Hash BVN for storage (SHA-256)
+   * Verify BVN using QoreID
+   * Returns verified user information with AML screening
    */
-  private hashBVN(bvn: string): string {
-    return crypto.createHash('sha256').update(bvn).digest('hex');
-  }
-
-  /**
-   * Verify BVN (mock implementation - replace with real API)
-   */
-  async verifyBVN(userId: string, bvn: string): Promise<{
+  async verifyBVN(
+    userId: string,
+    bvn: string,
+  ): Promise<{
     success: boolean;
     firstName: string;
     lastName: string;
@@ -28,7 +32,7 @@ export class BVNService {
     }
 
     // Check if BVN already used
-    const bvnHash = this.hashBVN(bvn);
+    const bvnHash = this.qoreIdService.hashIDNumber(bvn);
     const existing = await this.prisma.user.findFirst({
       where: { bvnHash },
     });
@@ -37,60 +41,69 @@ export class BVNService {
       throw new ConflictException('BVN already registered to another account');
     }
 
-    // TODO: Integrate with real BVN verification API (VerifyMe, YouVerify)
-    // For now, mock the verification
-    const mockVerification = await this.mockBVNVerification(bvn);
+    // Verify BVN with QoreID
+    const verificationResult = await this.qoreIdService.verifyBVN(bvn);
 
-    if (!mockVerification.success) {
+    if (!verificationResult.success) {
       throw new BadRequestException('BVN verification failed');
     }
+
+    // Check if manual review is required based on AML screening
+    const requiresReview = this.qoreIdService.requiresManualReview({
+      aml_status: verificationResult.amlStatus,
+      pep_status: verificationResult.pepStatus,
+      sanction_status: 'clear',
+      adverse_media_status: 'clear',
+      risk_level: verificationResult.riskLevel,
+      risk_reasons: verificationResult.riskReasons,
+    });
+
+    // Determine KYC tier based on risk level
+    // Low risk: Tier 2
+    // Medium/High risk: Tier 1 (manual review required before upgrade)
+    const newKycTier = requiresReview ? 1 : 2;
 
     // Update user with verified BVN
     await this.prisma.user.update({
       where: { id: userId },
       data: {
         bvnHash,
-        bvnVerified: true,
-        bvnVerifiedAt: new Date(),
-        kycTier: 2, // Upgrade to Tier 2 after BVN verification
+        bvnVerified: !requiresReview,
+        bvnVerifiedAt: !requiresReview ? new Date() : null,
+        kycTier: newKycTier,
+        fraudScore: verificationResult.riskLevel === 'high' ? 75 : 10,
       },
     });
 
     // Log the verification
     await this.prisma.auditLog.create({
       data: {
-        action: 'BVN_VERIFIED',
+        action: 'BVN_VERIFICATION_ATTEMPTED',
         userId,
         actorType: 'user',
         metadata: {
-          kycTier: 2,
-          verifiedAt: new Date().toISOString(),
+          kycTier: newKycTier,
+          verified: !requiresReview,
+          riskLevel: verificationResult.riskLevel,
+          amlStatus: verificationResult.amlStatus,
+          requiresManualReview: requiresReview,
+          verificationTime: new Date().toISOString(),
+          last4: bvn.slice(-4),
         },
       },
     });
 
-    return {
-      success: true,
-      firstName: mockVerification.firstName,
-      lastName: mockVerification.lastName,
-      kycTier: 2,
-    };
-  }
+    if (requiresReview) {
+      throw new BadRequestException(
+        `BVN verification flagged for manual review. Risk level: ${verificationResult.riskLevel}. Our team will contact you within 24 hours.`,
+      );
+    }
 
-  /**
-   * Mock BVN verification (replace with real API)
-   */
-  private async mockBVNVerification(bvn: string): Promise<{
-    success: boolean;
-    firstName: string;
-    lastName: string;
-  }> {
-    // In production, call VerifyMe/YouVerify API
-    // Example: POST https://api.verifyme.ng/v1/bvn/verify
     return {
       success: true,
-      firstName: 'John',
-      lastName: 'Doe',
+      firstName: verificationResult.firstName,
+      lastName: verificationResult.lastName,
+      kycTier: newKycTier,
     };
   }
 

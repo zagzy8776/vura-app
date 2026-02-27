@@ -1,0 +1,128 @@
+name: Deploy to Railway
+
+on:
+  push:
+    branches: [ main, production ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  NODE_VERSION: '18.x'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: postgres:14
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: vura_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Run linting
+      run: npm run lint
+
+    - name: Run type checking
+      run: npm run typecheck
+
+    - name: Setup test database
+      run: npm run db:generate && npm run db:migrate
+      env:
+        DATABASE_URL: postgresql://postgres:postgres@localhost:5432/vura_test
+
+    - name: Run tests
+      run: npm run test:e2e
+      env:
+        DATABASE_URL: postgresql://postgres:postgres@localhost:5432/vura_test
+        NODE_ENV: test
+        JWT_SECRET: test-jwt-secret-key-for-testing-only
+        ENCRYPTION_KEY: test-encryption-key-for-testing-only
+
+  build:
+    runs-on: ubuntu-latest
+    needs: test
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Build application
+      run: npm run build
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-files
+        path: dist/
+
+  deploy-staging:
+    runs-on: ubuntu-latest
+    needs: [test, build]
+    if: github.ref == 'refs/heads/main'
+    environment: staging
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Deploy to Railway Staging
+      uses: railway-deploy@v1
+      with:
+        railway_token: ${{ secrets.RAILWAY_TOKEN }}
+        project_id: ${{ secrets.RAILWAY_STAGING_PROJECT_ID }}
+        environment: staging
+        service: vura-backend
+
+  deploy-production:
+    runs-on: ubuntu-latest
+    needs: [test, build]
+    if: github.ref == 'refs/heads/production'
+    environment: production
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Deploy to Railway Production
+      uses: railway-deploy@v1
+      with:
+        railway_token: ${{ secrets.RAILWAY_TOKEN }}
+        project_id: ${{ secrets.RAILWAY_PRODUCTION_PROJECT_ID }}
+        environment: production
+        service: vura-backend
+
+    - name: Notify deployment
+      run: |
+        echo "✅ Production deployment completed successfully"
+        echo "🌐 Application URL: https://vura-backend-production.up.railway.app"
+        echo "📊 Monitoring: Check Railway dashboard for health metrics"

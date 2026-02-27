@@ -1,6 +1,6 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
-import * as crypto from 'crypto';
+import { QoreIDService } from './qoreid.service';
 
 export interface NINVerificationResult {
   success: boolean;
@@ -15,18 +15,14 @@ export interface NINVerificationResult {
 
 @Injectable()
 export class NINService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private qoreIdService: QoreIDService,
+  ) {}
 
   /**
-   * Hash NIN for storage (SHA-256)
-   */
-  private hashNIN(nin: string): string {
-    return crypto.createHash('sha256').update(nin).digest('hex');
-  }
-
-  /**
-   * Verify NIN using mock provider
-   * In production, replace with real NIN verification API (NIMC, VerifyMe, etc.)
+   * Verify NIN using QoreID
+   * Returns verified user information with AML screening
    */
   async verifyNIN(userId: string, nin: string): Promise<NINVerificationResult> {
     // Validate NIN format (11 digits)
@@ -35,83 +31,85 @@ export class NINService {
     }
 
     // Check if NIN already used
-    const ninHash = this.hashNIN(nin);
+    const ninHash = this.qoreIdService.hashIDNumber(nin);
     const existing = await this.prisma.user.findFirst({
       where: { ninHash },
     });
 
     if (existing && existing.id !== userId) {
-      throw new BadRequestException('NIN already registered to another account');
+      throw new BadRequestException(
+        'NIN already registered to another account',
+      );
     }
 
-    // TODO: Integrate with real NIN verification API (NIMC, VerifyMe, YouVerify)
-    // For production: POST https://api.nimc.gov.ng/v2/enrollment/verify_nin
-    const mockResult = await this.mockNINVerification(nin);
+    // Verify NIN with QoreID
+    const verificationResult = await this.qoreIdService.verifyNIN(nin);
 
-    if (!mockResult.success) {
-      throw new BadRequestException('NIN verification failed. Please check and try again.');
+    if (!verificationResult.success) {
+      throw new BadRequestException(
+        'NIN verification failed. Please check and try again.',
+      );
     }
 
-    // Determine KYC tier upgrade
-    // Tier 1: Basic (phone + tag) - already done at registration
-    // Tier 2: NIN verified - upgrade here
-    const newKycTier = 2;
+    // Check if manual review is required based on AML screening
+    const requiresReview = this.qoreIdService.requiresManualReview({
+      aml_status: verificationResult.amlStatus,
+      pep_status: verificationResult.pepStatus,
+      sanction_status: 'clear',
+      adverse_media_status: 'clear',
+      risk_level: verificationResult.riskLevel,
+      risk_reasons: verificationResult.riskReasons,
+    });
+
+    // Determine KYC tier based on risk level
+    // Low risk: Tier 2
+    // Medium/High risk: Tier 1 (manual review required before upgrade)
+    const newKycTier = requiresReview ? 1 : 2;
 
     // Update user with verified NIN
     await this.prisma.user.update({
       where: { id: userId },
       data: {
         ninHash,
-        ninVerified: true,
-        ninVerifiedAt: new Date(),
+        ninVerified: !requiresReview, // Only mark as verified if no manual review needed
+        ninVerifiedAt: !requiresReview ? new Date() : null,
         kycTier: newKycTier,
+        fraudScore: verificationResult.riskLevel === 'high' ? 75 : 10,
       },
     });
 
     // Log the verification
     await this.prisma.auditLog.create({
       data: {
-        action: 'NIN_VERIFIED',
+        action: 'NIN_VERIFICATION_ATTEMPTED',
         userId,
         actorType: 'user',
         metadata: {
           kycTier: newKycTier,
-          verifiedAt: new Date().toISOString(),
+          verified: !requiresReview,
+          riskLevel: verificationResult.riskLevel,
+          amlStatus: verificationResult.amlStatus,
+          requiresManualReview: requiresReview,
+          verificationTime: new Date().toISOString(),
           last4: nin.slice(-4),
         },
       },
     });
 
+    if (requiresReview) {
+      throw new BadRequestException(
+        `NIN verification flagged for manual review. Risk level: ${verificationResult.riskLevel}. Our team will contact you within 24 hours.`,
+      );
+    }
+
     return {
       success: true,
-      firstName: mockResult.firstName,
-      lastName: mockResult.lastName,
-      middleName: mockResult.middleName,
-      dateOfBirth: mockResult.dateOfBirth,
-      gender: mockResult.gender,
-      phoneNumber: mockResult.phoneNumber,
-    };
-  }
-
-  /**
-   * Mock NIN verification for development/testing
-   * Replace with real API call in production
-   */
-  private async mockNINVerification(nin: string): Promise<NINVerificationResult> {
-    // Simulate API delay
-    await new Promise(resolve => setTimeout(resolve, 500));
-
-    // Mock response based on NIN number pattern
-    // In production, this would call the NIMC API
-    return {
-      success: true,
-      firstName: 'John',
-      lastName: 'Doe',
-      middleName: 'Michael',
-      dateOfBirth: '1990-01-15',
-      gender: 'Male',
-      phoneNumber: '08012345678',
-      nin: nin,
+      firstName: verificationResult.firstName,
+      lastName: verificationResult.lastName,
+      middleName: verificationResult.middleName,
+      dateOfBirth: verificationResult.dateOfBirth,
+      gender: verificationResult.gender,
+      phoneNumber: verificationResult.phoneNumber,
     };
   }
 
@@ -184,10 +182,33 @@ export class NINService {
     }
 
     // Tier limits configuration
-    const tierLimits: Record<number, { dailySendLimit: string; maxBalance: string; cumulativeLimit: string; tierName: string }> = {
-      1: { dailySendLimit: '30000', maxBalance: '300000', cumulativeLimit: '300000', tierName: 'Tier 1 - Basic' },
-      2: { dailySendLimit: '200000', maxBalance: '500000', cumulativeLimit: '5000000', tierName: 'Tier 2 - Verified' },
-      3: { dailySendLimit: '5000000', maxBalance: '10000000', cumulativeLimit: '50000000', tierName: 'Tier 3 - Premium' },
+    const tierLimits: Record<
+      number,
+      {
+        dailySendLimit: string;
+        maxBalance: string;
+        cumulativeLimit: string;
+        tierName: string;
+      }
+    > = {
+      1: {
+        dailySendLimit: '30000',
+        maxBalance: '300000',
+        cumulativeLimit: '300000',
+        tierName: 'Tier 1 - Basic',
+      },
+      2: {
+        dailySendLimit: '200000',
+        maxBalance: '500000',
+        cumulativeLimit: '5000000',
+        tierName: 'Tier 2 - Verified',
+      },
+      3: {
+        dailySendLimit: '5000000',
+        maxBalance: '10000000',
+        cumulativeLimit: '50000000',
+        tierName: 'Tier 3 - Premium',
+      },
     };
 
     const tierInfo = tierLimits[user.kycTier] || tierLimits[1];

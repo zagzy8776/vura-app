@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { EWSController } from './ews.controller';
-import { EWSService } from './ews.service';
+import { EWSService } from '../services/ews.service';
 import { PrismaService } from '../prisma.service';
 
 @Module({

@@ -1,0 +1,84 @@
+# Railway Configuration for VURA Backend
+# This file configures automatic deployment to Railway
+
+[build]
+builder = "NIXPACKS"
+startCommand = "npm run start:prod"
+
+[deploy]
+healthcheckPath = "/api/health"
+healthcheckTimeout = 60
+autoDeploy = true
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
+
+[env]
+NODE_ENV = "production"
+LOG_LEVEL = "info"
+
+[env.DATABASE_URL]
+fromService = "neon-postgres"
+fromServiceProperty = "DATABASE_URL"
+
+[env.JWT_SECRET]
+fromSecret = "JWT_SECRET"
+
+[env.ENCRYPTION_KEY]
+fromSecret = "ENCRYPTION_KEY"
+
+[env.QOREID_CLIENT_ID]
+fromSecret = "QOREID_CLIENT_ID"
+
+[env.QOREID_CLIENT_SECRET]
+fromSecret = "QOREID_CLIENT_SECRET"
+
+[env.PAYSTACK_SECRET_KEY]
+fromSecret = "PAYSTACK_SECRET_KEY"
+
+[env.PAYSTACK_WEBHOOK_SECRET]
+fromSecret = "PAYSTACK_WEBHOOK_SECRET"
+
+[env.MONNIFY_API_KEY]
+fromSecret = "MONNIFY_API_KEY"
+
+[env.MONNIFY_SECRET_KEY]
+fromSecret = "MONNIFY_SECRET_KEY"
+
+[env.BUSHA_SECRET_KEY]
+fromSecret = "BUSHA_SECRET_KEY"
+
+[env.CLOUDINARY_URL]
+fromSecret = "CLOUDINARY_URL"
+
+[env.FRONTEND_URL]
+fromSecret = "FRONTEND_URL"
+
+[env.ENFORCE_HTTPS]
+value = "true"
+
+[env.RATE_LIMIT_WINDOW_MS]
+value = "900000"
+
+[env.RATE_LIMIT_MAX_REQUESTS]
+value = "100"
+
+[env.SESSION_TIMEOUT_MINUTES]
+value = "15"
+
+[env.EWS_VELOCITY_THRESHOLD_AMOUNT]
+value = "500000"
+
+[env.EWS_VELOCITY_THRESHOLD_TIME_MINUTES]
+value = "60"
+
+[env.EWS_HIGH_VALUE_THRESHOLD]
+value = "5000000"
+
+[env.EWS_FIRST_TIME_BENEFICIARY_HOLD_HOURS]
+value = "24"
+
+[env.CRYPTO_HOLD_HOURS]
+value = "48"
+
+[env.CRYPTO_CONFIRMATIONS_REQUIRED]
+value = "3"

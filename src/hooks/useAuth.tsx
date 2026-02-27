@@ -1,11 +1,6 @@
 import { useState, useEffect, createContext, useContext, ReactNode } from "react";
 import { toast } from "@/hooks/use-toast";
-import { 
-  secureTokenStorage, 
-  initSessionTimeout, 
-  generateDeviceFingerprint,
-  checkSessionTimeout 
-} from "@/lib/security";
+import { enforceHTTPS, generateDeviceFingerprint, getSecureStorage, setSecureStorage, removeSecureStorage } from "@/lib/security";
 
 interface User {
   id: string;
@@ -24,76 +19,88 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType>({} as AuthContextType);
 
-// Get API URL from environment - must be HTTPS in production
+// Session timeout in milliseconds (15 minutes)
+const SESSION_TIMEOUT = 15 * 60 * 1000;
+
+// Get API URL - use HTTPS in production
 const getApiUrl = (): string => {
-  const url = import.meta.env.VITE_API_URL || "http://localhost:3000";
-  if (import.meta.env.PROD && url.startsWith("http:")) {
-    console.error("SECURITY WARNING: Using HTTP in production!");
+  const isProduction = import.meta.env.PROD;
+  if (isProduction) {
+    return "https://api.vura.app";
   }
-  return url;
+  return "http://localhost:3000";
 };
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [sessionExpiry, setSessionExpiry] = useState<number | null>(null);
 
-  // FIX #4: Implement session timeout
+  // Enforce HTTPS on mount
   useEffect(() => {
-    // Check for stored auth using secure storage
-    const storedToken = secureTokenStorage.getToken();
-    const storedUser = secureTokenStorage.getUser() as User | null;
+    enforceHTTPS();
+  }, []);
+
+  // Session timeout handler
+  useEffect(() => {
+    if (!token || !sessionExpiry) return;
+
+    const checkSession = () => {
+      if (Date.now() > sessionExpiry) {
+        toast({
+          title: "Session Expired",
+          description: "Your session has expired for security. Please login again.",
+          variant: "destructive"
+        });
+        signOut();
+      }
+    };
+
+    const interval = setInterval(checkSession, 60000);
+    
+    const resetSession = () => {
+      setSessionExpiry(Date.now() + SESSION_TIMEOUT);
+    };
+
+    window.addEventListener("click", resetSession);
+    window.addEventListener("keypress", resetSession);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("click", resetSession);
+      window.removeEventListener("keypress", resetSession);
+    };
+  }, [token, sessionExpiry]);
+
+  useEffect(() => {
+    const storedToken = getSecureStorage("vura_token");
+    const storedUser = getSecureStorage("vura_user");
     
     if (storedToken && storedUser) {
-      // Check if session has expired
-      if (checkSessionTimeout()) {
-        // Session expired, clear and force re-login
-        secureTokenStorage.clearAll();
-        setToken(null);
-        setUser(null);
-      } else {
+      try {
         setToken(storedToken);
-        setUser(storedUser);
-        
-        // Initialize session timeout monitoring
-        const cleanup = initSessionTimeout(() => {
-          toast({ 
-            title: "Session Expired", 
-            description: "Your session has timed out for security. Please log in again.",
-            variant: "destructive"
-          });
-          signOut();
-        });
-        
-        return cleanup;
+        setUser(JSON.parse(storedUser));
+        setSessionExpiry(Date.now() + SESSION_TIMEOUT);
+      } catch (e) {
+        removeSecureStorage("vura_token");
+        removeSecureStorage("vura_user");
       }
     }
     setLoading(false);
   }, []);
 
-  const signUp = async (
-    phone: string, 
-    pin: string, 
-    vuraTag: string,
-    email?: string,
-    password?: string
-  ) => {
-    const apiUrl = getApiUrl();
-    
-    // Generate device fingerprint for security tracking
+  const signUp = async (phone: string, pin: string, vuraTag: string, email?: string, password?: string) => {
+    const API_URL = getApiUrl();
     const deviceFingerprint = generateDeviceFingerprint();
     
-    const response = await fetch(`${apiUrl}/auth/register`, {
+    const response = await fetch(`${API_URL}/auth/register`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ 
-        phone, 
-        pin, 
-        vuraTag,
-        email, // Optional email
-        password, // Optional password
-        deviceFingerprint 
-      }),
+      headers: { 
+        "Content-Type": "application/json",
+        "X-Device-Fingerprint": deviceFingerprint
+      },
+      body: JSON.stringify({ phone, pin, vuraTag, email, password, deviceFingerprint }),
     });
 
     const data = await response.json();
@@ -102,37 +109,24 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       throw new Error(data.message || "Registration failed");
     }
 
-    // Store auth using secure storage
-    secureTokenStorage.setToken(data.token);
-    secureTokenStorage.setUser(data.user);
+    setSecureStorage("vura_token", data.token);
+    setSecureStorage("vura_user", JSON.stringify(data.user));
     setToken(data.token);
     setUser(data.user);
-    
-    // Initialize session timeout after successful login
-    const cleanup = initSessionTimeout(() => {
-      toast({ 
-        title: "Session Expired", 
-        description: "Your session has timed out for security.",
-        variant: "destructive"
-      });
-      signOut();
-    });
+    setSessionExpiry(Date.now() + SESSION_TIMEOUT);
   };
 
   const signIn = async (vuraTag: string, pin: string) => {
-    const apiUrl = getApiUrl();
-    
-    // Generate device fingerprint for security tracking
+    const API_URL = getApiUrl();
     const deviceFingerprint = generateDeviceFingerprint();
     
-    const response = await fetch(`${apiUrl}/auth/login`, {
+    const response = await fetch(`${API_URL}/auth/login`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ 
-        vuraTag, 
-        pin,
-        deviceFingerprint // Send device fingerprint for security
-      }),
+      headers: { 
+        "Content-Type": "application/json",
+        "X-Device-Fingerprint": deviceFingerprint
+      },
+      body: JSON.stringify({ vuraTag, pin, deviceFingerprint }),
     });
 
     const data = await response.json();
@@ -141,28 +135,19 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       throw new Error(data.message || "Login failed");
     }
 
-    // Store auth using secure storage
-    secureTokenStorage.setToken(data.token);
-    secureTokenStorage.setUser(data.user);
+    setSecureStorage("vura_token", data.token);
+    setSecureStorage("vura_user", JSON.stringify(data.user));
     setToken(data.token);
     setUser(data.user);
-    
-    // Initialize session timeout after successful login
-    initSessionTimeout(() => {
-      toast({ 
-        title: "Session Expired", 
-        description: "Your session has timed out for security. Please log in again.",
-        variant: "destructive"
-      });
-      signOut();
-    });
+    setSessionExpiry(Date.now() + SESSION_TIMEOUT);
   };
 
   const signOut = () => {
-    secureTokenStorage.clearAll();
+    removeSecureStorage("vura_token");
+    removeSecureStorage("vura_user");
     setToken(null);
     setUser(null);
-    window.location.href = "/login";
+    setSessionExpiry(null);
   };
 
   return (
@@ -174,24 +159,36 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
 export const useAuth = () => useContext(AuthContext);
 
-// API helper with auth - FIX #3: Secure token retrieval
-export const apiFetch = async (endpoint: string, options: RequestInit = {}) => {
-  const apiUrl = getApiUrl();
-  const token = secureTokenStorage.getToken();
+// API helper with auth
+export const apiFetch = async (endpoint: string, options: RequestInit = {}): Promise<Response> => {
+  const API_URL = getApiUrl();
+  const token = getSecureStorage("vura_token");
+  const deviceFingerprint = generateDeviceFingerprint();
   
-  const response = await fetch(`${apiUrl}${endpoint}`, {
-    ...options,
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "X-Device-Fingerprint": deviceFingerprint,
+  };
+  
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+  
+  const response = await fetch(`${API_URL}${endpoint}`, {
+    method: options.method || "GET",
+    body: options.body,
+    credentials: options.credentials,
     headers: {
-      "Content-Type": "application/json",
-      ...(token && { Authorization: `Bearer ${token}` }),
-      ...options.headers,
+      ...headers,
+      ...(options.headers as Record<string, string>),
     },
   });
 
   if (response.status === 401) {
-    secureTokenStorage.clearAll();
+    removeSecureStorage("vura_token");
+    removeSecureStorage("vura_user");
     window.location.href = "/login";
-    throw new Error("Session expired. Please log in again.");
+    throw new Error("Session expired");
   }
 
   return response;

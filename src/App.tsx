@@ -4,6 +4,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/hooks/useAuth";
+import { CookieConsent } from "@/components/CookieConsent";
 import Index from "./pages/Index";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
@@ -16,6 +17,10 @@ import Settings from "./pages/Settings";
 import Help from "./pages/Help";
 import NotFound from "./pages/NotFound";
 import CryptoDeposit from "./pages/CryptoDeposit";
+import { MerchantDashboard } from "./pages/MerchantDashboard";
+import { TermsOfService } from "./pages/TermsOfService";
+import { PrivacyPolicy } from "./pages/PrivacyPolicy";
+
 
 
 const queryClient = new QueryClient();
@@ -67,9 +72,12 @@ const AppRoutes = () => (
     <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
     <Route path="/help" element={<ProtectedRoute><Help /></ProtectedRoute>} />
     <Route path="/crypto-deposit" element={<ProtectedRoute><CryptoDeposit /></ProtectedRoute>} />
+    <Route path="/merchant-dashboard" element={<ProtectedRoute><MerchantDashboard /></ProtectedRoute>} />
+    <Route path="/terms" element={<TermsOfService />} />
+    <Route path="/privacy" element={<PrivacyPolicy />} />
     <Route path="*" element={<NotFound />} />
-
   </Routes>
+
 );
 
 const App = () => (
@@ -80,10 +88,12 @@ const App = () => (
       <BrowserRouter>
         <AuthProvider>
           <AppRoutes />
+          <CookieConsent />
         </AuthProvider>
       </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>
 );
+
 
 export default App;

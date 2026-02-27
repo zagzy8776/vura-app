@@ -19,8 +19,12 @@ import { BeneficiariesModule } from './beneficiaries/beneficiaries.module';
 import { BillsModule } from './bills/bills.module';
 import { CardsModule } from './cards/cards.module';
 import { BankAccountsModule } from './bank-accounts/bank-accounts.module';
+import { QrCodesModule } from './qr-codes/qr-codes.module';
+import { PaymentRequestsModule } from './payment-requests/payment-requests.module';
 import { PaystackService } from './services/paystack.service';
 import { MonnifyService } from './services/monnify.service';
+import { BankCodesService } from './services/bank-codes.service';
+
 
 @Module({
   imports: [
@@ -45,7 +49,10 @@ import { MonnifyService } from './services/monnify.service';
     BillsModule,
     CardsModule,
     BankAccountsModule,
+    QrCodesModule,
+    PaymentRequestsModule,
   ],
+
   controllers: [AppController, TransactionsController],
   providers: [
     AppService,
@@ -53,6 +60,7 @@ import { MonnifyService } from './services/monnify.service';
     TransactionsService,
     PaystackService,
     MonnifyService,
+    BankCodesService,
     {
       provide: APP_GUARD,
       useClass: ThrottlerGuard,
