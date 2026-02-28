@@ -6,8 +6,9 @@ import { decrypt } from '../utils/encryption';
 @Injectable()
 export class EmailService {
   private readonly logger = new Logger(EmailService.name);
-  private readonly resend: Resend;
+  private readonly resend: Resend | null;
   private readonly fromEmail: string;
+  private readonly emailEnabled: boolean;
 
   constructor(private readonly prisma: PrismaService) {
     const apiKey = process.env.RESEND_API_KEY;
@@ -15,10 +16,19 @@ export class EmailService {
     
     if (!apiKey) {
       this.logger.warn('RESEND_API_KEY not set - emails will not be sent');
-      this.resend = null as any;
+      this.resend = null;
+      this.emailEnabled = false;
     } else {
       this.resend = new Resend(apiKey);
+      this.emailEnabled = true;
     }
+  }
+
+  /**
+   * Check if email sending is enabled
+   */
+  isEmailEnabled(): boolean {
+    return this.emailEnabled;
   }
 
   /**
@@ -29,6 +39,11 @@ export class EmailService {
     otp: string,
     deviceInfo: { browser: string; os: string; ip?: string },
   ): Promise<boolean> {
+    if (!this.emailEnabled || !this.resend) {
+      this.logger.warn('Email service not configured - skipping OTP email');
+      return false;
+    }
+
     try {
       // Get user email
       const user = await this.prisma.user.findUnique({
@@ -82,6 +97,11 @@ export class EmailService {
     alertType: 'new_device' | 'suspicious_login' | 'large_transaction',
     details: Record<string, any>,
   ): Promise<boolean> {
+    if (!this.emailEnabled || !this.resend) {
+      this.logger.warn('Email service not configured - skipping security alert');
+      return false;
+    }
+
     try {
       const user = await this.prisma.user.findUnique({
         where: { id: userId },
