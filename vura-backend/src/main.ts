@@ -60,7 +60,7 @@ const app = await NestFactory.create<NestExpressApplication>(AppModule, {
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
-      forbidNonWhitelisted: true,
+      forbidNonWhitelisted: false, // Set to false to allow extra fields (debug mode)
       transform: true,
       transformOptions: {
         enableImplicitConversion: true,

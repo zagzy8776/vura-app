@@ -1,12 +1,13 @@
-import { IsString, IsNotEmpty, IsOptional } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, MinLength } from 'class-validator';
 
 export class LoginDto {
   @IsString()
-  @IsNotEmpty()
+  @IsNotEmpty({ message: 'Vura tag is required' })
   vuraTag: string;
 
   @IsString()
-  @IsNotEmpty()
+  @IsNotEmpty({ message: 'PIN is required' })
+  @MinLength(4, { message: 'PIN must be at least 4 digits' })
   pin: string;
 
   @IsOptional()

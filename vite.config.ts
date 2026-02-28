@@ -17,4 +17,24 @@ export default defineConfig(({ mode }) => ({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  optimizeDeps: {
+    include: ['input-otp', 'react-router-dom', 'framer-motion'],
+    esbuildOptions: {
+      target: 'esnext',
+      // Ensure proper handling of ESM modules
+      format: 'esm',
+    },
+  },
+  build: {
+    target: 'esnext',
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor-react': ['react', 'react-dom', 'react-router-dom'],
+          'vendor-ui': ['@radix-ui/react-dialog', '@radix-ui/react-dropdown-menu'],
+          'vendor-motion': ['framer-motion'],
+        },
+      },
+    },
+  },
 }));
