@@ -1,4 +1,8 @@
-import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  BadRequestException,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
 import Decimal from 'decimal.js';
 
@@ -57,7 +61,7 @@ export class HoldsService {
     // Check account age (flag if < 30 days old)
     const accountAge = Date.now() - sender.createdAt.getTime();
     const thirtyDays = 30 * 24 * 60 * 60 * 1000;
-    
+
     if (accountAge < thirtyDays && amount.greaterThan(50000)) {
       return {
         shouldFlag: true,
@@ -174,8 +178,10 @@ export class HoldsService {
       reason: tx.flagReason,
       heldUntil: tx.heldUntil,
       createdAt: tx.createdAt,
-      daysRemaining: tx.heldUntil 
-        ? Math.ceil((tx.heldUntil.getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+      daysRemaining: tx.heldUntil
+        ? Math.ceil(
+            (tx.heldUntil.getTime() - Date.now()) / (1000 * 60 * 60 * 24),
+          )
         : 0,
     }));
   }
@@ -185,7 +191,7 @@ export class HoldsService {
    */
   async checkAutoRelease(): Promise<number> {
     const now = new Date();
-    
+
     const eligible = await this.prisma.transaction.findMany({
       where: {
         isFlagged: true,
@@ -228,7 +234,7 @@ export class HoldsService {
     });
 
     const totalHeld = new Decimal(heldFunds._sum.amount || 0);
-    
+
     // Get available balance
     const balance = await this.prisma.balance.findUnique({
       where: { userId_currency: { userId, currency: 'NGN' } },
@@ -239,8 +245,8 @@ export class HoldsService {
     if (available.lessThan(amount)) {
       throw new BadRequestException(
         `Insufficient available balance. ` +
-        `₦${totalHeld.toFixed(2)} is currently held. ` +
-        `Available: ₦${available.toFixed(2)}`
+          `₦${totalHeld.toFixed(2)} is currently held. ` +
+          `Available: ₦${available.toFixed(2)}`,
       );
     }
   }

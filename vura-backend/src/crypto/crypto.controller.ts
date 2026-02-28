@@ -69,7 +69,7 @@ export class CryptoController {
       take: 50,
     });
 
-return {
+    return {
       success: true,
       data: deposits.map((d: any) => ({
         id: d.id,
@@ -94,7 +94,7 @@ return {
    */
   @Get('rates')
   async getExchangeRates() {
-const pairs = ['USDT_NGN', 'BTC_NGN', 'ETH_NGN'];
+    const pairs = ['USDT_NGN', 'BTC_NGN', 'ETH_NGN'];
     const rates: Record<string, string> = {};
 
     for (const pair of pairs) {

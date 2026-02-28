@@ -1,4 +1,13 @@
-import { Controller, Get, Post, Body, Param, Query, UseGuards, BadRequestException } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Param,
+  Query,
+  UseGuards,
+  BadRequestException,
+} from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { PrismaService } from '../prisma.service';
 
@@ -26,7 +35,7 @@ export class AdminController {
     const skip = (pageNum - 1) * limitNum;
 
     const where: any = {};
-    
+
     if (kycStatus) {
       where.kycStatus = kycStatus.toUpperCase();
     }

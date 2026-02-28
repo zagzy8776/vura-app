@@ -31,6 +31,7 @@ const Login = () => {
       if (result && result.requiresVerification) {
         navigate("/verify-otp", {
           state: {
+            mode: "device",
             vuraTag: tag,
             deviceFingerprint: result.deviceFingerprint,
             message: result.message,

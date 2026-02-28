@@ -11,7 +11,6 @@ import { Request as ExpressRequest } from 'express';
 import { QrCodesService } from './qr-codes.service';
 import { AuthGuard } from '../auth/auth.guard';
 
-
 @Controller('qr-codes')
 @UseGuards(AuthGuard)
 export class QrCodesController {
@@ -24,9 +23,9 @@ export class QrCodesController {
   @Post('generate')
   async generateQrCode(
     @Request() req: ExpressRequest & { user: { userId: string } },
-    @Body() body: { amount?: number; description?: string; expiresInMinutes?: number },
+    @Body()
+    body: { amount?: number; description?: string; expiresInMinutes?: number },
   ) {
-
     return this.qrCodesService.generateQrCode(
       req.user.userId,
       body.amount,
@@ -53,7 +52,6 @@ export class QrCodesController {
     @Request() req: ExpressRequest & { user: { userId: string } },
     @Body() body: { code: string; amount: number; pin: string },
   ) {
-
     return this.qrCodesService.processQrPayment(
       req.user.userId,
       body.code,
@@ -67,9 +65,14 @@ export class QrCodesController {
    * GET /qr-codes/history
    */
   @Get('history')
-  async getQrCodeHistory(@Request() req: ExpressRequest & { user: { userId: string } }, @Body() body: { status?: string }) {
-
-    return this.qrCodesService.getMerchantQrCodes(req.user.userId, body?.status);
+  async getQrCodeHistory(
+    @Request() req: ExpressRequest & { user: { userId: string } },
+    @Body() body: { status?: string },
+  ) {
+    return this.qrCodesService.getMerchantQrCodes(
+      req.user.userId,
+      body?.status,
+    );
   }
 
   /**
@@ -77,8 +80,10 @@ export class QrCodesController {
    * POST /qr-codes/:id/revoke
    */
   @Post(':id/revoke')
-  async revokeQrCode(@Request() req: ExpressRequest & { user: { userId: string } }, @Param('id') qrCodeId: string) {
-
+  async revokeQrCode(
+    @Request() req: ExpressRequest & { user: { userId: string } },
+    @Param('id') qrCodeId: string,
+  ) {
     return this.qrCodesService.revokeQrCode(req.user.userId, qrCodeId);
   }
 }

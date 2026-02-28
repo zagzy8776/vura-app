@@ -40,10 +40,16 @@ export class MonnifyService {
   private tokenExpiry: number;
 
   constructor(private configService: ConfigService) {
-    this.baseUrl = this.configService.get<string>('MONNIFY_BASE_URL', 'https://sandbox.monnify.com');
+    this.baseUrl = this.configService.get<string>(
+      'MONNIFY_BASE_URL',
+      'https://sandbox.monnify.com',
+    );
     this.apiKey = this.configService.get<string>('MONNIFY_API_KEY', '');
     this.secretKey = this.configService.get<string>('MONNIFY_SECRET_KEY', '');
-    this.contractCode = this.configService.get<string>('MONNIFY_CONTRACT_CODE', '');
+    this.contractCode = this.configService.get<string>(
+      'MONNIFY_CONTRACT_CODE',
+      '',
+    );
   }
 
   private async getAccessToken(): Promise<string> {
@@ -63,11 +69,12 @@ export class MonnifyService {
             Authorization: authHeader,
             'Content-Type': 'application/json',
           },
-        }
+        },
       );
 
       this.accessToken = response.data.responseBody.accessToken;
-      this.tokenExpiry = Date.now() + response.data.responseBody.expiresIn * 1000;
+      this.tokenExpiry =
+        Date.now() + response.data.responseBody.expiresIn * 1000;
       return this.accessToken;
     } catch (error: any) {
       throw new BadRequestException('Failed to authenticate with Monnify');
@@ -81,7 +88,10 @@ export class MonnifyService {
     };
   }
 
-  async verifyAccount(accountNumber: string, bankCode: string): Promise<{ accountName: string }> {
+  async verifyAccount(
+    accountNumber: string,
+    bankCode: string,
+  ): Promise<{ accountName: string }> {
     try {
       await this.getAccessToken();
 
@@ -93,7 +103,7 @@ export class MonnifyService {
             accountNumber,
             bankCode,
           },
-        }
+        },
       );
 
       return {
@@ -107,13 +117,13 @@ export class MonnifyService {
     }
   }
 
-async initiateTransfer(
+  async initiateTransfer(
     accountNumber: string,
     bankCode: string,
     accountName: string,
     amount: number,
     reference: string,
-    reason?: string
+    reason?: string,
   ): Promise<{ reference: string; status: string }> {
     try {
       await this.getAccessToken();
@@ -131,7 +141,7 @@ async initiateTransfer(
       const response = await axios.post<TransferResponse>(
         `${this.baseUrl}/api/v2/disbursements/single`,
         transferData,
-        { headers: this.getHeaders() }
+        { headers: this.getHeaders() },
       );
 
       return {
@@ -167,7 +177,7 @@ async initiateTransfer(
           clientEmail: `${vuraTag}@vura.com`,
           clientName: accountName,
         },
-        { headers: this.getHeaders() }
+        { headers: this.getHeaders() },
       );
 
       return {

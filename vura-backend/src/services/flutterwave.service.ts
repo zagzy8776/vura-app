@@ -10,7 +10,8 @@ export class FlutterwaveService {
   private readonly baseUrl: string;
 
   constructor(private configService: ConfigService) {
-    this.publicKey = this.configService.get<string>('FLUTTERWAVE_PUBLIC_KEY') || '';
+    this.publicKey =
+      this.configService.get<string>('FLUTTERWAVE_PUBLIC_KEY') || '';
     this.secretKey = this.configService.get<string>('FLUTTERWAVE_SECRET') || '';
     this.baseUrl =
       this.configService.get<string>('FLUTTERWAVE_BASE_URL') ||
@@ -48,10 +49,10 @@ export class FlutterwaveService {
             Authorization: `Bearer ${this.secretKey}`,
             'Content-Type': 'application/json',
           },
-        }
+        },
       );
 
-      const responseData = response.data as any;
+      const responseData = response.data;
       const accountData = responseData.data;
       this.logger.log(
         `Created virtual account for user ${userId}: ${accountData.account_number}`,
@@ -83,7 +84,7 @@ export class FlutterwaveService {
         `${this.baseUrl}/virtual-account-numbers/${orderRef}`,
         {
           headers: { Authorization: `Bearer ${this.secretKey}` },
-        }
+        },
       );
 
       return { success: true, data: response.data.data };
@@ -110,7 +111,7 @@ export class FlutterwaveService {
       const isLargeTransfer = amount >= 10000;
       const transferFee = isLargeTransfer ? 25 : 10; // Flutterwave fee
       const stampDuty = isLargeTransfer ? 50 : 0; // Government tax
-      
+
       // Total amount we'll deduct from user's account
       const totalDeduction = amount + transferFee + stampDuty;
 
@@ -131,7 +132,7 @@ export class FlutterwaveService {
             Authorization: `Bearer ${this.secretKey}`,
             'Content-Type': 'application/json',
           },
-        }
+        },
       );
 
       this.logger.log(`Transfer initiated: ${reference}, Amount: ${amount}`);
@@ -159,15 +160,12 @@ export class FlutterwaveService {
    */
   async verifyAccount(accountNumber: string, bankCode: string) {
     try {
-      const response = await axios.get(
-        `${this.baseUrl}/accounts/resolve`,
-        {
-          params: { account_number: accountNumber, bank_code: bankCode },
-          headers: { Authorization: `Bearer ${this.secretKey}` },
-        },
-      );
+      const response = await axios.get(`${this.baseUrl}/accounts/resolve`, {
+        params: { account_number: accountNumber, bank_code: bankCode },
+        headers: { Authorization: `Bearer ${this.secretKey}` },
+      });
 
-      const responseData = response.data as any;
+      const responseData = response.data;
       const accountData = responseData.data;
       return {
         success: true,
@@ -189,12 +187,9 @@ export class FlutterwaveService {
    */
   async getBanks(country: string = 'NG') {
     try {
-      const response = await axios.get(
-        `${this.baseUrl}/banks/${country}`,
-        {
-          headers: { Authorization: `Bearer ${this.secretKey}` },
-        },
-      );
+      const response = await axios.get(`${this.baseUrl}/banks/${country}`, {
+        headers: { Authorization: `Bearer ${this.secretKey}` },
+      });
 
       return { success: true, banks: response.data.data };
     } catch (error: any) {
@@ -215,7 +210,7 @@ export class FlutterwaveService {
     const isLargeTransfer = amount >= 10000;
     const fee = isLargeTransfer ? 25 : 10;
     const stampDuty = isLargeTransfer ? 50 : 0;
-    
+
     return {
       fee,
       stampDuty,
@@ -227,7 +222,7 @@ export class FlutterwaveService {
    * Verify webhook signature
    */
   verifyWebhookSignature(payload: string, signature: string): boolean {
-    const crypto = require('crypto') as any;
+    const crypto = require('crypto');
     const hash = crypto
       .createHmac('sha256', this.secretKey)
       .update(payload)

@@ -96,12 +96,16 @@ export class ReceiptGeneratorService {
     </div>
   </div>
 
-  ${data.description ? `
+  ${
+    data.description
+      ? `
   <div class="card">
     <div class="label">Note</div>
     <div class="value">${data.description}</div>
   </div>
-  ` : ''}
+  `
+      : ''
+  }
 
   <div class="divider"></div>
 
@@ -118,19 +122,27 @@ export class ReceiptGeneratorService {
 
   private getStatusColorHex(status: string): string {
     switch (status) {
-      case 'SUCCESS': return '#065F46';
-      case 'PENDING': return '#92400E';
-      case 'FAILED': return '#991B1B';
-      default: return '#374151';
+      case 'SUCCESS':
+        return '#065F46';
+      case 'PENDING':
+        return '#92400E';
+      case 'FAILED':
+        return '#991B1B';
+      default:
+        return '#374151';
     }
   }
 
   private getStatusBgHex(status: string): string {
     switch (status) {
-      case 'SUCCESS': return '#D1FAE5';
-      case 'PENDING': return '#FEF3C7';
-      case 'FAILED': return '#FEE2E2';
-      default: return '#F3F4F6';
+      case 'SUCCESS':
+        return '#D1FAE5';
+      case 'PENDING':
+        return '#FEF3C7';
+      case 'FAILED':
+        return '#FEE2E2';
+      default:
+        return '#F3F4F6';
     }
   }
 }

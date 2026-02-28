@@ -13,7 +13,7 @@ export class EmailService {
   constructor(private readonly prisma: PrismaService) {
     const apiKey = process.env.RESEND_API_KEY;
     this.fromEmail = process.env.FROM_EMAIL || 'security@vura.app';
-    
+
     if (!apiKey) {
       this.logger.warn('RESEND_API_KEY not set - emails will not be sent');
       this.resend = null;
@@ -98,7 +98,9 @@ export class EmailService {
     deviceInfo: { browser: string; os: string; ip?: string },
   ): Promise<boolean> {
     if (!this.emailEnabled || !this.resend) {
-      this.logger.warn('Email service not configured - skipping registration OTP email');
+      this.logger.warn(
+        'Email service not configured - skipping registration OTP email',
+      );
       return false;
     }
 
@@ -110,7 +112,9 @@ export class EmailService {
       });
 
       if (!user?.emailEncrypted) {
-        this.logger.warn(`User ${userId} has no email - cannot send registration OTP`);
+        this.logger.warn(
+          `User ${userId} has no email - cannot send registration OTP`,
+        );
         return false;
       }
 
@@ -135,11 +139,16 @@ export class EmailService {
       });
 
       if (result.error) {
-        this.logger.error('Failed to send registration OTP email:', result.error);
+        this.logger.error(
+          'Failed to send registration OTP email:',
+          result.error,
+        );
         return false;
       }
 
-      this.logger.log(`Registration OTP email sent to ${email} for user ${userId}`);
+      this.logger.log(
+        `Registration OTP email sent to ${email} for user ${userId}`,
+      );
       return true;
     } catch (error) {
       this.logger.error('Error sending registration OTP email:', error);
@@ -163,7 +172,9 @@ export class EmailService {
     },
   ): Promise<boolean> {
     if (!this.emailEnabled || !this.resend) {
-      this.logger.warn('Email service not configured - skipping transaction notification');
+      this.logger.warn(
+        'Email service not configured - skipping transaction notification',
+      );
       return false;
     }
 
@@ -175,7 +186,9 @@ export class EmailService {
       });
 
       if (!user?.emailEncrypted) {
-        this.logger.warn(`User ${userId} has no email - cannot send transaction notification`);
+        this.logger.warn(
+          `User ${userId} has no email - cannot send transaction notification`,
+        );
         return false;
       }
 
@@ -187,7 +200,7 @@ export class EmailService {
         transaction.type === 'credit'
           ? `💰 Vura - Credit Alert: +${transaction.currency}${transaction.amount.toLocaleString()}`
           : `💸 Vura - Debit Alert: -${transaction.currency}${transaction.amount.toLocaleString()}`;
-      
+
       const html = this.buildTransactionEmailTemplate({
         vuraTag: user.vuraTag,
         transaction,
@@ -202,7 +215,10 @@ export class EmailService {
       });
 
       if (result.error) {
-        this.logger.error('Failed to send transaction notification:', result.error);
+        this.logger.error(
+          'Failed to send transaction notification:',
+          result.error,
+        );
         return false;
       }
 
@@ -272,7 +288,7 @@ export class EmailService {
     expiresIn: string;
   }): string {
     const { vuraTag, otp, deviceInfo, expiresIn } = params;
-    
+
     return `
 <!DOCTYPE html>
 <html>
@@ -340,7 +356,7 @@ export class EmailService {
     expiresIn: string;
   }): string {
     const { vuraTag, otp, deviceInfo, expiresIn } = params;
-    
+
     return `
 <!DOCTYPE html>
 <html>
@@ -409,7 +425,7 @@ export class EmailService {
     expiresIn: string;
   }): string {
     const { vuraTag, otp, deviceInfo, expiresIn } = params;
-    
+
     return `
 <!DOCTYPE html>
 <html>
@@ -487,7 +503,7 @@ export class EmailService {
     const amountSymbol = isCredit ? '+' : '-';
     const amountColor = isCredit ? '#22c55e' : '#ef4444';
     const emoji = isCredit ? '💰' : '💸';
-    
+
     return `
 <!DOCTYPE html>
 <html>
@@ -555,7 +571,7 @@ export class EmailService {
     details: Record<string, any>;
   }): string {
     const { vuraTag, alertType, details } = params;
-    
+
     const alertTitles: Record<string, string> = {
       new_device: 'New Device Login Detected',
       suspicious_login: 'Suspicious Login Attempt',

@@ -77,8 +77,35 @@ const Register = () => {
       toast({ title: "Account created!", description: "Welcome to Vura" });
       navigate("/");
     } catch (err: unknown) {
-      const errorMessage = err instanceof Error ? err.message : "Registration failed";
-      toast({ title: "Registration failed", description: errorMessage, variant: "destructive" });
+      const rawMessage = err instanceof Error ? err.message : "Registration failed";
+
+      // signUp throws a JSON string when OTP verification is required
+      try {
+        const parsed = JSON.parse(rawMessage);
+        if (parsed?.code === "REGISTRATION_OTP_REQUIRED") {
+          toast({
+            title: "Verify your email",
+            description: parsed.message || "Enter the code sent to your email",
+          });
+          navigate("/verify-otp", {
+            state: {
+              mode: "registration",
+              pendingId: parsed.pendingId,
+              email,
+              message: parsed.message,
+            },
+          });
+          return;
+        }
+      } catch {
+        // ignore JSON parse errors
+      }
+
+      toast({
+        title: "Registration failed",
+        description: rawMessage,
+        variant: "destructive",
+      });
     } finally {
       setLoading(false);
     }

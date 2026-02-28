@@ -143,7 +143,7 @@ export class BushaService {
       for (const pair of pairs) {
         try {
           const response = await this.client.get(`/prices/${pair}`);
-          const rateValue = parseFloat((response.data?.data?.rate) || '0');
+          const rateValue = parseFloat(response.data?.data?.rate || '0');
           rates.push({
             pair,
             rate: rateValue,
@@ -281,9 +281,7 @@ export class BushaService {
       });
 
       if (!deposit) {
-        throw new InternalServerErrorException(
-          'Crypto deposit not found',
-        );
+        throw new InternalServerErrorException('Crypto deposit not found');
       }
 
       // Record crypto deposit transaction

@@ -5,7 +5,7 @@ import helmet from 'helmet';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
-const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     rawBody: true, // Required for webhook signature verification
   });
 
@@ -23,7 +23,7 @@ const app = await NestFactory.create<NestExpressApplication>(AppModule, {
   // Enable CORS for frontend communication
   // ✅ Updated with Vercel frontend and Render backend support
   app.enableCors({
-    origin: isProduction 
+    origin: isProduction
       ? [
           frontendUrl,
           'https://vura-app.vercel.app',
@@ -55,7 +55,6 @@ const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     ],
   });
 
-
   // Security: Global input validation
   app.useGlobalPipes(
     new ValidationPipe({
@@ -73,7 +72,7 @@ const app = await NestFactory.create<NestExpressApplication>(AppModule, {
 
   const port = process.env.PORT ?? 3000;
   await app.listen(port);
-  
+
   console.log(`🚀 Vura API running on port ${port}`);
   console.log(`📦 Environment: ${isProduction ? 'PRODUCTION' : 'DEVELOPMENT'}`);
 }

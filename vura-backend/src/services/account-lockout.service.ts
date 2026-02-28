@@ -10,7 +10,7 @@ export class AccountLockoutService {
 
   async recordFailedAttempt(userId: string): Promise<void> {
     const now = new Date();
-    
+
     // Get user with current failed attempts
     const user = await this.prisma.user.findUnique({
       where: { id: userId },

@@ -33,7 +33,10 @@ export class PaystackService {
   private readonly secretKey: string;
 
   constructor(private configService: ConfigService) {
-    this.baseUrl = this.configService.get<string>('PAYSTACK_BASE_URL', 'https://api.paystack.co');
+    this.baseUrl = this.configService.get<string>(
+      'PAYSTACK_BASE_URL',
+      'https://api.paystack.co',
+    );
     this.secretKey = this.configService.get<string>('PAYSTACK_SECRET_KEY', '');
   }
 
@@ -44,7 +47,10 @@ export class PaystackService {
     };
   }
 
-  async verifyAccount(accountNumber: string, bankCode: string): Promise<{ accountName: string }> {
+  async verifyAccount(
+    accountNumber: string,
+    bankCode: string,
+  ): Promise<{ accountName: string }> {
     try {
       const response = await axios.get<AccountVerificationResponse>(
         `${this.baseUrl}/bank/resolve`,
@@ -54,11 +60,13 @@ export class PaystackService {
             account_number: accountNumber,
             bank_code: bankCode,
           },
-        }
+        },
       );
 
       if (!response.data.status) {
-        throw new BadRequestException(response.data.message || 'Account verification failed');
+        throw new BadRequestException(
+          response.data.message || 'Account verification failed',
+        );
       }
 
       return {
@@ -78,7 +86,7 @@ export class PaystackService {
     accountName: string,
     amount: number,
     reference: string,
-    reason?: string
+    reason?: string,
   ): Promise<{ reference: string; status: string }> {
     try {
       // First, create a recipient
@@ -91,7 +99,7 @@ export class PaystackService {
           bank_code: bankCode,
           currency: 'NGN',
         },
-        { headers: this.getHeaders() }
+        { headers: this.getHeaders() },
       );
 
       const recipientCode = recipientResponse.data.data.recipient_code;
@@ -106,11 +114,13 @@ export class PaystackService {
           reason: reason || 'Vura Transfer',
           reference: reference,
         },
-        { headers: this.getHeaders() }
+        { headers: this.getHeaders() },
       );
 
       if (!transferResponse.data.status) {
-        throw new BadRequestException(transferResponse.data.message || 'Transfer failed');
+        throw new BadRequestException(
+          transferResponse.data.message || 'Transfer failed',
+        );
       }
 
       return {

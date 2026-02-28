@@ -92,7 +92,8 @@ export class PaystackWebhooksService {
           providerTxId: data.reference,
           externalReference: `paystack_${data.id}`,
           metadata: {
-            ...(typeof transaction.metadata === 'object' && transaction.metadata !== null
+            ...(typeof transaction.metadata === 'object' &&
+            transaction.metadata !== null
               ? transaction.metadata
               : {}),
             paystackReference: data.reference,

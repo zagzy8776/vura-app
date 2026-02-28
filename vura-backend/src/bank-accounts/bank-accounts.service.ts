@@ -1,4 +1,8 @@
-import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  BadRequestException,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
 import { BankAccount } from '@prisma/client';
 
@@ -12,7 +16,7 @@ export class BankAccountsService {
     bankCode: string,
     bankName: string,
     accountName: string,
-    provider: 'paystack' | 'monnify' = 'paystack'
+    provider: 'paystack' | 'monnify' = 'paystack',
   ): Promise<BankAccount> {
     // Check if user already has a primary account
     const existingPrimary = await this.prisma.bankAccount.findFirst({
@@ -61,7 +65,10 @@ export class BankAccountsService {
     });
   }
 
-  async setPrimaryBankAccount(userId: string, accountId: string): Promise<BankAccount> {
+  async setPrimaryBankAccount(
+    userId: string,
+    accountId: string,
+  ): Promise<BankAccount> {
     // Check if the account belongs to the user
     const account = await this.prisma.bankAccount.findFirst({
       where: {

@@ -86,7 +86,8 @@ export class CardEncryptionService {
    * PCI-DSS: One-way hash for data verification
    */
   hashCardNumber(cardNumber: string): string {
-    const secret = process.env.CARD_HASH_SECRET || process.env.CARD_ENCRYPTION_KEY;
+    const secret =
+      process.env.CARD_HASH_SECRET || process.env.CARD_ENCRYPTION_KEY;
     if (!secret) {
       throw new Error('Card hashing secret is required');
     }

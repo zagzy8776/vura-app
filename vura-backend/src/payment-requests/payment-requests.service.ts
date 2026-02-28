@@ -176,7 +176,9 @@ export class PaymentRequestsService {
     });
 
     if (!request) {
-      throw new NotFoundException('Payment request not found or already processed');
+      throw new NotFoundException(
+        'Payment request not found or already processed',
+      );
     }
 
     if (new Date() > request.expiresAt) {
@@ -215,7 +217,9 @@ export class PaymentRequestsService {
     });
 
     if (!request) {
-      throw new NotFoundException('Payment request not found or already processed');
+      throw new NotFoundException(
+        'Payment request not found or already processed',
+      );
     }
 
     await this.prisma.paymentRequest.update({

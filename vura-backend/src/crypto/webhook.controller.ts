@@ -107,7 +107,11 @@ export class WebhookController {
     });
 
     if (!deposit) {
-      this.logger.error('Deposit address not found', { address, asset, network });
+      this.logger.error('Deposit address not found', {
+        address,
+        asset,
+        network,
+      });
       throw new BadRequestException('Invalid deposit address');
     }
 
@@ -171,12 +175,16 @@ export class WebhookController {
         where: { id: depositTx.id },
         data: { confirmations },
       });
-      return { status: 'confirming', confirmations, required: depositTx.minConfirmations };
+      return {
+        status: 'confirming',
+        confirmations,
+        required: depositTx.minConfirmations,
+      };
     }
 
     // Run EWS checks before crediting
     const ewsCheck = await this.runEWSChecks(depositTx);
-    
+
     if (ewsCheck.action === 'block') {
       await this.prisma.cryptoDepositTransaction.update({
         where: { id: depositTx.id },
@@ -186,13 +194,13 @@ export class WebhookController {
           ewsFlags: ewsCheck.flags,
         },
       });
-      
+
       // Alert admin
       this.logger.error('Deposit blocked by EWS', {
         transactionId,
         flags: ewsCheck.flags,
       });
-      
+
       return { status: 'flagged', reason: 'ews_block' };
     }
 
@@ -206,7 +214,7 @@ export class WebhookController {
     const tierLimit = (TIER_LIMITS as any)[depositTx.user.kycTier];
 
     const currentBalance = await this.getCurrentBalance(depositTx.userId);
-    
+
     if (currentBalance.add(ngnAmount).greaterThan(tierLimit.maxBalance)) {
       await this.prisma.cryptoDepositTransaction.update({
         where: { id: depositTx.id },
@@ -215,119 +223,127 @@ export class WebhookController {
           ewsFlags: ['tier_limit_exceeded'],
         },
       });
-      
+
       throw new BadRequestException('Deposit would exceed KYC tier limit');
     }
 
     // ATOMIC TRANSACTION: Credit NGN balance
     // SERIALIZABLE isolation prevents race conditions
-    const result = await this.prisma.$transaction(async (tx) => {
-      // 1. Get current balance with lock
-      const balance = await tx.balance.findUnique({
-        where: {
-          userId_currency: {
+    const result = await this.prisma.$transaction(
+      async (tx) => {
+        // 1. Get current balance with lock
+        const balance = await tx.balance.findUnique({
+          where: {
+            userId_currency: {
+              userId: depositTx.userId,
+              currency: 'NGN',
+            },
+          },
+        });
+
+        const beforeBalance = balance
+          ? new Decimal(balance.amount.toString())
+          : new Decimal(0);
+        const afterBalance = beforeBalance.add(ngnAmount);
+
+        // 2. Update or create balance
+        await tx.balance.upsert({
+          where: {
+            userId_currency: {
+              userId: depositTx.userId,
+              currency: 'NGN',
+            },
+          },
+          create: {
             userId: depositTx.userId,
             currency: 'NGN',
+            amount: ngnAmount.toNumber(),
+            lastUpdatedBy: 'crypto_deposit',
           },
-        },
-      });
-
-      const beforeBalance = balance ? new Decimal(balance.amount.toString()) : new Decimal(0);
-      const afterBalance = beforeBalance.add(ngnAmount);
-
-      // 2. Update or create balance
-      await tx.balance.upsert({
-        where: {
-          userId_currency: {
-            userId: depositTx.userId,
-            currency: 'NGN',
+          update: {
+            amount: afterBalance.toNumber(),
+            lastUpdatedBy: 'crypto_deposit',
           },
-        },
-        create: {
-          userId: depositTx.userId,
-          currency: 'NGN',
-          amount: ngnAmount.toNumber(),
-          lastUpdatedBy: 'crypto_deposit',
-        },
-        update: {
-          amount: afterBalance.toNumber(),
-          lastUpdatedBy: 'crypto_deposit',
-        },
-      });
+        });
 
-      // 3. Update deposit transaction
-      const updated = await tx.cryptoDepositTransaction.update({
-        where: { id: depositTx.id },
-        data: {
-          status: ewsCheck.action === 'delay' ? 'flagged' : 'confirmed',
-          confirmations,
-          exchangeRate: rate.toNumber(),
-          ngnAmount: ngnAmount.toNumber(),
-          creditedAt: new Date(),
-          ewsScore: ewsCheck.score,
-          ewsFlags: ewsCheck.flags,
-          holdUntil: ewsCheck.holdUntil,
-          metadata: {
-            ...depositTx.metadata as object,
-            creditedBlockHash: blockHash,
-            ewsAction: ewsCheck.action,
-          },
-        },
-      });
-
-      // 4. Create main transaction record
-      await tx.transaction.create({
-        data: {
-          receiverId: depositTx.userId,
-          amount: ngnAmount.toNumber(),
-          currency: 'NGN',
-          type: 'crypto_deposit',
-          status: 'SUCCESS',
-          idempotencyKey: `crypto_${transactionId}`,
-          providerTxId: transactionId,
-          beforeBalance: beforeBalance.toNumber(),
-          afterBalance: afterBalance.toNumber(),
-          reference: `CRYPTO-${transactionId}`,
-          externalReference: depositTx.asset,
-          metadata: {
-            cryptoAmount: depositTx.cryptoAmount.toString(),
-            cryptoCurrency: depositTx.asset,
-            network: depositTx.network,
-            exchangeRate: rate.toString(),
+        // 3. Update deposit transaction
+        const updated = await tx.cryptoDepositTransaction.update({
+          where: { id: depositTx.id },
+          data: {
+            status: ewsCheck.action === 'delay' ? 'flagged' : 'confirmed',
             confirmations,
-          },
-        },
-      });
-
-      // 5. Create audit log
-      await tx.auditLog.create({
-        data: {
-          action: 'CRYPTO_DEPOSIT_CREDITED',
-          userId: depositTx.userId,
-          actorType: 'system',
-          metadata: {
-            transactionId,
-            cryptoAmount: depositTx.cryptoAmount.toString(),
-            ngnAmount: ngnAmount.toString(),
-            asset: depositTx.asset,
-            network: depositTx.network,
+            exchangeRate: rate.toNumber(),
+            ngnAmount: ngnAmount.toNumber(),
+            creditedAt: new Date(),
             ewsScore: ewsCheck.score,
             ewsFlags: ewsCheck.flags,
+            holdUntil: ewsCheck.holdUntil,
+            metadata: {
+              ...(depositTx.metadata as object),
+              creditedBlockHash: blockHash,
+              ewsAction: ewsCheck.action,
+            },
           },
-          ipAddress: req.ip,
-        },
-      });
+        });
 
-      return updated;
-    }, {
-      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-    });
+        // 4. Create main transaction record
+        await tx.transaction.create({
+          data: {
+            receiverId: depositTx.userId,
+            amount: ngnAmount.toNumber(),
+            currency: 'NGN',
+            type: 'crypto_deposit',
+            status: 'SUCCESS',
+            idempotencyKey: `crypto_${transactionId}`,
+            providerTxId: transactionId,
+            beforeBalance: beforeBalance.toNumber(),
+            afterBalance: afterBalance.toNumber(),
+            reference: `CRYPTO-${transactionId}`,
+            externalReference: depositTx.asset,
+            metadata: {
+              cryptoAmount: depositTx.cryptoAmount.toString(),
+              cryptoCurrency: depositTx.asset,
+              network: depositTx.network,
+              exchangeRate: rate.toString(),
+              confirmations,
+            },
+          },
+        });
 
-    this.logger.log(`Credited ${ngnAmount.toString()} NGN for ${depositTx.cryptoAmount.toString()} ${depositTx.asset}`, {
-      userId: depositTx.userId,
-      transactionId,
-      ewsAction: ewsCheck.action,
-    });
+        // 5. Create audit log
+        await tx.auditLog.create({
+          data: {
+            action: 'CRYPTO_DEPOSIT_CREDITED',
+            userId: depositTx.userId,
+            actorType: 'system',
+            metadata: {
+              transactionId,
+              cryptoAmount: depositTx.cryptoAmount.toString(),
+              ngnAmount: ngnAmount.toString(),
+              asset: depositTx.asset,
+              network: depositTx.network,
+              ewsScore: ewsCheck.score,
+              ewsFlags: ewsCheck.flags,
+            },
+            ipAddress: req.ip,
+          },
+        });
+
+        return updated;
+      },
+      {
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+      },
+    );
+
+    this.logger.log(
+      `Credited ${ngnAmount.toString()} NGN for ${depositTx.cryptoAmount.toString()} ${depositTx.asset}`,
+      {
+        userId: depositTx.userId,
+        transactionId,
+        ewsAction: ewsCheck.action,
+      },
+    );
 
     return {
       status: ewsCheck.action === 'delay' ? 'held' : 'confirmed',

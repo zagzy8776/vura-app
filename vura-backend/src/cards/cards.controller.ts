@@ -1,4 +1,14 @@
-import { Controller, Post, Get, Put, Delete, Body, Param, UseGuards, Request } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Get,
+  Put,
+  Delete,
+  Body,
+  Param,
+  UseGuards,
+  Request,
+} from '@nestjs/common';
 import { CardsService } from './cards.service';
 import { AuthGuard } from '../auth/auth.guard';
 
@@ -10,9 +20,13 @@ export class CardsController {
   @Post()
   createCard(
     @Request() req: { user: { userId: string } },
-    @Body() body: { type: 'Virtual' | 'Physical'; currency?: string }
+    @Body() body: { type: 'Virtual' | 'Physical'; currency?: string },
   ) {
-    return this.cardsService.createCard(req.user.userId, body.type, body.currency || 'NGN');
+    return this.cardsService.createCard(
+      req.user.userId,
+      body.type,
+      body.currency || 'NGN',
+    );
   }
 
   @UseGuards(AuthGuard)
@@ -26,16 +40,20 @@ export class CardsController {
   updateCardStatus(
     @Request() req: { user: { userId: string } },
     @Param('id') cardId: string,
-    @Body() body: { status: 'active' | 'frozen' }
+    @Body() body: { status: 'active' | 'frozen' },
   ) {
-    return this.cardsService.updateCardStatus(req.user.userId, cardId, body.status);
+    return this.cardsService.updateCardStatus(
+      req.user.userId,
+      cardId,
+      body.status,
+    );
   }
 
   @UseGuards(AuthGuard)
   @Delete(':id')
   deleteCard(
     @Request() req: { user: { userId: string } },
-    @Param('id') cardId: string
+    @Param('id') cardId: string,
   ) {
     return this.cardsService.deleteCard(req.user.userId, cardId);
   }
@@ -44,7 +62,7 @@ export class CardsController {
   @Get(':id/pin')
   getCardPin(
     @Request() req: { user: { userId: string } },
-    @Param('id') cardId: string
+    @Param('id') cardId: string,
   ) {
     return this.cardsService.getCardPin(req.user.userId, cardId);
   }

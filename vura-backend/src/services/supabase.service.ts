@@ -17,7 +17,9 @@ export class SupabaseService {
       this.isConfigured = true;
       this.logger.log('Supabase client initialized');
     } else {
-      this.logger.warn('Supabase URL and Key not configured - Supabase features disabled');
+      this.logger.warn(
+        'Supabase URL and Key not configured - Supabase features disabled',
+      );
     }
   }
 }

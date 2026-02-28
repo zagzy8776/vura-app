@@ -20,7 +20,6 @@ export class AuthController {
     private otpService: OTPService,
   ) {}
 
-
   @Post('register')
   register(@Body() dto: RegisterDto) {
     return this.authService.register(dto);
@@ -35,11 +34,15 @@ export class AuthController {
   // Verify device OTP for new device login
   @Throttle({ default: { limit: 3, ttl: 300000 } }) // 3 attempts per 5 minutes
   @Post('verify-otp')
-  verifyOtp(@Body() body: { vuraTag: string; otp: string; deviceFingerprint: string }) {
-    return this.authService.verifyDeviceOtp(body.vuraTag, body.otp, body.deviceFingerprint);
+  verifyOtp(
+    @Body() body: { vuraTag: string; otp: string; deviceFingerprint: string },
+  ) {
+    return this.authService.verifyDeviceOtp(
+      body.vuraTag,
+      body.otp,
+      body.deviceFingerprint,
+    );
   }
-
-
 
   @UseGuards(AuthGuard)
   @Get('profile')
@@ -57,7 +60,7 @@ export class AuthController {
     }
 
     const otp = await this.otpService.createOTP(user.id, 'pin_reset');
-    
+
     // Send OTP via SMS
     // TODO: Implement SMS service integration
     return {
@@ -118,7 +121,7 @@ export class AuthController {
       user.id,
       purpose as 'pin_reset' | 'phone_verify',
     );
-    
+
     // Send email notification
     await this.authService.sendOTPEmail(
       user.id,

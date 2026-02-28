@@ -6,7 +6,12 @@ import {
 import { PrismaService } from '../prisma.service';
 import * as bcrypt from 'bcrypt';
 import * as jwt from 'jsonwebtoken';
-import { encrypt, normalizePhone, validatePhone } from '../utils/encryption';
+import {
+  encrypt,
+  decrypt,
+  normalizePhone,
+  validatePhone,
+} from '../utils/encryption';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { EmailService } from '../services/email.service';
@@ -17,7 +22,6 @@ export class AuthService {
     private prisma: PrismaService,
     private emailService: EmailService,
   ) {}
-
 
   async register(dto: RegisterDto) {
     const { phone, email, pin, vuraTag } = dto;
@@ -67,7 +71,6 @@ export class AuthService {
 
     // Check if this is production environment
     const isProduction = process.env.NODE_ENV === 'production';
-
     if (isProduction) {
       // In production, require OTP verification before creating account
       // Generate OTP and store it temporarily
@@ -89,13 +92,18 @@ export class AuthService {
 
       // Send OTP email
       if (email) {
-        await this.emailService.sendRegistrationOtp(email, otp, { browser: 'Unknown', os: 'Unknown' });
+        await this.emailService.sendRegistrationOtp(
+          pendingRegistration.id,
+          otp,
+          { browser: 'Unknown', os: 'Unknown' },
+        );
       }
 
       return {
         requiresVerification: true,
         method: 'email_otp',
-        message: 'Please check your email for verification code to complete registration',
+        message:
+          'Please check your email for verification code to complete registration',
         pendingId: pendingRegistration.id,
       };
     } else {
@@ -136,9 +144,10 @@ export class AuthService {
    * Complete registration with OTP verification
    */
   async completeRegistration(pendingId: string, otp: string) {
-    const pendingRegistration = await this.prisma.pendingRegistration.findUnique({
-      where: { id: pendingId },
-    });
+    const pendingRegistration =
+      await this.prisma.pendingRegistration.findUnique({
+        where: { id: pendingId },
+      });
 
     if (!pendingRegistration) {
       throw new BadRequestException('Invalid registration request');
@@ -149,7 +158,9 @@ export class AuthService {
     }
 
     if (pendingRegistration.otpAttempts >= 3) {
-      throw new BadRequestException('Too many OTP attempts. Please start registration again');
+      throw new BadRequestException(
+        'Too many OTP attempts. Please start registration again',
+      );
     }
 
     // Verify OTP
@@ -373,7 +384,7 @@ export class AuthService {
     purpose: string,
   ) {
     // Decrypt the email
-    const email = emailEncrypted; // Note: email is already decrypted in this context
+    const email = decrypt(emailEncrypted);
 
     if (!email) {
       throw new BadRequestException('No email provided for OTP');
@@ -388,11 +399,7 @@ export class AuthService {
 
     // Send OTP email based on purpose
     if (purpose === 'registration') {
-      await this.emailService.sendRegistrationOtp(
-        userId,
-        otp,
-        deviceInfo,
-      );
+      await this.emailService.sendRegistrationOtp(userId, otp, deviceInfo);
     } else if (purpose === 'device_verification') {
       await this.emailService.sendDeviceVerificationOtp(
         userId,
@@ -418,7 +425,6 @@ export class AuthService {
         lockedUntil: null,
       },
     });
-
 
     // Log PIN change
     await this.prisma.auditLog.create({
@@ -499,13 +505,42 @@ export class AuthService {
     }
 
     try {
+      // Handle different fingerprint formats
       const parts = fingerprint.split('|');
+
+      // Extract browser info with better parsing
+      let browser = 'Unknown';
+      if (parts[0]) {
+        const browserRaw = parts[0].toLowerCase();
+        if (browserRaw.includes('chrome')) browser = 'Chrome';
+        else if (browserRaw.includes('firefox')) browser = 'Firefox';
+        else if (browserRaw.includes('safari')) browser = 'Safari';
+        else if (browserRaw.includes('edge')) browser = 'Edge';
+        else if (browserRaw.includes('opera')) browser = 'Opera';
+        else browser = parts[0];
+      }
+
+      // Extract OS info with better parsing
+      let os = 'Unknown';
+      if (parts[1]) {
+        const osRaw = parts[1].toLowerCase();
+        if (osRaw.includes('windows')) os = 'Windows';
+        else if (osRaw.includes('macos') || osRaw.includes('mac os'))
+          os = 'macOS';
+        else if (osRaw.includes('linux')) os = 'Linux';
+        else if (osRaw.includes('android')) os = 'Android';
+        else if (osRaw.includes('ios')) os = 'iOS';
+        else os = parts[1];
+      }
+
       return {
-        browser: parts[0] || 'Unknown',
-        os: parts[1] || 'Unknown',
-        ip: parts[2],
+        browser,
+        os,
+        ip: parts[2] || undefined,
       };
-    } catch {
+    } catch (error) {
+      // Log parsing error for debugging
+      console.warn('Failed to parse device fingerprint:', fingerprint, error);
       return { browser: 'Unknown', os: 'Unknown' };
     }
   }

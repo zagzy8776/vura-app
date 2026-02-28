@@ -65,9 +65,7 @@ export class CloudinaryService {
         (error, result) => {
           if (error) {
             this.logger.error('Cloudinary upload error:', error);
-            reject(
-              new BadRequestException(`Upload failed: ${error.message}`),
-            );
+            reject(new BadRequestException(`Upload failed: ${error.message}`));
           } else {
             resolve({
               url: result?.secure_url || '',

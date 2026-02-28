@@ -1,4 +1,8 @@
-import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  BadRequestException,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
 import { randomBytes } from 'crypto';
 import { Decimal } from '@prisma/client/runtime/library';
@@ -28,7 +32,9 @@ export class QrCodesService {
     }
 
     if (merchant.kycTier < 1) {
-      throw new BadRequestException('Merchant must complete KYC to accept payments');
+      throw new BadRequestException(
+        'Merchant must complete KYC to accept payments',
+      );
     }
 
     // Generate unique QR code

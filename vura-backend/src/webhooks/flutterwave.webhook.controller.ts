@@ -1,4 +1,12 @@
-import { Controller, Post, Body, Headers, HttpCode, Logger, BadRequestException } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Body,
+  Headers,
+  HttpCode,
+  Logger,
+  BadRequestException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma.service';
 import { FlutterwaveService } from '../services/flutterwave.service';
@@ -14,7 +22,8 @@ export class FlutterwaveWebhookController {
     private flutterwaveService: FlutterwaveService,
   ) {
     // This is your Flutterwave webhook secret hash
-    this.secretHash = this.configService.get<string>('FLUTTERWAVE_SECRET_HASH') || '';
+    this.secretHash =
+      this.configService.get<string>('FLUTTERWAVE_SECRET_HASH') || '';
   }
 
   @Post()
@@ -36,15 +45,15 @@ export class FlutterwaveWebhookController {
       case 'charge.completed':
         await this.handleChargeCompleted(payload.data);
         break;
-      
+
       case 'transfer.completed':
         await this.handleTransferCompleted(payload.data);
         break;
-      
+
       case 'transfer.failed':
         await this.handleTransferFailed(payload.data);
         break;
-      
+
       default:
         this.logger.log(`Unhandled event type: ${eventType}`);
     }
@@ -58,16 +67,18 @@ export class FlutterwaveWebhookController {
    */
   private async handleChargeCompleted(data: any) {
     const { amount, currency, tx_ref, flw_ref, customer } = data;
-    
+
     // Extract user ID from the transaction reference (format: VURA-{userId}-{timestamp})
     const userId = tx_ref?.replace('VURA-', '')?.split('-')[0];
-    
+
     if (!userId) {
       this.logger.error(`Could not extract userId from tx_ref: ${tx_ref}`);
       return;
     }
 
-    this.logger.log(`Processing deposit: ${amount} ${currency} for user ${userId}`);
+    this.logger.log(
+      `Processing deposit: ${amount} ${currency} for user ${userId}`,
+    );
 
     // Find the user
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
@@ -150,7 +161,7 @@ export class FlutterwaveWebhookController {
    */
   private async handleTransferCompleted(data: any) {
     const { amount, currency, tx_ref, flw_ref } = data;
-    
+
     this.logger.log(`Transfer completed: ${tx_ref}, Amount: ${amount}`);
 
     // Update transaction status
@@ -168,7 +179,7 @@ export class FlutterwaveWebhookController {
    */
   private async handleTransferFailed(data: any) {
     const { amount, currency, tx_ref, flw_ref } = data;
-    
+
     this.logger.log(`Transfer failed: ${tx_ref}, Amount: ${amount}`);
 
     // Find the transaction
@@ -179,7 +190,9 @@ export class FlutterwaveWebhookController {
     if (transaction && transaction.senderId) {
       // Refund the sender (they were charged but transfer failed)
       const senderBalance = await this.prisma.balance.findUnique({
-        where: { userId_currency: { userId: transaction.senderId, currency: 'NGN' } },
+        where: {
+          userId_currency: { userId: transaction.senderId, currency: 'NGN' },
+        },
       });
 
       if (senderBalance) {

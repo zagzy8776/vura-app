@@ -1,4 +1,9 @@
-import { Injectable, BadRequestException, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import {
+  Injectable,
+  BadRequestException,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
 import { LimitsService } from '../limits/limits.service';
 import { HoldsService } from '../holds/holds.service';
@@ -23,11 +28,17 @@ export class TransactionsService {
     description?: string,
     pin?: string,
   ) {
-    await this.limitsService.checkSendLimit(senderId, new Decimal(amount), 'NGN');
+    await this.limitsService.checkSendLimit(
+      senderId,
+      new Decimal(amount),
+      'NGN',
+    );
     await this.holdsService.checkHeldFunds(senderId, new Decimal(amount));
 
     if (pin) {
-      const user = await this.prisma.user.findUnique({ where: { id: senderId } });
+      const user = await this.prisma.user.findUnique({
+        where: { id: senderId },
+      });
       if (!user) {
         throw new UnauthorizedException('User not found');
       }
@@ -38,11 +49,26 @@ export class TransactionsService {
     }
 
     if (recipient.startsWith('@') || this.isValidVuraTag(recipient)) {
-      return await this.handleInternalTransfer(senderId, recipient, amount, description);
+      return await this.handleInternalTransfer(
+        senderId,
+        recipient,
+        amount,
+        description,
+      );
     } else if (this.isValidPhoneNumber(recipient)) {
-      return await this.handleRequestFlow(senderId, recipient, amount, description);
+      return await this.handleRequestFlow(
+        senderId,
+        recipient,
+        amount,
+        description,
+      );
     } else if (this.isValidBankAccount(recipient)) {
-      return await this.handleExternalTransfer(senderId, recipient, amount, description);
+      return await this.handleExternalTransfer(
+        senderId,
+        recipient,
+        amount,
+        description,
+      );
     } else {
       throw new BadRequestException('Invalid recipient format');
     }
@@ -97,11 +123,12 @@ export class TransactionsService {
         update: { amount: recipientBefore + amount, lastUpdatedBy: 'user' },
       });
 
-      const { shouldFlag, reason } = await this.holdsService.shouldFlagTransaction(
-        senderId,
-        new Decimal(amount),
-        1,
-      );
+      const { shouldFlag, reason } =
+        await this.holdsService.shouldFlagTransaction(
+          senderId,
+          new Decimal(amount),
+          1,
+        );
 
       const heldUntil = shouldFlag
         ? this.holdsService.calculateHoldExpiry()
@@ -227,14 +254,15 @@ export class TransactionsService {
     });
 
     try {
-      const flutterwaveResponse = await this.flutterwaveService.initiateTransfer(
-        accountNumber,
-        bankCode,
-        accountVerification.accountName,
-        amount,
-        reference,
-        description,
-      );
+      const flutterwaveResponse =
+        await this.flutterwaveService.initiateTransfer(
+          accountNumber,
+          bankCode,
+          accountVerification.accountName,
+          amount,
+          reference,
+          description,
+        );
 
       await this.prisma.transaction.update({
         where: { id: transaction.id },
@@ -268,7 +296,8 @@ export class TransactionsService {
 
   private isValidBankAccount(details: string): boolean {
     const [accountNumber, bankCode] = details.split(':');
-    const isValidAccount = accountNumber !== undefined && /^[0-9]{10}$/.test(accountNumber);
+    const isValidAccount =
+      accountNumber !== undefined && /^[0-9]{10}$/.test(accountNumber);
     const isValidBank = bankCode !== undefined && /^[0-9]{3}$/.test(bankCode);
     return isValidAccount && isValidBank;
   }
@@ -297,7 +326,8 @@ export class TransactionsService {
       status: tx.status,
       reference: tx.reference,
       createdAt: tx.createdAt,
-      counterparty: tx.senderId === userId ? tx.receiver?.vuraTag : tx.sender?.vuraTag,
+      counterparty:
+        tx.senderId === userId ? tx.receiver?.vuraTag : tx.sender?.vuraTag,
       direction: tx.senderId === userId ? 'sent' : 'received',
     }));
   }

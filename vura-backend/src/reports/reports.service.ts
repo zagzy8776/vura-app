@@ -11,7 +11,7 @@ export class ReportsService {
   async generateDailyTransactionReport(date: Date): Promise<string> {
     const startOfDay = new Date(date);
     startOfDay.setHours(0, 0, 0, 0);
-    
+
     const endOfDay = new Date(date);
     endOfDay.setHours(23, 59, 59, 999);
 
@@ -46,20 +46,22 @@ export class ReportsService {
     ].join(',');
 
     // CSV Rows
-    const rows = transactions.map((tx) => [
-      tx.createdAt.toISOString(),
-      tx.reference,
-      tx.type,
-      tx.amount.toString(),
-      tx.currency,
-      tx.status,
-      tx.sender?.vuraTag || 'N/A',
-      tx.sender?.kycTier || 'N/A',
-      tx.receiver?.vuraTag || 'N/A',
-      tx.receiver?.kycTier || 'N/A',
-      tx.isFlagged ? 'Yes' : 'No',
-      tx.flagReason || '',
-    ].join(','));
+    const rows = transactions.map((tx) =>
+      [
+        tx.createdAt.toISOString(),
+        tx.reference,
+        tx.type,
+        tx.amount.toString(),
+        tx.currency,
+        tx.status,
+        tx.sender?.vuraTag || 'N/A',
+        tx.sender?.kycTier || 'N/A',
+        tx.receiver?.vuraTag || 'N/A',
+        tx.receiver?.kycTier || 'N/A',
+        tx.isFlagged ? 'Yes' : 'No',
+        tx.flagReason || '',
+      ].join(','),
+    );
 
     return [headers, ...rows].join('\n');
   }
@@ -100,8 +102,11 @@ export class ReportsService {
 
     // CSV Rows
     const rows = users.map((user) => {
-      const complianceStatus = this.getComplianceStatus(user.kycTier, user.bvnVerified);
-      
+      const complianceStatus = this.getComplianceStatus(
+        user.kycTier,
+        user.bvnVerified,
+      );
+
       return [
         user.id,
         user.vuraTag,
@@ -149,19 +154,21 @@ export class ReportsService {
     ].join(',');
 
     // CSV Rows
-    const rows = flaggedTransactions.map((tx) => [
-      tx.createdAt.toISOString(),
-      tx.reference,
-      tx.amount.toString(),
-      tx.currency,
-      tx.sender?.vuraTag || 'N/A',
-      tx.sender?.kycTier || 'N/A',
-      tx.sender?.fraudScore || 0,
-      tx.receiver?.vuraTag || 'N/A',
-      tx.flagReason || '',
-      tx.heldUntil?.toISOString() || 'N/A',
-      tx.status,
-    ].join(','));
+    const rows = flaggedTransactions.map((tx) =>
+      [
+        tx.createdAt.toISOString(),
+        tx.reference,
+        tx.amount.toString(),
+        tx.currency,
+        tx.sender?.vuraTag || 'N/A',
+        tx.sender?.kycTier || 'N/A',
+        tx.sender?.fraudScore || 0,
+        tx.receiver?.vuraTag || 'N/A',
+        tx.flagReason || '',
+        tx.heldUntil?.toISOString() || 'N/A',
+        tx.status,
+      ].join(','),
+    );
 
     return [headers, ...rows].join('\n');
   }
@@ -198,17 +205,19 @@ export class ReportsService {
     ].join(',');
 
     // CSV Rows
-    const rows = largeTransactions.map((tx) => [
-      tx.createdAt.toISOString(),
-      tx.reference,
-      tx.amount.toString(),
-      tx.sender?.vuraTag || 'N/A',
-      tx.sender?.kycTier || 'N/A',
-      tx.receiver?.vuraTag || 'N/A',
-      tx.receiver?.kycTier || 'N/A',
-      tx.status,
-      tx.amount.gte(5000000) ? 'YES - Tier 3 Required' : 'No',
-    ].join(','));
+    const rows = largeTransactions.map((tx) =>
+      [
+        tx.createdAt.toISOString(),
+        tx.reference,
+        tx.amount.toString(),
+        tx.sender?.vuraTag || 'N/A',
+        tx.sender?.kycTier || 'N/A',
+        tx.receiver?.vuraTag || 'N/A',
+        tx.receiver?.kycTier || 'N/A',
+        tx.status,
+        tx.amount.gte(5000000) ? 'YES - Tier 3 Required' : 'No',
+      ].join(','),
+    );
 
     return [headers, ...rows].join('\n');
   }

@@ -34,7 +34,8 @@ export class YellowCardService {
   ) {
     this.apiKey = this.config.get('YELLOWCARD_API_KEY') || '';
     this.apiSecret = this.config.get('YELLOWCARD_API_SECRET') || '';
-    this.baseUrl = this.config.get('YELLOWCARD_BASE_URL') || 'https://api.yellowcard.io';
+    this.baseUrl =
+      this.config.get('YELLOWCARD_BASE_URL') || 'https://api.yellowcard.io';
     this.webhookSecret = this.config.get('YELLOWCARD_WEBHOOK_SECRET') || '';
   }
 
@@ -51,7 +52,9 @@ export class YellowCardService {
     const config = (NETWORK_CONFIG as any)[asset]?.[network];
 
     if (!config) {
-      throw new BadRequestException(`Network ${network} not supported for ${asset}`);
+      throw new BadRequestException(
+        `Network ${network} not supported for ${asset}`,
+      );
     }
 
     // Check if address already exists
@@ -80,7 +83,7 @@ export class YellowCardService {
     // In production, this would be a real API call
     // For now, simulating the response structure
     const mockAddress = this.generateMockAddress(asset, network);
-    
+
     const deposit = await this.prisma.cryptoDeposit.create({
       data: {
         userId,
@@ -142,7 +145,7 @@ export class YellowCardService {
 
     // Fetch from Yellow Card API (mock for now)
     const rate = await this.fetchRateFromAPI(pair);
-    
+
     // Cache for 15 minutes
     await this.prisma.exchangeRate.upsert({
       where: { pair_provider: { pair, provider: 'yellowcard' } },
@@ -185,12 +188,12 @@ export class YellowCardService {
   ): Promise<{ ngnAmount: Decimal; rate: Decimal }> {
     const pair = `${asset}_NGN`;
     const rate = await this.getExchangeRate(pair);
-    
+
     // Apply 0.5% spread (you keep this as revenue)
     const adjustedRate = rate.mul(0.995);
-    
+
     const ngnAmount = cryptoAmount.mul(adjustedRate);
-    
+
     return { ngnAmount, rate: adjustedRate };
   }
 
@@ -203,22 +206,22 @@ export class YellowCardService {
   ): Promise<{ cryptoAmount: Decimal; rate: Decimal; exchangeFee: Decimal }> {
     const pair = `${asset}_NGN`;
     const rate = await this.getExchangeRate(pair);
-    
+
     // Apply 1% spread (you keep this as revenue for buy)
     const adjustedRate = rate.mul(1.01);
-    
+
     // Calculate crypto amount with 0.5% platform fee
     const ngnWithFee = ngnAmount.mul(1.005);
     const cryptoAmount = ngnWithFee.div(adjustedRate);
     const exchangeFee = ngnAmount.mul(0.005); // 0.5% fee
-    
+
     return { cryptoAmount, rate: adjustedRate, exchangeFee };
   }
 
   /**
    * Buy Crypto - Convert Naira to USDT
    * This triggers when a user wants to move their Vura Naira balance into USDT
-   * 
+   *
    * @param userId - The user's ID
    * @param ngnAmount - Amount in Naira to convert
    * @param asset - Target crypto asset (default: USDT)
@@ -240,7 +243,9 @@ export class YellowCardService {
     // Validate network is supported for asset
     const config = (NETWORK_CONFIG as any)[asset]?.[network];
     if (!config) {
-      throw new BadRequestException(`Network ${network} not supported for ${asset}`);
+      throw new BadRequestException(
+        `Network ${network} not supported for ${asset}`,
+      );
     }
 
     // Check user has sufficient NGN balance
@@ -253,17 +258,24 @@ export class YellowCardService {
       },
     });
 
-    const currentBalance = balance ? new Decimal(balance.amount.toString()) : new Decimal(0);
-    
+    const currentBalance = balance
+      ? new Decimal(balance.amount.toString())
+      : new Decimal(0);
+
     if (currentBalance.lessThan(ngnAmount)) {
       throw new BadRequestException('Insufficient NGN balance');
     }
 
     // Calculate crypto amount
-    const { cryptoAmount, rate, exchangeFee } = await this.calculateCryptoAmount(ngnAmount, asset);
+    const { cryptoAmount, rate, exchangeFee } =
+      await this.calculateCryptoAmount(ngnAmount, asset);
 
     // Get or create user's deposit address for receiving crypto
-    const depositAddress = await this.getOrCreateDepositAddress(userId, asset, network);
+    const depositAddress = await this.getOrCreateDepositAddress(
+      userId,
+      asset,
+      network,
+    );
 
     // Generate transaction ID
     const transactionId = `buy_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -280,7 +292,9 @@ export class YellowCardService {
         },
       });
 
-      const beforeBalance = currentBal ? new Decimal(currentBal.amount.toString()) : new Decimal(0);
+      const beforeBalance = currentBal
+        ? new Decimal(currentBal.amount.toString())
+        : new Decimal(0);
       const afterBalance = beforeBalance.sub(ngnAmount);
 
       // 2. Debit NGN balance
@@ -363,10 +377,13 @@ export class YellowCardService {
       });
     });
 
-    this.logger.log(`Crypto buy initiated: ${ngnAmount.toString()} NGN -> ${cryptoAmount.toString()} ${asset}`, {
-      userId,
-      transactionId,
-    });
+    this.logger.log(
+      `Crypto buy initiated: ${ngnAmount.toString()} NGN -> ${cryptoAmount.toString()} ${asset}`,
+      {
+        userId,
+        transactionId,
+      },
+    );
 
     return {
       success: true,
@@ -401,7 +418,7 @@ export class YellowCardService {
     }
 
     const mockAddress = this.generateMockAddress(asset, network);
-    
+
     return await this.prisma.cryptoDeposit.create({
       data: {
         userId,
@@ -435,10 +452,7 @@ export class YellowCardService {
         'High gas fees - only recommended for large deposits',
         'Minimum deposit: 100 USDT',
       ],
-      BTC: [
-        'Send only Bitcoin (BTC)',
-        'Minimum deposit: 0.001 BTC',
-      ],
+      BTC: ['Send only Bitcoin (BTC)', 'Minimum deposit: 0.001 BTC'],
       ETH: [
         'Send only Ethereum (ETH)',
         'High gas fees - only recommended for large deposits',
@@ -452,21 +466,24 @@ export class YellowCardService {
   /**
    * Mock address generation (replace with real Yellow Card API)
    */
-  private generateMockAddress(asset: string, network: string): { address: string; memo?: string } {
+  private generateMockAddress(
+    asset: string,
+    network: string,
+  ): { address: string; memo?: string } {
     const prefix = asset.toLowerCase();
     const random = crypto.randomBytes(20).toString('hex');
-    
+
     if (asset === 'USDT') {
       if (network === 'TRC20') {
         return { address: `T${random.substr(0, 33)}` }; // Tron address
       }
       return { address: `0x${random}` }; // EVM address
     }
-    
+
     if (asset === 'BTC') {
       return { address: `bc1q${random.substr(0, 38)}` }; // Bech32
     }
-    
+
     return { address: `0x${random}` };
   }
 
@@ -476,14 +493,14 @@ export class YellowCardService {
   private async fetchRateFromAPI(pair: string): Promise<number> {
     // Mock rates - in production, call Yellow Card
     const rates: Record<string, number> = {
-      'USDT_NGN': 1530.50,
-      'BTC_NGN': 95000000.00,
-      'ETH_NGN': 5200000.00,
+      USDT_NGN: 1530.5,
+      BTC_NGN: 95000000.0,
+      ETH_NGN: 5200000.0,
     };
-    
+
     // Simulate API delay
-    await new Promise(r => setTimeout(r, 100));
-    
+    await new Promise((r) => setTimeout(r, 100));
+
     return rates[pair] || 1500;
   }
 }

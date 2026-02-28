@@ -1,7 +1,7 @@
 // vura-backend/src/middleware/csrf.middleware.ts
 import { Injectable, NestMiddleware } from '@nestjs/common';
 import { Request, Response, NextFunction } from 'express';
-// eslint-disable-next-line @typescript-eslint/no-var-requires
+
 const csrf = require('csurf');
 
 @Injectable()
@@ -41,9 +41,7 @@ export const validateCSRFToken = (
   next: NextFunction,
 ) => {
   const token =
-    req.headers['x-csrf-token'] ||
-    (req.body as any)._csrf ||
-    (req.query as any)._csrf;
+    req.headers['x-csrf-token'] || req.body._csrf || (req.query as any)._csrf;
 
   if (!token) {
     return res.status(403).json({

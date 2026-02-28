@@ -14,7 +14,6 @@ import { AuthGuard } from '../auth/auth.guard';
 import { EWSService } from '../services/ews.service';
 import { PrismaService } from '../prisma.service';
 
-
 @Controller('api/ews')
 @UseGuards(AuthGuard)
 export class EWSController {
@@ -56,7 +55,9 @@ export class EWSController {
         data: assessment,
       };
     } catch (error) {
-      this.logger.error(`Error assessing transaction: ${(error as Error).message}`);
+      this.logger.error(
+        `Error assessing transaction: ${(error as Error).message}`,
+      );
       throw error;
     }
   }
@@ -75,7 +76,9 @@ export class EWSController {
         count: holds.length,
       };
     } catch (error) {
-      this.logger.error(`Error fetching user holds: ${(error as Error).message}`);
+      this.logger.error(
+        `Error fetching user holds: ${(error as Error).message}`,
+      );
       throw error;
     }
   }
@@ -207,7 +210,9 @@ export class EWSController {
       const { reason, holdHours, createdBy } = body;
 
       if (!reason || !holdHours || !createdBy) {
-        throw new BadRequestException('reason, holdHours, and createdBy are required');
+        throw new BadRequestException(
+          'reason, holdHours, and createdBy are required',
+        );
       }
 
       // Verify transaction exists
@@ -225,7 +230,11 @@ export class EWSController {
       }
 
       // Create the hold
-      await this.ewsService.createTransactionHold(transactionId, reason, holdHours);
+      await this.ewsService.createTransactionHold(
+        transactionId,
+        reason,
+        holdHours,
+      );
 
       // Log the hold creation
       await this.prisma.auditLog.create({
@@ -301,7 +310,9 @@ export class EWSController {
         data: hold,
       };
     } catch (error) {
-      this.logger.error(`Error checking beneficiary hold: ${(error as Error).message}`);
+      this.logger.error(
+        `Error checking beneficiary hold: ${(error as Error).message}`,
+      );
       throw error;
     }
   }
@@ -323,7 +334,9 @@ export class EWSController {
         data: check,
       };
     } catch (error) {
-      this.logger.error(`Error checking high value: ${(error as Error).message}`);
+      this.logger.error(
+        `Error checking high value: ${(error as Error).message}`,
+      );
       throw error;
     }
   }
@@ -396,7 +409,9 @@ export class EWSController {
         },
       };
     } catch (error) {
-      this.logger.error(`Error fetching EWS stats: ${(error as Error).message}`);
+      this.logger.error(
+        `Error fetching EWS stats: ${(error as Error).message}`,
+      );
       throw error;
     }
   }

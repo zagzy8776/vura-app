@@ -81,7 +81,7 @@ export class ErrorHandlerService {
   handleValidationError(
     validationErrors: any[],
     req: Request,
-    res: Response
+    res: Response,
   ): void {
     const error: SecurityError = {
       type: 'validation',
@@ -99,7 +99,7 @@ export class ErrorHandlerService {
   handleFraudDetectionError(
     fraudScore: any,
     req: Request,
-    res: Response
+    res: Response,
   ): void {
     const error: SecurityError = {
       type: 'fraud',
@@ -118,11 +118,7 @@ export class ErrorHandlerService {
     this.handleSecurityError(error, req, res);
   }
 
-  logSecurityEvent(
-    eventType: string,
-    details: any,
-    req: Request
-  ): void {
+  logSecurityEvent(eventType: string, details: any, req: Request): void {
     this.logger.warn({
       event: eventType,
       details,
@@ -138,7 +134,7 @@ export class ErrorHandlerService {
   sanitizeError(error: any): any {
     // Remove sensitive information from error objects
     const sanitized = { ...error };
-    
+
     // Remove sensitive fields
     delete sanitized.stack;
     delete sanitized.config;

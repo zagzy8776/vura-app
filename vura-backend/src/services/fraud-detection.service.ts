@@ -54,9 +54,7 @@ export class FraudDetectionService {
     }
 
     // Check daily transaction limit
-    const dailyAmount = this.getDailyTransactionAmount(
-      transaction.userId,
-    );
+    const dailyAmount = this.getDailyTransactionAmount(transaction.userId);
     if (dailyAmount > this.MAX_DAILY_AMOUNT) {
       score += 40;
       reasons.push('Daily transaction limit exceeded');
@@ -86,7 +84,10 @@ export class FraudDetectionService {
     return Math.floor(Math.random() * 10);
   }
 
-  private checkNewBeneficiary(_userId: string, _beneficiaryId: string): boolean {
+  private checkNewBeneficiary(
+    _userId: string,
+    _beneficiaryId: string,
+  ): boolean {
     // This would check if this is the first transaction to this beneficiary
     // For now, returning a mock value
     return Math.random() > 0.7;

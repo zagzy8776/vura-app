@@ -21,11 +21,15 @@ export class BeneficiariesService {
   ) {
     // Validate based on type
     if (data.type === 'vura' && !data.vuraTag) {
-      throw new BadRequestException('vuraTag is required for Vura beneficiaries');
+      throw new BadRequestException(
+        'vuraTag is required for Vura beneficiaries',
+      );
     }
 
     if (data.type === 'bank' && (!data.accountNumber || !data.bankCode)) {
-      throw new BadRequestException('accountNumber and bankCode are required for bank beneficiaries');
+      throw new BadRequestException(
+        'accountNumber and bankCode are required for bank beneficiaries',
+      );
     }
 
     // Check if beneficiary already exists
@@ -64,10 +68,7 @@ export class BeneficiariesService {
   async getBeneficiaries(userId: string) {
     return this.prisma.beneficiary.findMany({
       where: { userId },
-      orderBy: [
-        { isFavorite: 'desc' },
-        { createdAt: 'desc' },
-      ],
+      orderBy: [{ isFavorite: 'desc' }, { createdAt: 'desc' }],
     });
   }
 

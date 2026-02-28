@@ -13,22 +13,34 @@ const VerifyOtp = () => {
   const [resendLoading, setResendLoading] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
-  const { verifyDeviceOtp, signIn } = useAuth();
+  const { verifyDeviceOtp, completeRegistration, resendOtp } = useAuth();
 
   // Get verification data from location state with validation
   const locationState = location.state || {};
-  const vuraTag = locationState.vuraTag;
-  const deviceFingerprint = locationState.deviceFingerprint;
-  const message = locationState.message;
+  const mode = locationState.mode as "device" | "registration" | undefined;
+  const vuraTag = locationState.vuraTag as string | undefined;
+  const deviceFingerprint = locationState.deviceFingerprint as string | undefined;
+  const pendingId = locationState.pendingId as string | undefined;
+  const email = locationState.email as string | undefined;
+  const message = locationState.message as string | undefined;
 
-  // If no verification data, redirect to login
-  if (!vuraTag || !deviceFingerprint) {
+  // Validate required state for each mode
+  const isDeviceMode = mode === "device";
+  const isRegistrationMode = mode === "registration";
+
+  const missingDeviceState = isDeviceMode && (!vuraTag || !deviceFingerprint);
+  const missingRegistrationState = isRegistrationMode && (!pendingId || !email);
+  const missingMode = !isDeviceMode && !isRegistrationMode;
+
+  if (missingMode || missingDeviceState || missingRegistrationState) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background p-8">
         <div className="text-center">
           <h1 className="text-2xl font-bold mb-4">Session Expired</h1>
-          <p className="text-muted-foreground mb-6">Please login again</p>
-          <Button onClick={() => navigate("/login")}>Go to Login</Button>
+          <p className="text-muted-foreground mb-6">Please start again</p>
+          <Button onClick={() => navigate(isRegistrationMode ? "/register" : "/login")}>
+            Go Back
+          </Button>
         </div>
       </div>
     );
@@ -48,12 +60,25 @@ const VerifyOtp = () => {
 
     setLoading(true);
     try {
-      await verifyDeviceOtp(vuraTag, otp, deviceFingerprint);
-      toast({
-        title: "Device verified!",
-        description: "Welcome back to Vura",
-      });
-      navigate("/");
+      if (isRegistrationMode && pendingId) {
+        await completeRegistration(pendingId, otp);
+        toast({
+          title: "Account verified!",
+          description: "Welcome to Vura",
+        });
+        navigate("/");
+        return;
+      }
+
+      if (isDeviceMode && vuraTag && deviceFingerprint) {
+        await verifyDeviceOtp(vuraTag, otp, deviceFingerprint);
+        toast({
+          title: "Device verified!",
+          description: "Welcome back to Vura",
+        });
+        navigate("/");
+        return;
+      }
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : "Verification failed";
       toast({
@@ -69,17 +94,21 @@ const VerifyOtp = () => {
   const handleResend = async () => {
     setResendLoading(true);
     try {
-      // Re-trigger login to send new OTP
-      await signIn(vuraTag, ""); // This will fail but trigger OTP resend
+      if (!email) {
+        throw new Error("Missing email");
+      }
+
+      await resendOtp(email, isDeviceMode ? "device_verification" : "registration");
       toast({
         title: "Code resent",
         description: "Check your email for the new code",
       });
-    } catch {
-      // Expected to fail, but OTP should be resent
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : "Resend failed";
       toast({
-        title: "Code resent",
-        description: "Check your email for the new code",
+        title: "Resend failed",
+        description: errorMessage,
+        variant: "destructive",
       });
     } finally {
       setResendLoading(false);
@@ -126,7 +155,9 @@ const VerifyOtp = () => {
             <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary/10 mb-4">
               <Mail className="h-8 w-8 text-primary" />
             </div>
-            <h1 className="text-2xl font-bold text-foreground mb-2">Verify your device</h1>
+            <h1 className="text-2xl font-bold text-foreground mb-2">
+              {isRegistrationMode ? "Verify your email" : "Verify your device"}
+            </h1>
             <p className="text-muted-foreground">{message || "We sent a 6-digit code to your email"}</p>
           </div>
 

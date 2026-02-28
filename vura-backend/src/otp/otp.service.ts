@@ -26,7 +26,10 @@ export class OTPService {
   /**
    * Create and store OTP
    */
-  async createOTP(userId: string, purpose: 'pin_reset' | 'phone_verify'): Promise<string> {
+  async createOTP(
+    userId: string,
+    purpose: 'pin_reset' | 'phone_verify',
+  ): Promise<string> {
     // Invalidate any existing OTPs for this purpose
     await this.prisma.oTP.deleteMany({
       where: {
@@ -36,7 +39,9 @@ export class OTPService {
     });
 
     const otp = this.generateOTP();
-    const expiresAt = new Date(Date.now() + this.OTP_EXPIRY_MINUTES * 60 * 1000);
+    const expiresAt = new Date(
+      Date.now() + this.OTP_EXPIRY_MINUTES * 60 * 1000,
+    );
 
     await this.prisma.oTP.create({
       data: {
@@ -56,7 +61,11 @@ export class OTPService {
   /**
    * Verify OTP
    */
-  async verifyOTP(userId: string, otp: string, purpose: 'pin_reset' | 'phone_verify'): Promise<boolean> {
+  async verifyOTP(
+    userId: string,
+    otp: string,
+    purpose: 'pin_reset' | 'phone_verify',
+  ): Promise<boolean> {
     const otpRecord = await this.prisma.oTP.findFirst({
       where: {
         userId,
@@ -76,7 +85,9 @@ export class OTPService {
         where: { id: otpRecord.id },
         data: { used: true },
       });
-      throw new BadRequestException('Too many failed attempts. Please request a new OTP.');
+      throw new BadRequestException(
+        'Too many failed attempts. Please request a new OTP.',
+      );
     }
 
     // Increment attempts
@@ -104,10 +115,7 @@ export class OTPService {
   async cleanupExpiredOTPs(): Promise<number> {
     const result = await this.prisma.oTP.deleteMany({
       where: {
-        OR: [
-          { expiresAt: { lt: new Date() } },
-          { used: true },
-        ],
+        OR: [{ expiresAt: { lt: new Date() } }, { used: true }],
       },
     });
 

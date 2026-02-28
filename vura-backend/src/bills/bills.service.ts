@@ -22,7 +22,9 @@ export class BillsService {
   ) {
     // Validate amount
     if (data.amount < 50 || data.amount > 50000) {
-      throw new BadRequestException('Airtime amount must be between ₦50 and ₦50,000');
+      throw new BadRequestException(
+        'Airtime amount must be between ₦50 and ₦50,000',
+      );
     }
 
     // TODO: Integrate with airtime API (e.g., VTU, ClubKonnect)
@@ -37,7 +39,6 @@ export class BillsService {
       `Airtime purchase for ${data.phoneNumber}`,
       '0000', // System transaction, no PIN needed
     );
-
 
     // Log the purchase
     await this.prisma.auditLog.create({
@@ -85,7 +86,6 @@ export class BillsService {
       '0000',
     );
 
-
     return {
       success: true,
       reference: mockReference,
@@ -120,7 +120,6 @@ export class BillsService {
       '0000',
     );
 
-
     return {
       success: true,
       reference: mockReference,
@@ -154,7 +153,6 @@ export class BillsService {
       '0000',
     );
 
-
     return {
       success: true,
       reference: mockReference,
@@ -184,7 +182,11 @@ export class BillsService {
       { code: 'ibadan', name: 'Ibadan Disco', states: ['Oyo', 'Ogun'] },
       { code: 'abuja', name: 'Abuja Disco', states: ['FCT', 'Nasarawa'] },
       { code: 'kano', name: 'Kano Disco', states: ['Kano', 'Jigawa'] },
-      { code: 'ph', name: 'Port Harcourt Disco', states: ['Rivers', 'Bayelsa'] },
+      {
+        code: 'ph',
+        name: 'Port Harcourt Disco',
+        states: ['Rivers', 'Bayelsa'],
+      },
     ];
   }
 

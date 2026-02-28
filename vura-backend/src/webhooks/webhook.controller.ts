@@ -49,7 +49,7 @@ export class WebhookController {
   // ============================================
   // YELLOW CARD WEBHOOK
   // ============================================
-  
+
   /**
    * Handle Yellow Card crypto webhooks
    * Yellow Card handles crypto-to-fiat deposits
@@ -79,7 +79,9 @@ export class WebhookController {
     });
 
     if (existing) {
-      this.logger.warn('Duplicate Yellow Card webhook received', { providerTxId });
+      this.logger.warn('Duplicate Yellow Card webhook received', {
+        providerTxId,
+      });
       return { status: 'already_processed' };
     }
 
@@ -89,7 +91,7 @@ export class WebhookController {
         provider: 'yellowcard',
         providerTxId,
         eventType: eventType || 'deposit.received',
-        rawPayload: payload as any,
+        rawPayload: payload,
         signatureValid: true,
       },
     });
@@ -111,17 +113,21 @@ export class WebhookController {
 
     // Find user's deposit address
     const deposit = await this.prisma.cryptoDeposit.findFirst({
-      where: { 
-        address, 
-        asset, 
-        network, 
-        status: 'active' 
+      where: {
+        address,
+        asset,
+        network,
+        status: 'active',
       },
       include: { user: true },
     });
 
     if (!deposit) {
-      this.logger.error('Yellow Card deposit address not found', { address, asset, network });
+      this.logger.error('Yellow Card deposit address not found', {
+        address,
+        asset,
+        network,
+      });
       throw new BadRequestException('Invalid deposit address');
     }
 
@@ -150,10 +156,13 @@ export class WebhookController {
       },
     });
 
-    this.logger.log(`Yellow Card deposit received: ${amount} ${asset} on ${network}`, {
-      userId: deposit.userId,
-      transactionId,
-    });
+    this.logger.log(
+      `Yellow Card deposit received: ${amount} ${asset} on ${network}`,
+      {
+        userId: deposit.userId,
+        transactionId,
+      },
+    );
 
     return { status: 'pending', message: 'Awaiting confirmations' };
   }
@@ -176,7 +185,7 @@ export class WebhookController {
 
     // Run EWS checks
     const ewsCheck = await this.runEWSChecks(depositTx);
-    
+
     if (ewsCheck.action === 'block') {
       await this.prisma.cryptoDepositTransaction.update({
         where: { id: depositTx.id },
@@ -186,7 +195,7 @@ export class WebhookController {
           ewsFlags: ewsCheck.flags,
         },
       });
-      
+
       return { status: 'flagged', reason: 'ews_block' };
     }
 
@@ -199,7 +208,7 @@ export class WebhookController {
     // Check KYC tier limits
     const tierLimit = TIER_LIMITS[depositTx.user.kycTier] || TIER_LIMITS[1];
     const currentBalance = await this.getCurrentBalance(depositTx.userId);
-    
+
     if (currentBalance.add(ngnAmount).greaterThan(tierLimit.maxBalance)) {
       await this.prisma.cryptoDepositTransaction.update({
         where: { id: depositTx.id },
@@ -208,7 +217,7 @@ export class WebhookController {
           ewsFlags: ['tier_limit_exceeded'],
         },
       });
-      
+
       throw new BadRequestException('Deposit would exceed KYC tier limit');
     }
 
@@ -223,7 +232,9 @@ export class WebhookController {
         },
       });
 
-      const beforeBalance = balance ? new Decimal(balance.amount.toString()) : new Decimal(0);
+      const beforeBalance = balance
+        ? new Decimal(balance.amount.toString())
+        : new Decimal(0);
       const afterBalance = beforeBalance.add(ngnAmount);
 
       // Credit NGN balance
@@ -301,7 +312,9 @@ export class WebhookController {
       });
     });
 
-    this.logger.log(`Yellow Card: Credited ${ngnAmount.toString()} NGN for ${depositTx.cryptoAmount.toString()} ${depositTx.asset}`);
+    this.logger.log(
+      `Yellow Card: Credited ${ngnAmount.toString()} NGN for ${depositTx.cryptoAmount.toString()} ${depositTx.asset}`,
+    );
 
     return { status: 'confirmed', ngnAmount: ngnAmount.toString() };
   }
@@ -352,7 +365,7 @@ export class WebhookController {
         provider: 'monnify',
         providerTxId: reference,
         eventType,
-        rawPayload: payload as any,
+        rawPayload: payload,
         signatureValid: true,
       },
     });
@@ -388,7 +401,10 @@ export class WebhookController {
     });
 
     if (!user) {
-      this.logger.warn('Monnify: User not found for account', { accountNumber, reference });
+      this.logger.warn('Monnify: User not found for account', {
+        accountNumber,
+        reference,
+      });
       return { status: 'user_not_found' };
     }
 
@@ -412,7 +428,9 @@ export class WebhookController {
         },
       });
 
-      const beforeBalance = balance ? new Decimal(balance.amount.toString()) : new Decimal(0);
+      const beforeBalance = balance
+        ? new Decimal(balance.amount.toString())
+        : new Decimal(0);
       const afterBalance = beforeBalance.add(amount);
 
       // Credit balance
@@ -473,16 +491,19 @@ export class WebhookController {
       });
     });
 
-    this.logger.log(`Monnify: Credited ${amount.toString()} NGN to user ${user.id}`, { reference });
+    this.logger.log(
+      `Monnify: Credited ${amount.toString()} NGN to user ${user.id}`,
+      { reference },
+    );
 
     return { status: 'success', amount: amount.toString() };
   }
 
   private async handleMonnifyFailedPayment(payload: any) {
     const reference = payload.reference;
-    
+
     this.logger.warn('Monnify payment failed', { reference });
-    
+
     return { status: 'failed', reference };
   }
 
@@ -532,7 +553,7 @@ export class WebhookController {
         provider: 'paystack',
         providerTxId: reference,
         eventType: event,
-        rawPayload: payload as any,
+        rawPayload: payload,
         signatureValid: true,
       },
     });
@@ -617,7 +638,9 @@ export class WebhookController {
           },
         });
 
-        const beforeBalance = balance ? new Decimal(balance.amount.toString()) : new Decimal(0);
+        const beforeBalance = balance
+          ? new Decimal(balance.amount.toString())
+          : new Decimal(0);
         const transAmount = new Decimal(transaction.amount);
         const afterBalance = beforeBalance.add(transAmount);
 
@@ -640,7 +663,10 @@ export class WebhookController {
         });
       });
 
-      this.logger.warn(`Paystack: Transfer failed and refunded`, { reference, reason });
+      this.logger.warn(`Paystack: Transfer failed and refunded`, {
+        reference,
+        reason,
+      });
     }
 
     return { status: 'failed', reason };
@@ -666,7 +692,9 @@ export class WebhookController {
           },
         });
 
-        const beforeBalance = balance ? new Decimal(balance.amount.toString()) : new Decimal(0);
+        const beforeBalance = balance
+          ? new Decimal(balance.amount.toString())
+          : new Decimal(0);
         const refundAmount = new Decimal(amount);
         const afterBalance = beforeBalance.add(refundAmount);
 
@@ -701,7 +729,9 @@ export class WebhookController {
         });
       });
 
-      this.logger.log(`Paystack: Transfer reversed and refunded`, { reference });
+      this.logger.log(`Paystack: Transfer reversed and refunded`, {
+        reference,
+      });
     }
 
     return { status: 'reversed' };

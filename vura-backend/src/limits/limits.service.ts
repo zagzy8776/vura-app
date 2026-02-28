@@ -7,12 +7,15 @@ export class LimitsService {
   constructor(private prisma: PrismaService) {}
 
   // Tier limits configuration (2026 CBN standards)
-  private readonly TIER_LIMITS: Record<number, {
-    dailySendLimit: Decimal;
-    maxBalance: Decimal;
-    requiresBiometric: boolean;
-    cumulativeLimit: Decimal; // Annual cumulative limit
-  }> = {
+  private readonly TIER_LIMITS: Record<
+    number,
+    {
+      dailySendLimit: Decimal;
+      maxBalance: Decimal;
+      requiresBiometric: boolean;
+      cumulativeLimit: Decimal; // Annual cumulative limit
+    }
+  > = {
     1: {
       dailySendLimit: new Decimal(30000), // ₦30k (2026 CBN standard for Tier 1)
       maxBalance: new Decimal(300000), // ₦300k
@@ -84,7 +87,7 @@ export class LimitsService {
       const remaining = tierLimits.dailySendLimit.minus(totalSent);
       throw new BadRequestException(
         `Daily limit exceeded. Remaining: ₦${remaining.toFixed(2)}. ` +
-        `Upgrade to Tier ${user.kycTier + 1} for higher limits.`,
+          `Upgrade to Tier ${user.kycTier + 1} for higher limits.`,
       );
     }
   }
@@ -111,7 +114,7 @@ export class LimitsService {
       throw new BadRequestException('Invalid KYC tier');
     }
 
-    const balance = user.balances.find(b => b.currency === currency);
+    const balance = user.balances.find((b) => b.currency === currency);
     const currentBalance = new Decimal(balance?.amount || 0);
     const newBalance = currentBalance.plus(incomingAmount);
 
@@ -119,7 +122,7 @@ export class LimitsService {
       const maxAllowed = tierLimits.maxBalance.minus(currentBalance);
       throw new BadRequestException(
         `Maximum balance limit exceeded. You can only receive up to ₦${maxAllowed.toFixed(2)}. ` +
-        `Upgrade to Tier ${user.kycTier + 1} for higher limits.`,
+          `Upgrade to Tier ${user.kycTier + 1} for higher limits.`,
       );
     }
   }
@@ -147,7 +150,7 @@ export class LimitsService {
     }
 
     const tierLimits = this.TIER_LIMITS[user.kycTier];
-    
+
     // Get today's sent amount
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -163,7 +166,7 @@ export class LimitsService {
       _sum: { amount: true },
     });
 
-    const ngnBalance = user.balances.find(b => b.currency === 'NGN');
+    const ngnBalance = user.balances.find((b) => b.currency === 'NGN');
     const currentBalance = new Decimal(ngnBalance?.amount || 0);
     const sentToday = new Decimal(dailySent._sum.amount || 0);
     const remaining = tierLimits.dailySendLimit.minus(sentToday);

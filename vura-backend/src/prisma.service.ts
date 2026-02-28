@@ -1,8 +1,16 @@
-import { Injectable, OnModuleInit, OnModuleDestroy, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  OnModuleInit,
+  OnModuleDestroy,
+  Logger,
+} from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 
 @Injectable()
-export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
+export class PrismaService
+  extends PrismaClient
+  implements OnModuleInit, OnModuleDestroy
+{
   private readonly logger = new Logger(PrismaService.name);
   private readonly maxRetries = 5;
   private readonly retryDelay = 3000;
@@ -26,15 +34,19 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
   private async connectWithRetry(): Promise<void> {
     for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
       try {
-        this.logger.log(`Database connection attempt ${attempt}/${this.maxRetries}...`);
+        this.logger.log(
+          `Database connection attempt ${attempt}/${this.maxRetries}...`,
+        );
         await this.$connect();
         this.logger.log('Database connected successfully');
         return;
       } catch (error) {
-        this.logger.warn(`Database connection attempt ${attempt} failed: ${error.message}`);
+        this.logger.warn(
+          `Database connection attempt ${attempt} failed: ${error.message}`,
+        );
         if (attempt < this.maxRetries) {
           this.logger.log(`Retrying in ${this.retryDelay / 1000} seconds...`);
-          await new Promise(resolve => setTimeout(resolve, this.retryDelay));
+          await new Promise((resolve) => setTimeout(resolve, this.retryDelay));
         }
       }
     }

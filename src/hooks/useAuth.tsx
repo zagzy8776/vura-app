@@ -13,10 +13,22 @@ interface AuthContextType {
   token: string | null;
   loading: boolean;
   signUp: (phone: string, pin: string, vuraTag: string, email?: string, password?: string) => Promise<void>;
-  signIn: (vuraTag: string, pin: string) => Promise<any>;
+  signIn: (vuraTag: string, pin: string) => Promise<SignInResult>;
+  completeRegistration: (pendingId: string, otp: string) => Promise<void>;
+  resendOtp: (email: string, purpose?: string) => Promise<void>;
   verifyDeviceOtp: (vuraTag: string, otp: string, deviceFingerprint: string) => Promise<void>;
   signOut: () => void;
 }
+
+type SignInResult =
+  | { requiresVerification: false }
+  | {
+      requiresVerification: true;
+      method: string;
+      message?: string;
+      vuraTag: string;
+      deviceFingerprint: string;
+    };
 
 const AuthContext = createContext<AuthContextType>({} as AuthContextType);
 
@@ -29,7 +41,7 @@ const getApiUrl = (): string => {
   if (isProduction) {
     return "https://vura-app.onrender.com/api";
   }
-  return "http://localhost:3000/api";
+  return "http://localhost:3002/api";
 };
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
@@ -110,11 +122,62 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       throw new Error(data.message || "Registration failed");
     }
 
+    // In production, backend may require OTP verification for registration
+    if (data.requiresVerification) {
+      // Let the caller decide how to route (e.g. navigate to OTP screen)
+      throw new Error(
+        JSON.stringify({
+          code: "REGISTRATION_OTP_REQUIRED",
+          message: data.message || "Verification required",
+          pendingId: data.pendingId,
+          email,
+        }),
+      );
+    }
+
     setSecureStorage("vura_token", data.token);
     setSecureStorage("vura_user", JSON.stringify(data.user));
     setToken(data.token);
     setUser(data.user);
     setSessionExpiry(Date.now() + SESSION_TIMEOUT);
+  };
+
+  const completeRegistration = async (pendingId: string, otp: string) => {
+    const API_URL = getApiUrl();
+    const response = await fetch(`${API_URL}/auth/complete-registration`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ pendingId, otp }),
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.message || "Verification failed");
+    }
+
+    setSecureStorage("vura_token", data.token);
+    setSecureStorage("vura_user", JSON.stringify(data.user));
+    setToken(data.token);
+    setUser(data.user);
+    setSessionExpiry(Date.now() + SESSION_TIMEOUT);
+  };
+
+  const resendOtp = async (email: string, purpose?: string) => {
+    const API_URL = getApiUrl();
+    const response = await fetch(`${API_URL}/auth/resend-otp`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ email, purpose }),
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.message || "Resend failed");
+    }
   };
 
   const signIn = async (vuraTag: string, pin: string) => {
@@ -188,7 +251,19 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, loading, signUp, signIn, verifyDeviceOtp, signOut }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        token,
+        loading,
+        signUp,
+        signIn,
+        completeRegistration,
+        resendOtp,
+        verifyDeviceOtp,
+        signOut,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

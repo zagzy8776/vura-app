@@ -1,4 +1,12 @@
-import { Controller, Post, UseGuards, Body, UploadedFile, UseInterceptors, BadRequestException } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  UseGuards,
+  Body,
+  UploadedFile,
+  UseInterceptors,
+  BadRequestException,
+} from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { AuthGuard } from '@nestjs/passport';
 import { ConfigService } from '@nestjs/config';
@@ -27,7 +35,9 @@ export class KYCUploadController {
     // Validate file type
     const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
     if (!allowedTypes.includes(file.mimetype)) {
-      throw new BadRequestException('Invalid file type. Only JPEG, PNG and WebP are allowed.');
+      throw new BadRequestException(
+        'Invalid file type. Only JPEG, PNG and WebP are allowed.',
+      );
     }
 
     // Validate file size (max 10MB)
@@ -36,14 +46,21 @@ export class KYCUploadController {
     }
 
     // Validate ID type
-    const validIdTypes = ['nin', 'drivers_license', 'voters_card', 'intl_passport'];
+    const validIdTypes = [
+      'nin',
+      'drivers_license',
+      'voters_card',
+      'intl_passport',
+    ];
     if (!validIdTypes.includes(idType)) {
       throw new BadRequestException('Invalid ID type');
     }
 
     // Check if Cloudinary is configured
     if (!this.cloudinary.isConfigured) {
-      throw new BadRequestException('Image upload service not configured. Please contact support.');
+      throw new BadRequestException(
+        'Image upload service not configured. Please contact support.',
+      );
     }
 
     // Upload to Cloudinary
@@ -79,7 +96,9 @@ export class KYCUploadController {
     // Validate file type
     const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
     if (!allowedTypes.includes(file.mimetype)) {
-      throw new BadRequestException('Invalid file type. Only JPEG, PNG and WebP are allowed.');
+      throw new BadRequestException(
+        'Invalid file type. Only JPEG, PNG and WebP are allowed.',
+      );
     }
 
     // Validate file size (max 10MB)
@@ -89,7 +108,9 @@ export class KYCUploadController {
 
     // Check if Cloudinary is configured
     if (!this.cloudinary.isConfigured) {
-      throw new BadRequestException('Image upload service not configured. Please contact support.');
+      throw new BadRequestException(
+        'Image upload service not configured. Please contact support.',
+      );
     }
 
     // Upload to Cloudinary
@@ -123,11 +144,18 @@ export class KYCUploadController {
 
     // Validate URLs are provided
     if (!idCardUrl || !selfieUrl) {
-      throw new BadRequestException('Both ID card and selfie URLs are required');
+      throw new BadRequestException(
+        'Both ID card and selfie URLs are required',
+      );
     }
 
     // Validate ID type
-    const validIdTypes = ['nin', 'drivers_license', 'voters_card', 'intl_passport'];
+    const validIdTypes = [
+      'nin',
+      'drivers_license',
+      'voters_card',
+      'intl_passport',
+    ];
     if (!validIdTypes.includes(idType)) {
       throw new BadRequestException('Invalid ID type');
     }

@@ -48,7 +48,8 @@ export class QoreIDService {
   constructor() {
     this.clientId = process.env.QOREID_CLIENT_ID || '';
     this.clientSecret = process.env.QOREID_CLIENT_SECRET || '';
-    this.baseUrl = process.env.QOREID_BASE_URL || 'https://api.qoreid.com/api/v1';
+    this.baseUrl =
+      process.env.QOREID_BASE_URL || 'https://api.qoreid.com/api/v1';
 
     if (!this.clientId || !this.clientSecret) {
       this.logger.warn(
@@ -97,18 +98,19 @@ export class QoreIDService {
       this.logger.log(`Verifying BVN: ${bvn.slice(-4)} (last 4 digits)`);
 
       // Call QoreID BVN verification endpoint
-      const verificationResponse = await this.client.post<QoreIDVerificationResponse>(
-        '/verification/bvn_verification',
-        {
-          bvn,
-          check_aml: true,
-        },
-        {
-          headers: {
-            Authorization: this.generateAuthHeader(),
+      const verificationResponse =
+        await this.client.post<QoreIDVerificationResponse>(
+          '/verification/bvn_verification',
+          {
+            bvn,
+            check_aml: true,
           },
-        },
-      );
+          {
+            headers: {
+              Authorization: this.generateAuthHeader(),
+            },
+          },
+        );
 
       if (!verificationResponse.data.success) {
         this.logger.warn(
@@ -189,18 +191,19 @@ export class QoreIDService {
       this.logger.log(`Verifying NIN: ${nin.slice(-4)} (last 4 digits)`);
 
       // Call QoreID NIN verification endpoint
-      const verificationResponse = await this.client.post<QoreIDVerificationResponse>(
-        '/verification/nin_verification',
-        {
-          nin,
-          check_aml: true,
-        },
-        {
-          headers: {
-            Authorization: this.generateAuthHeader(),
+      const verificationResponse =
+        await this.client.post<QoreIDVerificationResponse>(
+          '/verification/nin_verification',
+          {
+            nin,
+            check_aml: true,
           },
-        },
-      );
+          {
+            headers: {
+              Authorization: this.generateAuthHeader(),
+            },
+          },
+        );
 
       if (!verificationResponse.data.success) {
         this.logger.warn(

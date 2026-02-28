@@ -11,7 +11,10 @@ export class ReceiptsService {
   /**
    * Generate receipt data for a transaction
    */
-  async generateReceipt(transactionId: string, userId: string): Promise<{
+  async generateReceipt(
+    transactionId: string,
+    userId: string,
+  ): Promise<{
     receiptUrl: string;
     qrCodeDataUrl: string;
     transaction: any;
@@ -19,10 +22,7 @@ export class ReceiptsService {
     const transaction = await this.prisma.transaction.findFirst({
       where: {
         id: transactionId,
-        OR: [
-          { senderId: userId },
-          { receiverId: userId },
-        ],
+        OR: [{ senderId: userId }, { receiverId: userId }],
       },
       include: {
         sender: {

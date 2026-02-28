@@ -44,7 +44,7 @@ export class WalletService {
 
     for (const balance of balances) {
       const amount = new Decimal(balance.amount.toString());
-      
+
       switch (balance.currency) {
         case 'NGN':
           result.ngn = amount;
@@ -79,7 +79,7 @@ export class WalletService {
     },
   ): Promise<{ success: boolean; newBalance: Decimal; transactionId: string }> {
     const ngnAmount = new Decimal(amount);
-    
+
     if (ngnAmount.lessThanOrEqualTo(0)) {
       throw new BadRequestException('Amount must be greater than 0');
     }
@@ -110,7 +110,7 @@ export class WalletService {
         },
       });
 
-      const beforeBalance = currentBalance 
+      const beforeBalance = currentBalance
         ? new Decimal(currentBalance.amount.toString())
         : new Decimal(0);
       const afterBalance = beforeBalance.add(ngnAmount);
@@ -172,9 +172,12 @@ export class WalletService {
       return { transaction, afterBalance };
     });
 
-    this.logger.log(`Monnify deposit: ${ngnAmount.toString()} NGN credited to user ${userId}`, {
-      reference,
-    });
+    this.logger.log(
+      `Monnify deposit: ${ngnAmount.toString()} NGN credited to user ${userId}`,
+      {
+        reference,
+      },
+    );
 
     return {
       success: true,
@@ -213,7 +216,7 @@ export class WalletService {
       },
     });
 
-    const availableBalance = currentBalance 
+    const availableBalance = currentBalance
       ? new Decimal(currentBalance.amount.toString())
       : new Decimal(0);
 
@@ -227,7 +230,9 @@ export class WalletService {
     });
 
     if (existingTx) {
-      this.logger.warn('Duplicate Paystack transaction received', { reference });
+      this.logger.warn('Duplicate Paystack transaction received', {
+        reference,
+      });
       return {
         success: true,
         newBalance: new Decimal(existingTx.afterBalance?.toString() || '0'),
@@ -291,9 +296,12 @@ export class WalletService {
       return { transaction, afterBalance };
     });
 
-    this.logger.log(`Paystack payout: ${ngnAmount.toString()} NGN debited from user ${userId}`, {
-      reference,
-    });
+    this.logger.log(
+      `Paystack payout: ${ngnAmount.toString()} NGN debited from user ${userId}`,
+      {
+        reference,
+      },
+    );
 
     return {
       success: true,
@@ -334,7 +342,7 @@ export class WalletService {
       },
     });
 
-    const availableBalance = currentBalance 
+    const availableBalance = currentBalance
       ? new Decimal(currentBalance.amount.toString())
       : new Decimal(0);
 
@@ -343,7 +351,8 @@ export class WalletService {
     }
 
     // Calculate crypto amount (this would call YellowCardService in production)
-    const { cryptoAmount, exchangeRate, fee } = await this.calculateCryptoFromNgn(amount, cryptoAsset);
+    const { cryptoAmount, exchangeRate, fee } =
+      await this.calculateCryptoFromNgn(amount, cryptoAsset);
 
     const transactionId = `swap_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
@@ -409,10 +418,13 @@ export class WalletService {
       });
     });
 
-    this.logger.log(`Crypto swap initiated: ${amount.toString()} NGN -> ${cryptoAmount.toString()} ${cryptoAsset}`, {
-      userId,
-      transactionId,
-    });
+    this.logger.log(
+      `Crypto swap initiated: ${amount.toString()} NGN -> ${cryptoAmount.toString()} ${cryptoAsset}`,
+      {
+        userId,
+        transactionId,
+      },
+    );
 
     return {
       success: true,
@@ -436,9 +448,9 @@ export class WalletService {
   }> {
     // Mock rates - in production, call Yellow Card API
     const rates: Record<string, number> = {
-      USDT: 1530.50,
-      BTC: 95000000.00,
-      ETH: 5200000.00,
+      USDT: 1530.5,
+      BTC: 95000000.0,
+      ETH: 5200000.0,
     };
 
     const rate = new Decimal(rates[asset] || 1500);
@@ -468,10 +480,7 @@ export class WalletService {
     const { type, currency, limit = 20, offset = 0 } = options || {};
 
     const where: Record<string, unknown> = {
-      OR: [
-        { senderId: userId },
-        { receiverId: userId },
-      ],
+      OR: [{ senderId: userId }, { receiverId: userId }],
     };
 
     if (type) {

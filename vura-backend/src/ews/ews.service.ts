@@ -15,13 +15,13 @@ export class EWSService {
   // Risk thresholds
   private readonly VELOCITY_LIMIT = 5; // Max 5 transactions per hour
   private readonly VELOCITY_SCORE = 25;
-  
+
   private readonly AMOUNT_MULTIPLIER = 3; // Flag if >3x average
   private readonly AMOUNT_ANOMALY_SCORE = 20;
-  
+
   private readonly NEW_DEVICE_SCORE = 30;
   private readonly LOCATION_CHANGE_SCORE = 25;
-  
+
   private readonly FREEZE_THRESHOLD = 80; // Auto-freeze if score >= 80
 
   constructor(private prisma: PrismaService) {}
@@ -49,11 +49,17 @@ export class EWSService {
     const amountScore = await this.checkAmountAnomaly(userId, amount);
     if (amountScore.isAnomaly) {
       score += this.AMOUNT_ANOMALY_SCORE;
-      flags.push(`amount_anomaly:${amountScore.multiplier.toFixed(1)}x_average`);
+      flags.push(
+        `amount_anomaly:${amountScore.multiplier.toFixed(1)}x_average`,
+      );
     }
 
     // 3. Device Deviation - New device + large amount
-    const deviceScore = await this.checkDeviceDeviation(userId, deviceFingerprint, amount);
+    const deviceScore = await this.checkDeviceDeviation(
+      userId,
+      deviceFingerprint,
+      amount,
+    );
     if (deviceScore.isNewDevice) {
       score += this.NEW_DEVICE_SCORE;
       flags.push('new_device');
@@ -94,7 +100,9 @@ export class EWSService {
   /**
    * Check transaction velocity (max 5 per hour)
    */
-  private async checkVelocity(userId: string): Promise<{ exceeded: boolean; count: number }> {
+  private async checkVelocity(
+    userId: string,
+  ): Promise<{ exceeded: boolean; count: number }> {
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
 
     const count = await this.prisma.transaction.count({
@@ -136,10 +144,9 @@ export class EWSService {
       return { isAnomaly: false, multiplier: 0 };
     }
 
-    const avgAmount = transactions.reduce(
-      (sum, tx) => sum.plus(tx.amount),
-      new Decimal(0),
-    ).dividedBy(transactions.length);
+    const avgAmount = transactions
+      .reduce((sum, tx) => sum.plus(tx.amount), new Decimal(0))
+      .dividedBy(transactions.length);
 
     const multiplier = amount.dividedBy(avgAmount).toNumber();
 
@@ -284,7 +291,6 @@ export class EWSService {
 
     const isFrozen = !!(user.lockedUntil && user.lockedUntil > new Date());
 
-
     return {
       fraudScore: user.fraudScore,
       isFrozen,
@@ -295,7 +301,11 @@ export class EWSService {
   /**
    * Manual account unfreeze (admin only)
    */
-  async unfreezeAccount(userId: string, adminId: string, reason: string): Promise<void> {
+  async unfreezeAccount(
+    userId: string,
+    adminId: string,
+    reason: string,
+  ): Promise<void> {
     await this.prisma.user.update({
       where: { id: userId },
       data: {
@@ -317,6 +327,8 @@ export class EWSService {
       },
     });
 
-    this.logger.log(`ACCOUNT UNFROZEN - User: ${userId}, By: ${adminId}, Reason: ${reason}`);
+    this.logger.log(
+      `ACCOUNT UNFROZEN - User: ${userId}, By: ${adminId}, Reason: ${reason}`,
+    );
   }
 }

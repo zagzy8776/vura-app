@@ -65,7 +65,6 @@ export const encrypt = (plaintext: string): string => {
     const message = error instanceof Error ? error.message : 'Unknown error';
     throw new Error(`Encryption failed: ${message}`);
   }
-
 };
 
 /**
@@ -102,7 +101,6 @@ export const decrypt = (encryptedData: string): string => {
     const message = error instanceof Error ? error.message : 'Unknown error';
     throw new Error(`Decryption failed: ${message}`);
   }
-
 };
 
 /**

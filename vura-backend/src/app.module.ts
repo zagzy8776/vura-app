@@ -35,7 +35,6 @@ import { KYCUploadController } from './kyc/kyc-upload.controller';
 import { RateLimitingMiddleware } from './middleware/rate-limiting.middleware';
 import { SecurityMiddleware } from './middleware/security.middleware';
 
-
 @Module({
   imports: [
     ThrottlerModule.forRoot([
