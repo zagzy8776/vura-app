@@ -26,6 +26,9 @@ export class AuthService {
   async register(dto: RegisterDto) {
     const { phone, email, pin, vuraTag } = dto;
 
+    const bypassOtpEmail = process.env.BYPASS_OTP_EMAIL === 'true';
+    const disableOtpVerification = process.env.DISABLE_OTP_VERIFICATION === 'true';
+
     // Validate phone format
     if (!validatePhone(phone)) {
       throw new BadRequestException(
@@ -71,6 +74,39 @@ export class AuthService {
 
     // Check if this is production environment
     const isProduction = process.env.NODE_ENV === 'production';
+
+    // Temporary: allow immediate registration/login without OTP
+    // (useful when email provider/domain is not configured yet)
+    if (disableOtpVerification) {
+      const user = await this.prisma.user.create({
+        data: {
+          vuraTag,
+          phoneEncrypted,
+          emailEncrypted,
+          hashedPin,
+          kycTier: 1,
+        },
+      });
+
+      await this.prisma.balance.createMany({
+        data: [
+          { userId: user.id, currency: 'NGN', amount: 0 },
+          { userId: user.id, currency: 'USDT', amount: 0 },
+        ],
+      });
+
+      const token = this.generateToken(user.id, user.vuraTag);
+
+      return {
+        user: {
+          id: user.id,
+          vuraTag: user.vuraTag,
+          kycTier: user.kycTier,
+        },
+        token,
+      };
+    }
+
     if (isProduction) {
       // In production, require OTP verification before creating account
       // Generate OTP and store it temporarily
@@ -90,22 +126,31 @@ export class AuthService {
         },
       });
 
-      // Send OTP email
-      if (email) {
-        await this.emailService.sendRegistrationOtp(
+      // Send OTP email (if configured). If BYPASS_OTP_EMAIL=true, expose OTP in response.
+      let otpDelivered = false;
+      if (email && this.emailService.isEmailEnabled()) {
+        otpDelivered = await this.emailService.sendRegistrationOtp(
           pendingRegistration.id,
           otp,
           { browser: 'Unknown', os: 'Unknown' },
         );
       }
 
-      return {
+      const response: Record<string, any> = {
         requiresVerification: true,
         method: 'email_otp',
         message:
           'Please check your email for verification code to complete registration',
         pendingId: pendingRegistration.id,
       };
+
+      if (bypassOtpEmail && !otpDelivered) {
+        response.otp = otp;
+        response.message =
+          'Email bypass enabled: use the OTP from this response to complete registration';
+      }
+
+      return response;
     } else {
       // In development, create account directly
       const user = await this.prisma.user.create({
@@ -213,6 +258,9 @@ export class AuthService {
   async login(dto: LoginDto) {
     const { vuraTag, pin, deviceFingerprint } = dto;
 
+    const bypassOtpEmail = process.env.BYPASS_OTP_EMAIL === 'true';
+    const disableOtpVerification = process.env.DISABLE_OTP_VERIFICATION === 'true';
+
     const user = await this.prisma.user.findUnique({
       where: { vuraTag },
     });
@@ -252,6 +300,29 @@ export class AuthService {
       throw new UnauthorizedException('Invalid PIN');
     }
 
+    // If OTP verification disabled, skip new-device OTP entirely
+    if (disableOtpVerification) {
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: {
+          failedPinAttempts: 0,
+          lockedUntil: null,
+          lastLoginAt: new Date(),
+          lastDeviceFingerprint: deviceFingerprint,
+        },
+      });
+
+      const token = this.generateToken(user.id, user.vuraTag);
+      return {
+        user: {
+          id: user.id,
+          vuraTag: user.vuraTag,
+          kycTier: user.kycTier,
+        },
+        token,
+      };
+    }
+
     // Check for new device
     const isNewDevice = this.validateDeviceFingerprint(
       user.lastDeviceFingerprint,
@@ -274,20 +345,31 @@ export class AuthService {
         },
       });
 
-      // Send OTP email
-      const deviceInfo = this.parseDeviceFingerprint(deviceFingerprint);
-      await this.emailService.sendDeviceVerificationOtp(
-        user.id,
-        otp,
-        deviceInfo,
-      );
+      // Send OTP email (if configured). If BYPASS_OTP_EMAIL=true, expose OTP in response.
+      let otpDelivered = false;
+      if (this.emailService.isEmailEnabled()) {
+        const deviceInfo = this.parseDeviceFingerprint(deviceFingerprint);
+        otpDelivered = await this.emailService.sendDeviceVerificationOtp(
+          user.id,
+          otp,
+          deviceInfo,
+        );
+      }
 
       // Return pending verification response
-      return {
+      const response: Record<string, any> = {
         requiresVerification: true,
         method: 'email_otp',
         message: 'Please check your email for verification code',
       };
+
+      if (bypassOtpEmail && !otpDelivered) {
+        response.otp = otp;
+        response.message =
+          'Email bypass enabled: use the OTP from this response to complete login';
+      }
+
+      return response;
     }
 
     // Reset failed attempts and update login info

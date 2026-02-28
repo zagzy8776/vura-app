@@ -83,6 +83,12 @@ const Register = () => {
       try {
         const parsed = JSON.parse(rawMessage);
         if (parsed?.code === "REGISTRATION_OTP_REQUIRED") {
+          if (parsed.otp) {
+            toast({
+              title: "OTP (email bypass)",
+              description: `Your OTP is: ${parsed.otp}`,
+            });
+          }
           toast({
             title: "Verify your email",
             description: parsed.message || "Enter the code sent to your email",

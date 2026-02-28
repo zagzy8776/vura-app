@@ -26,6 +26,7 @@ type SignInResult =
       requiresVerification: true;
       method: string;
       message?: string;
+      otp?: string;
       vuraTag: string;
       deviceFingerprint: string;
     };
@@ -124,6 +125,19 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     // In production, backend may require OTP verification for registration
     if (data.requiresVerification) {
+      // If backend is temporarily bypassing email, it may return the OTP directly
+      if (data.otp) {
+        throw new Error(
+          JSON.stringify({
+            code: "REGISTRATION_OTP_REQUIRED",
+            message: data.message || "Verification required",
+            pendingId: data.pendingId,
+            email,
+            otp: data.otp,
+          }),
+        );
+      }
+
       // Let the caller decide how to route (e.g. navigate to OTP screen)
       throw new Error(
         JSON.stringify({
@@ -205,6 +219,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         requiresVerification: true,
         method: data.method,
         message: data.message,
+        otp: data.otp,
         vuraTag,
         deviceFingerprint,
       };

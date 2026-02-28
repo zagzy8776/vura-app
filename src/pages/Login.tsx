@@ -29,6 +29,12 @@ const Login = () => {
       
       // Check if device verification is required
       if (result && result.requiresVerification) {
+        if (result.otp) {
+          toast({
+            title: "OTP (email bypass)",
+            description: `Your OTP is: ${result.otp}`,
+          });
+        }
         navigate("/verify-otp", {
           state: {
             mode: "device",
