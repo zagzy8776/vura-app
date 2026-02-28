@@ -153,4 +153,25 @@ export class TransactionsController {
       );
     }
   }
+
+  /**
+   * Return Flutterwave fee breakdown for bank transfers
+   * Rules (2026): ₦10 for < ₦10k, ₦25 for ≥ ₦10k + ₦50 stamp duty for ≥ ₦10k
+   */
+  @Get('transfer-fee')
+  getTransferFee(@Query('amount') amount: string) {
+    const parsed = Number(amount);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      throw new BadRequestException('Invalid amount');
+    }
+
+    const feeInfo = this.flutterwaveService.calculateTransferFee(parsed);
+    return {
+      success: true,
+      fee: feeInfo.fee,
+      stampDuty: feeInfo.stampDuty,
+      totalFee: feeInfo.total,
+      provider: 'flutterwave',
+    };
+  }
 }

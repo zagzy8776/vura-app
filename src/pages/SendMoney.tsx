@@ -87,7 +87,20 @@ const [userLimits, setUserLimits] = useState<{ dailyLimit: number; used: number;
   const [showAccountSuggestion, setShowAccountSuggestion] = useState(false);
   const [showSecurityModal, setShowSecurityModal] = useState(false);
 
-  const fee = amount ? Math.max(10, Number(amount) * (transferMode === "bank" ? 0.015 : 0.005)) : 0;
+  const [feeBreakdown, setFeeBreakdown] = useState<
+    | null
+    | {
+        fee: number;
+        stampDuty: number;
+        totalFee: number;
+      }
+  >(null);
+
+  const localFee = amount
+    ? Math.max(10, Number(amount) * (transferMode === "bank" ? 0.015 : 0.005))
+    : 0;
+
+  const fee = transferMode === "bank" && feeBreakdown ? feeBreakdown.totalFee : localFee;
   const total = Number(amount) + fee;
   const isOverLimit = Number(amount) + fee > userLimits.remaining;
 
@@ -147,12 +160,49 @@ const [userLimits, setUserLimits] = useState<{ dailyLimit: number; used: number;
     }
   };
 
+  const fetchTransferFee = async () => {
+    if (transferMode !== "bank") {
+      setFeeBreakdown(null);
+      return;
+    }
+    const parsed = Number(amount);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      setFeeBreakdown(null);
+      return;
+    }
+
+    try {
+      const res = await apiFetch(`/transactions/transfer-fee?amount=${parsed}`);
+      if (!res.ok) {
+        setFeeBreakdown(null);
+        return;
+      }
+      const data = await res.json();
+      if (data?.success) {
+        setFeeBreakdown({
+          fee: Number(data.fee || 0),
+          stampDuty: Number(data.stampDuty || 0),
+          totalFee: Number(data.totalFee || 0),
+        });
+      } else {
+        setFeeBreakdown(null);
+      }
+    } catch {
+      setFeeBreakdown(null);
+    }
+  };
+
   useEffect(() => {
     if (accountNumber.length === 10 && selectedBank && !accountVerified) {
       const debounce = setTimeout(verifyBankAccount, 1000);
       return () => clearTimeout(debounce);
     }
   }, [accountNumber, selectedBank]);
+
+  useEffect(() => {
+    const debounce = setTimeout(fetchTransferFee, 500);
+    return () => clearTimeout(debounce);
+  }, [amount, transferMode]);
 
   const handleSecurityConfirm = () => {
     setShowSecurityModal(false);
@@ -438,7 +488,24 @@ const [userLimits, setUserLimits] = useState<{ dailyLimit: number; used: number;
 
                 {amount && Number(amount) > 0 && (
                   <div className="rounded-xl bg-secondary p-4 space-y-2 text-sm">
-                    <div className="flex justify-between text-muted-foreground"><span>Transfer fee ({transferMode === "bank" ? "1.5%" : "0.5%"})</span><span>₦{fee.toFixed(2)}</span></div>
+                    {transferMode === "bank" && feeBreakdown ? (
+                      <>
+                        <div className="flex justify-between text-muted-foreground">
+                          <span>Provider fee</span>
+                          <span>₦{feeBreakdown.fee.toFixed(2)}</span>
+                        </div>
+                        <div className="flex justify-between text-muted-foreground">
+                          <span>Stamp duty</span>
+                          <span>₦{feeBreakdown.stampDuty.toFixed(2)}</span>
+                        </div>
+                        <div className="flex justify-between text-muted-foreground">
+                          <span>Total fees</span>
+                          <span>₦{feeBreakdown.totalFee.toFixed(2)}</span>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="flex justify-between text-muted-foreground"><span>Transfer fee ({transferMode === "bank" ? "1.5%" : "0.5%"})</span><span>₦{fee.toFixed(2)}</span></div>
+                    )}
                     {scheduleType !== "now" && <div className="flex justify-between text-amber-600"><span>{scheduleType === "later" ? "Scheduled" : "Recurring"}</span><span>{scheduleType === "later" ? scheduleDate : recurringFrequency}</span></div>}
                     <div className="flex justify-between font-semibold text-foreground"><span>Total</span><span>₦{total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span></div>
                   </div>
