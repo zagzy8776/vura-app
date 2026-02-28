@@ -2,7 +2,6 @@ import { Controller, Post, Get, Body, UseGuards, Request, Query, BadRequestExcep
 import { TransactionsService } from './transactions.service';
 import { AuthGuard } from '../auth/auth.guard';
 import { PaystackService } from '../services/paystack.service';
-import { MonnifyService } from '../services/monnify.service';
 import { BankCodesService } from '../services/bank-codes.service';
 
 @Controller('transactions')
@@ -10,7 +9,6 @@ export class TransactionsController {
   constructor(
     private transactionsService: TransactionsService,
     private paystackService: PaystackService,
-    private monnifyService: MonnifyService,
     private bankCodesService: BankCodesService
   ) {}
 
@@ -40,42 +38,23 @@ export class TransactionsController {
       amount: number; 
       description?: string; 
       pin?: string;
-      paymentProvider?: 'paystack' | 'monnify';
     }
   ) {
-    const { accountNumber, bankCode, accountName, amount, description, pin, paymentProvider = 'paystack' } = body;
+    const { accountNumber, bankCode, accountName, amount, description } = body;
     
-    // Verify account first
-    let verificationResult;
-    if (paymentProvider === 'paystack') {
-      verificationResult = await this.paystackService.verifyAccount(accountNumber, bankCode);
-    } else {
-      verificationResult = await this.monnifyService.verifyAccount(accountNumber, bankCode);
-    }
+    // Verify account using Paystack
+    const verificationResult = await this.paystackService.verifyAccount(accountNumber, bankCode);
 
-    // Send to bank using the selected provider
+    // Send to bank using Paystack
     const reference = `BANK-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    let transferResult;
-    
-    if (paymentProvider === 'paystack') {
-      transferResult = await this.paystackService.initiateTransfer(
-        accountNumber,
-        bankCode,
-        accountName || verificationResult.accountName,
-        amount,
-        reference,
-        description
-      );
-    } else {
-      transferResult = await this.monnifyService.initiateTransfer(
-        accountNumber,
-        bankCode,
-        accountName || verificationResult.accountName,
-        amount,
-        reference,
-        description
-      );
-    }
+    const transferResult = await this.paystackService.initiateTransfer(
+      accountNumber,
+      bankCode,
+      accountName || verificationResult.accountName,
+      amount,
+      reference,
+      description
+    );
 
     return {
       success: true,
@@ -83,7 +62,7 @@ export class TransactionsController {
       status: transferResult.status,
       accountName: verificationResult.accountName,
       amount,
-      fee: Math.max(10, amount * 0.015), // 1.5% fee for bank transfers
+      fee: Math.max(10, amount * 0.015),
     };
   }
 
@@ -117,55 +96,20 @@ export class TransactionsController {
   @Get('verify-account')
   async verifyAccount(
     @Query('accountNumber') accountNumber: string,
-    @Query('bankCode') bankCode: string,
-    @Query('provider') provider?: 'paystack' | 'monnify'
+    @Query('bankCode') bankCode: string
   ) {
-    // Auto-determine the best provider if not specified
-    let selectedProvider = provider;
-    if (!selectedProvider) {
-      selectedProvider = this.bankCodesService.getRecommendedProvider(bankCode);
-    }
-    
     try {
-      if (selectedProvider === 'paystack') {
-        const result = await this.paystackService.verifyAccount(accountNumber, bankCode);
-        return {
-          success: true,
-          accountName: result.accountName,
-          provider: 'paystack',
-        };
-      } else {
-        const result = await this.monnifyService.verifyAccount(accountNumber, bankCode);
-        return {
-          success: true,
-          accountName: result.accountName,
-          provider: 'monnify',
-        };
-      }
+      const result = await this.paystackService.verifyAccount(accountNumber, bankCode);
+      return {
+        success: true,
+        accountName: result.accountName,
+        provider: 'paystack',
+      };
     } catch (error: any) {
-      // If primary provider fails, try the other as fallback
-      const fallbackProvider = selectedProvider === 'paystack' ? 'monnify' : 'paystack';
-      try {
-        let fallbackResult;
-        if (fallbackProvider === 'paystack') {
-          fallbackResult = await this.paystackService.verifyAccount(accountNumber, bankCode);
-        } else {
-          fallbackResult = await this.monnifyService.verifyAccount(accountNumber, bankCode);
-        }
-        return {
-          success: true,
-          accountName: fallbackResult.accountName,
-          provider: fallbackProvider,
-          note: `Fallback provider used - ${selectedProvider} failed`,
-        };
-      } catch (fallbackError: any) {
-        // Both failed - return detailed error
-        const errorMessage = error.response?.data?.message || error.message || 'Unknown error';
-        const fallbackErrorMessage = fallbackError.response?.data?.message || fallbackError.message || 'Unknown error';
-        throw new BadRequestException(
-          `Verification failed for bank ${bankCode}. ${selectedProvider}: ${errorMessage}. ${fallbackProvider}: ${fallbackErrorMessage}. Try a different bank.`
-        );
-      }
+      const errorMessage = error.response?.data?.message || error.message || 'Unknown error';
+      throw new BadRequestException(
+        `Verification failed for bank ${bankCode}. Paystack: ${errorMessage}. Try a different bank.`
+      );
     }
   }
 }

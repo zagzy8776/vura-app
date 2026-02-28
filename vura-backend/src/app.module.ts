@@ -23,7 +23,6 @@ import { QrCodesModule } from './qr-codes/qr-codes.module';
 import { PaymentRequestsModule } from './payment-requests/payment-requests.module';
 import { BankCodesModule } from './bank-codes/bank-codes.module';
 import { PaystackService } from './services/paystack.service';
-import { MonnifyService } from './services/monnify.service';
 import { BankCodesService } from './services/bank-codes.service';
 
 
@@ -61,7 +60,6 @@ import { BankCodesService } from './services/bank-codes.service';
     PrismaService,
     TransactionsService,
     PaystackService,
-    MonnifyService,
     BankCodesService,
     {
       provide: APP_GUARD,
