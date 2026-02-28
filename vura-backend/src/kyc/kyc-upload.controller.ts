@@ -41,6 +41,11 @@ export class KYCUploadController {
       throw new BadRequestException('Invalid ID type');
     }
 
+    // Check if Supabase is configured
+    if (!this.supabase.isConfigured || !this.supabase.client) {
+      throw new BadRequestException('Storage service not configured. Please contact support.');
+    }
+
     // Upload to Supabase Storage
     const bucket = 'kyc-images';
     const folder = 'id-cards';
@@ -86,6 +91,11 @@ export class KYCUploadController {
     // Validate file size (max 10MB)
     if (file.size > 10 * 1024 * 1024) {
       throw new BadRequestException('File too large. Maximum size is 10MB.');
+    }
+
+    // Check if Supabase is configured
+    if (!this.supabase.isConfigured || !this.supabase.client) {
+      throw new BadRequestException('Storage service not configured. Please contact support.');
     }
 
     // Upload to Supabase Storage
