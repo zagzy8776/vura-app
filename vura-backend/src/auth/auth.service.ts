@@ -366,10 +366,42 @@ export class AuthService {
   /**
    * Send OTP email
    */
-  async sendOTPEmail(emailEncrypted: string, otp: string, purpose: string) {
-    // For now, we'll use the existing email service
-    // In a real implementation, you'd decrypt the email and send the OTP
-    console.log(`OTP ${otp} for ${purpose} sent to ${emailEncrypted}`);
+  async sendOTPEmail(
+    userId: string,
+    emailEncrypted: string,
+    otp: string,
+    purpose: string,
+  ) {
+    // Decrypt the email
+    const email = emailEncrypted; // Note: email is already decrypted in this context
+
+    if (!email) {
+      throw new BadRequestException('No email provided for OTP');
+    }
+
+    // Parse device info from context or use defaults
+    const deviceInfo = {
+      browser: 'Unknown',
+      os: 'Unknown',
+      ip: 'Unknown',
+    };
+
+    // Send OTP email based on purpose
+    if (purpose === 'registration') {
+      await this.emailService.sendRegistrationOtp(
+        userId,
+        otp,
+        deviceInfo,
+      );
+    } else if (purpose === 'device_verification') {
+      await this.emailService.sendDeviceVerificationOtp(
+        userId,
+        otp,
+        deviceInfo,
+      );
+    } else {
+      throw new BadRequestException('Invalid OTP purpose');
+    }
   }
 
   /**
