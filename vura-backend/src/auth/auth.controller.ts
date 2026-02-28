@@ -121,6 +121,7 @@ export class AuthController {
     
     // Send email notification
     await this.authService.sendOTPEmail(
+      user.id,
       user.emailEncrypted || '',
       otp,
       purpose,
