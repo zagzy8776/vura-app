@@ -3,14 +3,14 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { AuthGuard } from '@nestjs/passport';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma.service';
-import { SupabaseService } from '../services/supabase.service';
+import { CloudinaryService } from '../services/cloudinary.service';
 
 @Controller('kyc')
 export class KYCUploadController {
   constructor(
     private prisma: PrismaService,
     private configService: ConfigService,
-    private supabase: SupabaseService,
+    private cloudinary: CloudinaryService,
   ) {}
 
   @Post('upload-id')
@@ -41,37 +41,31 @@ export class KYCUploadController {
       throw new BadRequestException('Invalid ID type');
     }
 
-    // Check if Supabase is configured
-    if (!this.supabase.isConfigured || !this.supabase.client) {
-      throw new BadRequestException('Storage service not configured. Please contact support.');
+    // Check if Cloudinary is configured
+    if (!this.cloudinary.isConfigured) {
+      throw new BadRequestException('Image upload service not configured. Please contact support.');
     }
 
-    // Upload to Supabase Storage
-    const bucket = 'kyc-images';
-    const folder = 'id-cards';
-    const fileName = `${folder}/${Date.now()}-${file.originalname}`;
+    // Upload to Cloudinary
+    const folder = 'kyc/id-cards';
+    const fileName = `${Date.now()}-${file.originalname}`;
 
-    const { data, error } = await this.supabase.client.storage
-      .from(bucket)
-      .upload(fileName, file.buffer, {
-        contentType: file.mimetype,
-        upsert: false,
-      });
+    try {
+      const result = await this.cloudinary.uploadImage(
+        file.buffer,
+        fileName,
+        folder,
+        file.mimetype,
+      );
 
-    if (error) {
+      return {
+        success: true,
+        url: result.url,
+        fileName: result.publicId,
+      };
+    } catch (error) {
       throw new BadRequestException(`Upload failed: ${error.message}`);
     }
-
-    // Get public URL
-    const { data: urlData } = this.supabase.client.storage
-      .from(bucket)
-      .getPublicUrl(fileName);
-
-    return {
-      success: true,
-      url: urlData.publicUrl,
-      fileName,
-    };
   }
 
   @Post('upload-selfie')
@@ -93,37 +87,31 @@ export class KYCUploadController {
       throw new BadRequestException('File too large. Maximum size is 10MB.');
     }
 
-    // Check if Supabase is configured
-    if (!this.supabase.isConfigured || !this.supabase.client) {
-      throw new BadRequestException('Storage service not configured. Please contact support.');
+    // Check if Cloudinary is configured
+    if (!this.cloudinary.isConfigured) {
+      throw new BadRequestException('Image upload service not configured. Please contact support.');
     }
 
-    // Upload to Supabase Storage
-    const bucket = 'kyc-images';
-    const folder = 'selfies';
-    const fileName = `${folder}/${Date.now()}-${file.originalname}`;
+    // Upload to Cloudinary
+    const folder = 'kyc/selfies';
+    const fileName = `${Date.now()}-${file.originalname}`;
 
-    const { data, error } = await this.supabase.client.storage
-      .from(bucket)
-      .upload(fileName, file.buffer, {
-        contentType: file.mimetype,
-        upsert: false,
-      });
+    try {
+      const result = await this.cloudinary.uploadImage(
+        file.buffer,
+        fileName,
+        folder,
+        file.mimetype,
+      );
 
-    if (error) {
+      return {
+        success: true,
+        url: result.url,
+        fileName: result.publicId,
+      };
+    } catch (error) {
       throw new BadRequestException(`Upload failed: ${error.message}`);
     }
-
-    // Get public URL
-    const { data: urlData } = this.supabase.client.storage
-      .from(bucket)
-      .getPublicUrl(fileName);
-
-    return {
-      success: true,
-      url: urlData.publicUrl,
-      fileName,
-    };
   }
 
   @Post('submit-kyc')

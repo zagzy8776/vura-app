@@ -25,10 +25,11 @@ import { BankCodesModule } from './bank-codes/bank-codes.module';
 import { PaystackService } from './services/paystack.service';
 import { BankCodesService } from './services/bank-codes.service';
 import { FlutterwaveService } from './services/flutterwave.service';
+import { CloudinaryService } from './services/cloudinary.service';
+import { EmailService } from './services/email.service';
 import { FlutterwaveWebhookController } from './webhooks/flutterwave.webhook.controller';
 import { AdminController } from './admin/admin.controller';
 import { KYCUploadController } from './kyc/kyc-upload.controller';
-import { SupabaseService } from './services/supabase.service';
 
 
 @Module({
@@ -67,10 +68,11 @@ import { SupabaseService } from './services/supabase.service';
     PaystackService,
     BankCodesService,
     FlutterwaveService,
+    CloudinaryService,
+    EmailService,
     FlutterwaveWebhookController,
     AdminController,
     KYCUploadController,
-    SupabaseService,
     {
       provide: APP_GUARD,
       useClass: ThrottlerGuard,
