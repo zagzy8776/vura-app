@@ -124,7 +124,7 @@ export class AuthService {
     const pinValid = await bcrypt.compare(pin, user.hashedPin || '');
 
     if (!pinValid) {
-      const failedAttempts = user.failedPinAttempts + 1;
+      const failedAttempts = (user.failedPinAttempts || 0) + 1;
       let lockedUntil = null;
       if (failedAttempts >= 3) {
         lockedUntil = new Date(Date.now() + 15 * 60 * 1000);
@@ -180,7 +180,6 @@ export class AuthService {
     }
 
     // Reset failed attempts and update login info
-
     await this.prisma.user.update({
       where: { id: user.id },
       data: {
