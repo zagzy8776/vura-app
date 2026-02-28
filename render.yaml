@@ -1,5 +1,15 @@
 services:
   - type: web
+    name: vura-frontend
+    runtime: static
+    buildCommand: npm run build
+    publishPath: dist
+    envVars:
+      - key: VITE_API_URL
+        value: https://vura-backend.onrender.com/api
+    healthCheckPath: /
+    
+  - type: web
     name: vura-backend
     runtime: node
     buildCommand: cd vura-backend && npm install && npx prisma generate --schema=prisma/schema.prisma && npm run build
@@ -36,7 +46,7 @@ services:
       - key: CLOUDINARY_API_SECRET
         sync: false
       - key: FRONTEND_URL
-        sync: false
+        value: https://vura-frontend.onrender.com
       - key: FLUTTERWAVE_SECRET_HASH
         sync: false
       - key: FLUTTERWAVE_SECRET_KEY
