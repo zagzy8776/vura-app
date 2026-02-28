@@ -18,19 +18,33 @@ interface SpendingChartProps {
 const SpendingChart = ({ transactions = [] }: SpendingChartProps) => {
   // Calculate monthly data from real transactions
   const calculateMonthlyData = () => {
+    // Validate transactions array
+    if (!Array.isArray(transactions)) {
+      console.warn("SpendingChart: transactions is not an array");
+      return [];
+    }
+
     const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     const monthlyData = months.map((month) => ({ name: month, income: 0, expenses: 0 }));
 
     transactions.forEach((tx) => {
-      if (tx.status !== "COMPLETED") return;
+      if (!tx || tx.status !== "COMPLETED") return;
       
-      const txDate = new Date(tx.createdAt);
-      const monthIndex = txDate.getMonth();
-      
-      if (tx.direction === "incoming") {
-        monthlyData[monthIndex].income += tx.amount;
-      } else if (tx.direction === "outgoing") {
-        monthlyData[monthIndex].expenses += tx.amount;
+      try {
+        const txDate = new Date(tx.createdAt);
+        if (isNaN(txDate.getTime())) return;
+        
+        const monthIndex = txDate.getMonth();
+        
+        const amount = typeof tx.amount === 'number' && !isNaN(tx.amount) ? tx.amount : 0;
+        
+        if (tx.direction === "incoming") {
+          monthlyData[monthIndex].income += amount;
+        } else if (tx.direction === "outgoing") {
+          monthlyData[monthIndex].expenses += amount;
+        }
+      } catch (e) {
+        console.warn("Invalid transaction in SpendingChart:", tx);
       }
     });
 

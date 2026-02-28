@@ -18,32 +18,51 @@ interface StatsCardsProps {
 const StatsCards = ({ transactions = [] }: StatsCardsProps) => {
   // Calculate real stats from transactions
   const calculateStats = () => {
+    // Validate transactions array
+    if (!Array.isArray(transactions)) {
+      console.warn("StatsCards: transactions is not an array");
+      return [];
+    }
+
     const now = new Date();
     const thisMonth = now.getMonth();
     const thisYear = now.getFullYear();
     
-    // Filter transactions for this month
+    // Filter transactions for this month with validation
     const thisMonthTransactions = transactions.filter(tx => {
-      const txDate = new Date(tx.createdAt);
-      return txDate.getMonth() === thisMonth && txDate.getFullYear() === thisYear;
+      if (!tx || !tx.createdAt) return false;
+      try {
+        const txDate = new Date(tx.createdAt);
+        return !isNaN(txDate.getTime()) && txDate.getMonth() === thisMonth && txDate.getFullYear() === thisYear;
+      } catch (e) {
+        console.warn("Invalid transaction date:", tx.createdAt);
+        return false;
+      }
     });
     
-    // Calculate income (received money)
+    // Calculate income (received money) with validation
     const income = thisMonthTransactions
       .filter(tx => tx.direction === "incoming" && tx.status === "COMPLETED")
-      .reduce((sum, tx) => sum + tx.amount, 0);
+      .reduce((sum, tx) => {
+        const amount = typeof tx.amount === 'number' && !isNaN(tx.amount) ? tx.amount : 0;
+        return sum + amount;
+      }, 0);
     
-    // Calculate expenses (sent money)
+    // Calculate expenses (sent money) with validation
     const expenses = thisMonthTransactions
       .filter(tx => tx.direction === "outgoing" && tx.status === "COMPLETED")
-      .reduce((sum, tx) => sum + tx.amount, 0);
+      .reduce((sum, tx) => {
+        const amount = typeof tx.amount === 'number' && !isNaN(tx.amount) ? tx.amount : 0;
+        return sum + amount;
+      }, 0);
     
     // Calculate savings (net)
     const savings = income - expenses;
     
-    // Format currency
+    // Format currency with validation
     const formatNaira = (amount: number) => {
-      return "₦" + amount.toLocaleString("en-NG");
+      const validAmount = typeof amount === 'number' && !isNaN(amount) ? amount : 0;
+      return "₦" + validAmount.toLocaleString("en-NG");
     };
     
     return [

@@ -33,19 +33,27 @@ const TransactionList = ({ transactions = [] }: TransactionListProps) => {
   const navigate = useNavigate();
 
   const formatDate = (dateStr: string) => {
-    const date = new Date(dateStr);
-    const now = new Date();
-    const diff = now.getTime() - date.getTime();
-    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-    
-    if (days === 0) return "Today";
-    if (days === 1) return "Yesterday";
-    return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    if (!dateStr) return "Invalid date";
+    try {
+      const date = new Date(dateStr);
+      if (isNaN(date.getTime())) return "Invalid date";
+      
+      const now = new Date();
+      const diff = now.getTime() - date.getTime();
+      const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+      
+      if (days === 0) return "Today";
+      if (days === 1) return "Yesterday";
+      return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    } catch (e) {
+      return "Invalid date";
+    }
   };
 
   const formatAmount = (amount: number, direction: string) => {
+    const validAmount = typeof amount === 'number' && !isNaN(amount) ? amount : 0;
     const prefix = direction === "received" ? "+" : "-";
-    return `${prefix}₦${amount.toLocaleString()}`;
+    return `${prefix}₦${validAmount.toLocaleString()}`;
   };
 
   return (
@@ -66,7 +74,10 @@ const TransactionList = ({ transactions = [] }: TransactionListProps) => {
             <p className="text-xs mt-1">Your transaction history will appear here</p>
           </div>
         ) : transactions.map((tx, i) => {
-          const Icon = getIcon(tx.type);
+          // Validate transaction data
+          if (!tx || !tx.id) return null;
+          
+          const Icon = getIcon(tx.type || "default");
           return (
             <motion.div
               key={tx.id}

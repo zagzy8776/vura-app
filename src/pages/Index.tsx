@@ -30,25 +30,47 @@ const Index = () => {
   const [balances, setBalances] = useState<Balance[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
       try {
+        setError(null);
+        
         // Fetch balances
         const balanceRes = await apiFetch("/transactions/balance");
         if (balanceRes.ok) {
           const balanceData = await balanceRes.json();
-          setBalances(balanceData);
+          // Validate that balanceData is an array
+          if (Array.isArray(balanceData)) {
+            setBalances(balanceData);
+          } else {
+            console.warn("Balance data is not an array:", balanceData);
+            setBalances([]);
+          }
+        } else {
+          console.warn("Failed to fetch balances:", balanceRes.status);
+          setBalances([]);
         }
 
         // Fetch transactions
         const txRes = await apiFetch("/transactions?limit=10");
         if (txRes.ok) {
           const txData = await txRes.json();
-          setTransactions(txData);
+          // Validate that txData is an array
+          if (Array.isArray(txData)) {
+            setTransactions(txData);
+          } else {
+            console.warn("Transaction data is not an array:", txData);
+            setTransactions([]);
+          }
+        } else {
+          console.warn("Failed to fetch transactions:", txRes.status);
+          setTransactions([]);
         }
       } catch (error) {
         console.error("Failed to fetch data:", error);
+        setError("Failed to load dashboard data. Please try again later.");
       } finally {
         setLoading(false);
       }
@@ -56,10 +78,12 @@ const Index = () => {
 
     if (user) {
       fetchData();
+    } else {
+      setLoading(false);
     }
   }, [user]);
 
-  // Get NGN and USDT balances
+  // Get NGN and USDT balances with fallback
   const ngnBalance = balances.find(b => b.currency === "NGN")?.amount || 0;
   const usdtBalance = balances.find(b => b.currency === "USDT")?.amount || 0;
 
@@ -68,6 +92,12 @@ const Index = () => {
       <AppSidebar />
       <main className="flex-1 ml-64 px-8 pb-8">
         <DashboardHeader />
+        
+        {error && (
+          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+            <p className="text-red-600 text-sm">{error}</p>
+          </div>
+        )}
         
         <div className="grid grid-cols-12 gap-6">
           {/* Left column */}

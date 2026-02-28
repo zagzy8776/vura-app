@@ -17,7 +17,9 @@ const BalanceCard = ({ ngnBalance = 0, usdtBalance = 0, loading = false }: Balan
   const navigate = useNavigate();
 
   const formatAmount = (amount: number) => {
-    return amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    // Ensure amount is a valid number
+    const validAmount = typeof amount === 'number' && !isNaN(amount) ? amount : 0;
+    return validAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   };
 
   return (
@@ -53,7 +55,7 @@ const BalanceCard = ({ ngnBalance = 0, usdtBalance = 0, loading = false }: Balan
                 USDT: {showBalance ? `$${formatAmount(usdtBalance)}` : "$••••"}
               </p>
             )}
-            {user && (
+            {user && user.vuraTag && (
               <p className="text-xs opacity-50 mt-2">@{user.vuraTag}</p>
             )}
           </div>
