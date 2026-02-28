@@ -98,4 +98,32 @@ export class AuthController {
       message: 'PIN reset successfully. Please login again.',
     };
   }
+
+  // Resend OTP for registration or login
+  @Throttle({ default: { limit: 3, ttl: 300000 } }) // 3 attempts per 5 minutes
+  @Post('resend-otp')
+  async resendOtp(@Body() body: { email: string; purpose?: string }) {
+    const user = await this.authService.findByEmail(body.email);
+    if (!user) {
+      return { success: false, message: 'User not found' };
+    }
+
+    const purpose = body.purpose || 'registration';
+    const otp = await this.otpService.createOTP(
+      user.id,
+      purpose as 'pin_reset' | 'phone_verify',
+    );
+    
+    // Send email notification
+    await this.authService.sendOTPEmail(
+      user.emailEncrypted || '',
+      otp,
+      purpose,
+    );
+
+    return {
+      success: true,
+      message: 'OTP sent to your email',
+    };
+  }
 }

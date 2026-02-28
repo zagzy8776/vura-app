@@ -41,6 +41,7 @@
     "class-validator": "^0.14.3",
     "cloudinary": "^2.9.0",
     "cookie-parser": "^1.4.7",
+    "cors": "^2.8.6",
     "csurf": "^1.11.0",
     "decimal.js": "^10.6.0",
     "express-rate-limit": "^8.2.1",

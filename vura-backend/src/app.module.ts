@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
@@ -28,9 +28,12 @@ import { BankCodesService } from './services/bank-codes.service';
 import { FlutterwaveService } from './services/flutterwave.service';
 import { CloudinaryService } from './services/cloudinary.service';
 import { EmailService } from './services/email.service';
+import { AccountLockoutService } from './services/account-lockout.service';
 import { FlutterwaveWebhookController } from './webhooks/flutterwave.webhook.controller';
 import { AdminController } from './admin/admin.controller';
 import { KYCUploadController } from './kyc/kyc-upload.controller';
+import { RateLimitingMiddleware } from './middleware/rate-limiting.middleware';
+import { SecurityMiddleware } from './middleware/security.middleware';
 
 
 @Module({
@@ -61,7 +64,6 @@ import { KYCUploadController } from './kyc/kyc-upload.controller';
     PaymentRequestsModule,
     BankCodesModule,
   ],
-
   controllers: [AppController, TransactionsController],
   providers: [
     AppService,
@@ -72,6 +74,7 @@ import { KYCUploadController } from './kyc/kyc-upload.controller';
     FlutterwaveService,
     CloudinaryService,
     EmailService,
+    AccountLockoutService,
     FlutterwaveWebhookController,
     AdminController,
     KYCUploadController,
@@ -81,4 +84,8 @@ import { KYCUploadController } from './kyc/kyc-upload.controller';
     },
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply(RateLimitingMiddleware, SecurityMiddleware).forRoutes('*');
+  }
+}

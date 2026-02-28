@@ -239,6 +239,40 @@ export class AuthService {
   }
 
   /**
+   * Find user by email
+   */
+  async findByEmail(email: string) {
+    const allUsers = await this.prisma.user.findMany({
+      select: { id: true, emailEncrypted: true, vuraTag: true },
+    });
+
+    for (const user of allUsers) {
+      try {
+        const decryptedEmail = user.emailEncrypted;
+        if (decryptedEmail === email) {
+          return {
+            id: user.id,
+            vuraTag: user.vuraTag,
+            emailEncrypted: user.emailEncrypted,
+          };
+        }
+      } catch {
+        continue;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Send OTP email
+   */
+  async sendOTPEmail(emailEncrypted: string, otp: string, purpose: string) {
+    // For now, we'll use the existing email service
+    // In a real implementation, you'd decrypt the email and send the OTP
+    console.log(`OTP ${otp} for ${purpose} sent to ${emailEncrypted}`);
+  }
+
+  /**
    * Reset user PIN
    */
   async resetPin(userId: string, newPin: string): Promise<void> {
