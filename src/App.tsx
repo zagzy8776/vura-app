@@ -21,9 +21,8 @@ import { MerchantDashboard } from "./pages/MerchantDashboard";
 import { TermsOfService } from "./pages/TermsOfService";
 import { PrivacyPolicy } from "./pages/PrivacyPolicy";
 import VerifyOtp from "./pages/VerifyOtp";
-
-
-
+import IdUpload from "./pages/IdUpload";
+import AdminDashboard from "./pages/AdminDashboard";
 
 const queryClient = new QueryClient();
 
@@ -78,10 +77,10 @@ const AppRoutes = () => (
     <Route path="/verify-otp" element={<VerifyOtp />} />
     <Route path="/terms" element={<TermsOfService />} />
     <Route path="/privacy" element={<PrivacyPolicy />} />
+    <Route path="/id-upload" element={<ProtectedRoute><IdUpload /></ProtectedRoute>} />
+    <Route path="/admin" element={<ProtectedRoute><AdminDashboard /></ProtectedRoute>} />
     <Route path="*" element={<NotFound />} />
-
   </Routes>
-
 );
 
 const App = () => (
@@ -98,6 +97,5 @@ const App = () => (
     </TooltipProvider>
   </QueryClientProvider>
 );
-
 
 export default App;

@@ -13,9 +13,7 @@ export class FlutterwaveService {
     this.publicKey = this.configService.get<string>('FLUTTERWAVE_PUBLIC_KEY') || '';
     this.secretKey = this.configService.get<string>('FLUTTERWAVE_SECRET_KEY') || '';
     // Use test URL for development, live for production
-    this.baseUrl = this.configService.get<string>('NODE_ENV') === 'production' 
-      ? 'https://api.flutterwave.com/v3' 
-      : 'https://api.flutterwave.com/v3';
+this.baseUrl = 'https://api.flutterwave.com/v4';
   }
 
   /**
