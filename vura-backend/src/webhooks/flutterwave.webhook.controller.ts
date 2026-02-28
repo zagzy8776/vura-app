@@ -198,7 +198,7 @@ export class FlutterwaveWebhookController {
         data: {
           status: 'FAILED',
           providerTxId: flw_ref,
-          metadata: { ...transaction.metadata, failureReason: 'transfer_failed' },
+          metadata: { failureReason: 'transfer_failed' },
         },
       });
 
