@@ -160,8 +160,10 @@ export class FlutterwaveService {
    */
   async verifyAccount(accountNumber: string, bankCode: string) {
     try {
+      // Flutterwave v4 endpoint is `/accounts/resolve` but expects `account_bank`
+      // (not `bank_code`). Some docs also show `account_number` + `account_bank`.
       const response = await axios.get(`${this.baseUrl}/accounts/resolve`, {
-        params: { account_number: accountNumber, bank_code: bankCode },
+        params: { account_number: accountNumber, account_bank: bankCode },
         headers: { Authorization: `Bearer ${this.secretKey}` },
       });
 
