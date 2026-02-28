@@ -42,8 +42,15 @@ model User {
   createdAt            DateTime  @default(now()) @map("created_at")
   updatedAt            DateTime  @updatedAt @map("updated_at")
 
-  // Added for Monnify reserved account functionality
+  // Added for Flutterwave/Monnify reserved account functionality
   reservedAccountNumber String? @map("reserved_account_number")
+  flutterwaveOrderRef String? @map("flutterwave_order_ref")
+  
+  // KYC Image Storage (Tier 3)
+  idCardUrl    String?   @map("id_card_url")
+  selfieUrl    String?   @map("selfie_url")
+  idType       String?   @map("id_type") // 'nin', 'drivers_license', 'voters_card', 'intl_passport'
+  
   balances      Balance[]
   sentTransactions     Transaction[] @relation("Sender")
   receivedTransactions Transaction[] @relation("Receiver")

@@ -24,6 +24,7 @@ import { PaymentRequestsModule } from './payment-requests/payment-requests.modul
 import { BankCodesModule } from './bank-codes/bank-codes.module';
 import { PaystackService } from './services/paystack.service';
 import { BankCodesService } from './services/bank-codes.service';
+import { FlutterwaveService } from './services/flutterwave.service';
 
 
 @Module({
@@ -61,6 +62,7 @@ import { BankCodesService } from './services/bank-codes.service';
     TransactionsService,
     PaystackService,
     BankCodesService,
+    FlutterwaveService,
     {
       provide: APP_GUARD,
       useClass: ThrottlerGuard,

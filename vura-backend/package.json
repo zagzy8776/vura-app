@@ -40,6 +40,7 @@
     "csurf": "^1.11.0",
     "decimal.js": "^10.6.0",
     "express-rate-limit": "^8.2.1",
+    "flutterwave": "^2.2.8",
     "helmet": "^8.1.0",
     "ioredis": "^5.9.3",
     "jsonwebtoken": "^9.0.3",
