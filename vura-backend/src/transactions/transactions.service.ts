@@ -100,8 +100,9 @@ export class TransactionsService {
       throw new BadRequestException('Insufficient balance');
     }
 
-    const fee = Math.max(10, amount * 0.005);
-    const total = amount + fee;
+    // Vura-to-Vura transfers are free
+    const fee = 0;
+    const total = amount;
     const idempotencyKey = uuidv4();
     const reference = `TXN-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
@@ -218,6 +219,11 @@ export class TransactionsService {
       accountNumber,
       bankCode,
     );
+    if (!accountVerification.success) {
+      throw new BadRequestException(
+        accountVerification.error || 'Could not verify bank account',
+      );
+    }
 
     const senderBalance = await this.prisma.balance.findUnique({
       where: { userId_currency: { userId: senderId, currency: 'NGN' } },
@@ -227,8 +233,11 @@ export class TransactionsService {
       throw new BadRequestException('Insufficient balance');
     }
 
-    const fee = Math.max(10, amount * 0.005);
-    const total = amount + fee;
+    // Flutterwave fee rules (2026): ₦10 for < ₦10k, ₦25 for ≥ ₦10k + ₦50 stamp duty
+    const feeInfo = this.flutterwaveService.calculateTransferFee(amount);
+    const fee = feeInfo.fee;
+    const stampDuty = feeInfo.stampDuty;
+    const total = amount + fee + stampDuty;
     const idempotencyKey = uuidv4();
     const reference = `TXN-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
@@ -246,6 +255,7 @@ export class TransactionsService {
         metadata: {
           description,
           fee,
+          stampDuty,
           accountNumber,
           bankCode,
           accountName: accountVerification.accountName,
@@ -277,6 +287,8 @@ export class TransactionsService {
         reference: flutterwaveResponse.reference,
         amount,
         fee,
+        stampDuty,
+        totalDeduction: flutterwaveResponse.totalDeduction,
         accountName: accountVerification.accountName,
         transactionId: transaction.id,
       };
