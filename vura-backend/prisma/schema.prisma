@@ -262,6 +262,21 @@ model OTP {
   @@map("otps")
 }
 
+// Pending Registration (For OTP verification in production)
+model PendingRegistration {
+  id              String   @id @default(uuid())
+  vuraTag         String   @unique @map("vura_tag")
+  phoneEncrypted  String   @map("phone_encrypted")
+  emailEncrypted  String?  @map("email_encrypted")
+  hashedPin       String   @map("hashed_pin")
+  otpHash         String   @map("otp_hash") // SHA-256 hash of OTP
+  expiresAt       DateTime @map("expires_at")
+  otpAttempts     Int      @default(0) @map("otp_attempts")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@map("pending_registrations")
+}
+
 // Beneficiaries (Saved recipients)
 model Beneficiary {
   id            String   @id @default(uuid())

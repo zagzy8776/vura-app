@@ -22,7 +22,6 @@ export class AuthService {
   async register(dto: RegisterDto) {
     const { phone, email, pin, vuraTag } = dto;
 
-
     // Validate phone format
     if (!validatePhone(phone)) {
       throw new BadRequestException(
@@ -66,17 +65,113 @@ export class AuthService {
     // Encrypt email if provided
     const emailEncrypted = email ? encrypt(email) : null;
 
+    // Check if this is production environment
+    const isProduction = process.env.NODE_ENV === 'production';
+
+    if (isProduction) {
+      // In production, require OTP verification before creating account
+      // Generate OTP and store it temporarily
+      const otp = this.generateOtp();
+      const otpHash = await bcrypt.hash(otp, 10);
+      const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+      // Store pending registration with OTP
+      const pendingRegistration = await this.prisma.pendingRegistration.create({
+        data: {
+          vuraTag,
+          phoneEncrypted,
+          emailEncrypted,
+          hashedPin,
+          otpHash,
+          expiresAt,
+        },
+      });
+
+      // Send OTP email
+      if (email) {
+        await this.emailService.sendRegistrationOtp(email, otp, { browser: 'Unknown', os: 'Unknown' });
+      }
+
+      return {
+        requiresVerification: true,
+        method: 'email_otp',
+        message: 'Please check your email for verification code to complete registration',
+        pendingId: pendingRegistration.id,
+      };
+    } else {
+      // In development, create account directly
+      const user = await this.prisma.user.create({
+        data: {
+          vuraTag,
+          phoneEncrypted,
+          emailEncrypted,
+          hashedPin,
+          kycTier: 1,
+        },
+      });
+
+      // Create default balances
+      await this.prisma.balance.createMany({
+        data: [
+          { userId: user.id, currency: 'NGN', amount: 0 },
+          { userId: user.id, currency: 'USDT', amount: 0 },
+        ],
+      });
+
+      // Generate JWT
+      const token = this.generateToken(user.id, user.vuraTag);
+
+      return {
+        user: {
+          id: user.id,
+          vuraTag: user.vuraTag,
+          kycTier: user.kycTier,
+        },
+        token,
+      };
+    }
+  }
+
+  /**
+   * Complete registration with OTP verification
+   */
+  async completeRegistration(pendingId: string, otp: string) {
+    const pendingRegistration = await this.prisma.pendingRegistration.findUnique({
+      where: { id: pendingId },
+    });
+
+    if (!pendingRegistration) {
+      throw new BadRequestException('Invalid registration request');
+    }
+
+    if (pendingRegistration.expiresAt < new Date()) {
+      throw new BadRequestException('Registration link has expired');
+    }
+
+    if (pendingRegistration.otpAttempts >= 3) {
+      throw new BadRequestException('Too many OTP attempts. Please start registration again');
+    }
+
+    // Verify OTP
+    const otpValid = await bcrypt.compare(otp, pendingRegistration.otpHash);
+    if (!otpValid) {
+      await this.prisma.pendingRegistration.update({
+        where: { id: pendingId },
+        data: { otpAttempts: { increment: 1 } },
+      });
+      throw new BadRequestException('Invalid OTP');
+    }
+
+    // Create user account
     const user = await this.prisma.user.create({
       data: {
-        vuraTag,
-        phoneEncrypted,
-        emailEncrypted,
-        hashedPin,
+        vuraTag: pendingRegistration.vuraTag,
+        phoneEncrypted: pendingRegistration.phoneEncrypted,
+        emailEncrypted: pendingRegistration.emailEncrypted,
+        hashedPin: pendingRegistration.hashedPin,
         kycTier: 1,
       },
     });
-
-
 
     // Create default balances
     await this.prisma.balance.createMany({
@@ -84,6 +179,11 @@ export class AuthService {
         { userId: user.id, currency: 'NGN', amount: 0 },
         { userId: user.id, currency: 'USDT', amount: 0 },
       ],
+    });
+
+    // Clean up pending registration
+    await this.prisma.pendingRegistration.delete({
+      where: { id: pendingId },
     });
 
     // Generate JWT

@@ -58,13 +58,11 @@ export class AuthController {
 
     const otp = await this.otpService.createOTP(user.id, 'pin_reset');
     
-    // TODO: Send OTP via SMS
-    // For development, return OTP in response
+    // Send OTP via SMS
+    // TODO: Implement SMS service integration
     return {
       success: true,
       message: 'OTP sent to your registered phone',
-      // Remove in production
-      devOtp: otp,
     };
   }
 
@@ -97,6 +95,13 @@ export class AuthController {
       success: true,
       message: 'PIN reset successfully. Please login again.',
     };
+  }
+
+  // Complete registration with OTP verification
+  @Throttle({ default: { limit: 3, ttl: 300000 } }) // 3 attempts per 5 minutes
+  @Post('complete-registration')
+  async completeRegistration(@Body() body: { pendingId: string; otp: string }) {
+    return this.authService.completeRegistration(body.pendingId, body.otp);
   }
 
   // Resend OTP for registration or login

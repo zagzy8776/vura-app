@@ -115,7 +115,8 @@ export class FraudDetectionService {
     transactionId: string,
     fraudScore: FraudScore,
   ): void {
-    console.log('FRAUD DETECTION ALERT:', {
+    // Log fraud detection alert using proper logging
+    console.warn('FRAUD DETECTION ALERT:', {
       userId,
       transactionId,
       score: fraudScore.score,
