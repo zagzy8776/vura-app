@@ -2,7 +2,7 @@ import { Injectable, BadRequestException, NotFoundException, UnauthorizedExcepti
 import { PrismaService } from '../prisma.service';
 import { LimitsService } from '../limits/limits.service';
 import { HoldsService } from '../holds/holds.service';
-import { PaystackService } from '../services/paystack.service';
+import { FlutterwaveService } from '../services/flutterwave.service';
 import { v4 as uuidv4 } from 'uuid';
 import * as bcrypt from 'bcrypt';
 import Decimal from 'decimal.js';
@@ -13,7 +13,7 @@ export class TransactionsService {
     private prisma: PrismaService,
     private limitsService: LimitsService,
     private holdsService: HoldsService,
-    private paystackService: PaystackService,
+    private flutterwaveService: FlutterwaveService,
   ) {}
 
   async initiatePayment(
@@ -98,10 +98,14 @@ export class TransactionsService {
       });
 
       const { shouldFlag, reason } = await this.holdsService.shouldFlagTransaction(
-        senderId, new Decimal(amount), 1,
+        senderId,
+        new Decimal(amount),
+        1,
       );
 
-      const heldUntil = shouldFlag ? this.holdsService.calculateHoldExpiry() : null;
+      const heldUntil = shouldFlag
+        ? this.holdsService.calculateHoldExpiry()
+        : null;
 
       const transaction = await tx.transaction.create({
         data: {
@@ -131,11 +135,23 @@ export class TransactionsService {
         },
       });
 
-      return { success: true, reference, amount, fee, recipient: recipientTag, transactionId: transaction.id };
+      return {
+        success: true,
+        reference,
+        amount,
+        fee,
+        recipient: recipientTag,
+        transactionId: transaction.id,
+      };
     });
   }
 
-  private async handleRequestFlow(senderId: string, phoneNumber: string, amount: number, description?: string) {
+  private async handleRequestFlow(
+    senderId: string,
+    phoneNumber: string,
+    amount: number,
+    description?: string,
+  ) {
     const reference = `REQ-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     const transaction = await this.prisma.transaction.create({
       data: {
@@ -149,16 +165,32 @@ export class TransactionsService {
         metadata: { phoneNumber, description, isRequestFlow: true },
       },
     });
-    return { success: true, reference, requestId: transaction.id, recipientPhone: phoneNumber, amount, description, message: 'Payment request created' };
+    return {
+      success: true,
+      reference,
+      requestId: transaction.id,
+      recipientPhone: phoneNumber,
+      amount,
+      description,
+      message: 'Payment request created',
+    };
   }
 
-  private async handleExternalTransfer(senderId: string, bankDetails: string, amount: number, description?: string) {
+  private async handleExternalTransfer(
+    senderId: string,
+    bankDetails: string,
+    amount: number,
+    description?: string,
+  ) {
     const [accountNumber, bankCode] = bankDetails.split(':');
     if (!accountNumber || !bankCode) {
       throw new BadRequestException('Invalid bank account format');
     }
 
-    const accountVerification = await this.paystackService.verifyAccount(accountNumber, bankCode);
+    const accountVerification = await this.flutterwaveService.verifyAccount(
+      accountNumber,
+      bankCode,
+    );
 
     const senderBalance = await this.prisma.balance.findUnique({
       where: { userId_currency: { userId: senderId, currency: 'NGN' } },
@@ -184,21 +216,42 @@ export class TransactionsService {
         reference,
         beforeBalance: Number(senderBalance.amount),
         afterBalance: Number(senderBalance.amount) - total,
-        metadata: { description, fee, accountNumber, bankCode, accountName: accountVerification.accountName },
+        metadata: {
+          description,
+          fee,
+          accountNumber,
+          bankCode,
+          accountName: accountVerification.accountName,
+        },
       },
     });
 
     try {
-      const paystackResponse = await this.paystackService.initiateTransfer(
-        accountNumber, bankCode, accountVerification.accountName, amount, reference, description,
+      const flutterwaveResponse = await this.flutterwaveService.initiateTransfer(
+        accountNumber,
+        bankCode,
+        accountVerification.accountName,
+        amount,
+        reference,
+        description,
       );
 
       await this.prisma.transaction.update({
         where: { id: transaction.id },
-        data: { providerTxId: paystackResponse.reference, status: 'PENDING' },
+        data: {
+          providerTxId: flutterwaveResponse.reference,
+          status: 'PENDING',
+        },
       });
 
-      return { success: true, reference: paystackResponse.reference, amount, fee, accountName: accountVerification.accountName, transactionId: transaction.id };
+      return {
+        success: true,
+        reference: flutterwaveResponse.reference,
+        amount,
+        fee,
+        accountName: accountVerification.accountName,
+        transactionId: transaction.id,
+      };
     } catch (error) {
       await this.prisma.transaction.delete({ where: { id: transaction.id } });
       throw error;
@@ -221,40 +274,75 @@ export class TransactionsService {
   }
 
   async getTransactions(userId: string, type?: string, limit = 20, offset = 0) {
-    const where = { OR: [{ senderId: userId }, { receiverId: userId }], ...(type && { type }) };
+    const where = {
+      OR: [{ senderId: userId }, { receiverId: userId }],
+      ...(type && { type }),
+    };
     const transactions = await this.prisma.transaction.findMany({
-      where, orderBy: { createdAt: 'desc' }, take: limit, skip: offset,
-      include: { sender: { select: { vuraTag: true } }, receiver: { select: { vuraTag: true } } },
+      where,
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+      skip: offset,
+      include: {
+        sender: { select: { vuraTag: true } },
+        receiver: { select: { vuraTag: true } },
+      },
     });
 
     return transactions.map((tx) => ({
-      id: tx.id, type: tx.type, amount: Number(tx.amount), currency: tx.currency,
-      status: tx.status, reference: tx.reference, createdAt: tx.createdAt,
+      id: tx.id,
+      type: tx.type,
+      amount: Number(tx.amount),
+      currency: tx.currency,
+      status: tx.status,
+      reference: tx.reference,
+      createdAt: tx.createdAt,
       counterparty: tx.senderId === userId ? tx.receiver?.vuraTag : tx.sender?.vuraTag,
       direction: tx.senderId === userId ? 'sent' : 'received',
     }));
   }
 
   async getBalance(userId: string) {
-    const balances = await this.prisma.balance.findMany({ where: { userId } });
-    return balances.map((b) => ({ currency: b.currency, amount: Number(b.amount) }));
+    const balances = await this.prisma.balance.findMany({
+      where: { userId },
+    });
+    return balances.map((b) => ({
+      currency: b.currency,
+      amount: Number(b.amount),
+    }));
   }
 
-  async lookupTag(tag: string): Promise<{ found: boolean; vuraTag?: string; kycTier?: number }> {
+  async lookupTag(
+    tag: string,
+  ): Promise<{ found: boolean; vuraTag?: string; kycTier?: number }> {
     const searchTag = tag.startsWith('@') ? tag.slice(1) : tag;
-    const user = await this.prisma.user.findUnique({ where: { vuraTag: searchTag }, select: { vuraTag: true, kycTier: true } });
+    const user = await this.prisma.user.findUnique({
+      where: { vuraTag: searchTag },
+      select: { vuraTag: true, kycTier: true },
+    });
     if (!user) return { found: false };
     return { found: true, vuraTag: user.vuraTag, kycTier: user.kycTier };
   }
 
-  async sendMoney(senderId: string, recipient: string, amount: number, description?: string, pin?: string) {
+  async sendMoney(
+    senderId: string,
+    recipient: string,
+    amount: number,
+    description?: string,
+    pin?: string,
+  ) {
     return this.initiatePayment(senderId, recipient, amount, description, pin);
   }
 
   async getAccountBalance(userId: string) {
-    const balances = await this.prisma.balance.findMany({ where: { userId } });
-    const ngn = balances.find(b => b.currency === 'NGN');
-    const usdt = balances.find(b => b.currency === 'USDT');
-    return { ngn: ngn ? Number(ngn.amount) : 0, usdt: usdt ? Number(usdt.amount) : 0 };
+    const balances = await this.prisma.balance.findMany({
+      where: { userId },
+    });
+    const ngn = balances.find((b) => b.currency === 'NGN');
+    const usdt = balances.find((b) => b.currency === 'USDT');
+    return {
+      ngn: ngn ? Number(ngn.amount) : 0,
+      usdt: usdt ? Number(usdt.amount) : 0,
+    };
   }
 }

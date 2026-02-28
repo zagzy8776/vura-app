@@ -11,16 +11,22 @@ export class FlutterwaveService {
 
   constructor(private configService: ConfigService) {
     this.publicKey = this.configService.get<string>('FLUTTERWAVE_PUBLIC_KEY') || '';
-    this.secretKey = this.configService.get<string>('FLUTTERWAVE_SECRET_KEY') || '';
-    // Use test URL for development, live for production
-this.baseUrl = 'https://api.flutterwave.com/v4';
+    this.secretKey = this.configService.get<string>('FLUTTERWAVE_SECRET') || '';
+    this.baseUrl =
+      this.configService.get<string>('FLUTTERWAVE_BASE_URL') ||
+      'https://api.flutterwave.com/v4';
   }
 
   /**
    * Create a virtual account for a user
    * This gives users a permanent account number to receive money
    */
-  async createVirtualAccount(userId: string, email: string, firstName: string, lastName: string) {
+  async createVirtualAccount(
+    userId: string,
+    email: string,
+    firstName: string,
+    lastName: string,
+  ) {
     try {
       const response = await axios.post(
         `${this.baseUrl}/virtual-account-numbers`,
@@ -45,15 +51,19 @@ this.baseUrl = 'https://api.flutterwave.com/v4';
         }
       );
 
-      this.logger.log(`Created virtual account for user ${userId}: ${response.data.data.account_number}`);
-      
+      const responseData = response.data as any;
+      const accountData = responseData.data;
+      this.logger.log(
+        `Created virtual account for user ${userId}: ${accountData.account_number}`,
+      );
+
       return {
         success: true,
-        accountNumber: response.data.data.account_number,
-        accountStatus: response.data.data.account_status,
-        bankName: response.data.data.bank_name,
-        orderRef: response.data.data.order_ref,
-        flutterwaveRef: response.data.data.flw_ref,
+        accountNumber: accountData.account_number,
+        accountStatus: accountData.account_status,
+        bankName: accountData.bank_name,
+        orderRef: accountData.order_ref,
+        flutterwaveRef: accountData.flw_ref,
       };
     } catch (error: any) {
       this.logger.error(`Failed to create virtual account: ${error.message}`);
@@ -93,7 +103,7 @@ this.baseUrl = 'https://api.flutterwave.com/v4';
     accountName: string,
     amount: number,
     reference: string,
-    description?: string
+    description?: string,
   ) {
     try {
       // Calculate fee based on amount (2026 rules)
@@ -154,14 +164,16 @@ this.baseUrl = 'https://api.flutterwave.com/v4';
         {
           params: { account_number: accountNumber, bank_code: bankCode },
           headers: { Authorization: `Bearer ${this.secretKey}` },
-        }
+        },
       );
 
+      const responseData = response.data as any;
+      const accountData = responseData.data;
       return {
         success: true,
-        accountName: response.data.data.account_name,
-        accountNumber: response.data.data.account_number,
-        bankName: response.data.data.bank_name,
+        accountName: accountData.account_name,
+        accountNumber: accountData.account_number,
+        bankName: accountData.bank_name,
       };
     } catch (error: any) {
       this.logger.error(`Account verification failed: ${error.message}`);
@@ -181,7 +193,7 @@ this.baseUrl = 'https://api.flutterwave.com/v4';
         `${this.baseUrl}/banks/${country}`,
         {
           headers: { Authorization: `Bearer ${this.secretKey}` },
-        }
+        },
       );
 
       return { success: true, banks: response.data.data };
@@ -195,7 +207,11 @@ this.baseUrl = 'https://api.flutterwave.com/v4';
    * Calculate transfer fee (for display to user)
    * 2026 Nigerian fee structure
    */
-  calculateTransferFee(amount: number): { fee: number; stampDuty: number; total: number } {
+  calculateTransferFee(amount: number): {
+    fee: number;
+    stampDuty: number;
+    total: number;
+  } {
     const isLargeTransfer = amount >= 10000;
     const fee = isLargeTransfer ? 25 : 10;
     const stampDuty = isLargeTransfer ? 50 : 0;
@@ -211,7 +227,7 @@ this.baseUrl = 'https://api.flutterwave.com/v4';
    * Verify webhook signature
    */
   verifyWebhookSignature(payload: string, signature: string): boolean {
-    const crypto = require('crypto');
+    const crypto = require('crypto') as any;
     const hash = crypto
       .createHmac('sha256', this.secretKey)
       .update(payload)

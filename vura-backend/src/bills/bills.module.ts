@@ -7,6 +7,7 @@ import { LimitsService } from '../limits/limits.service';
 import { HoldsService } from '../holds/holds.service';
 import { PaystackService } from '../services/paystack.service';
 import { MonnifyService } from '../services/monnify.service';
+import { FlutterwaveService } from '../services/flutterwave.service';
 
 @Module({
   controllers: [BillsController],
@@ -18,6 +19,7 @@ import { MonnifyService } from '../services/monnify.service';
     HoldsService,
     PaystackService,
     MonnifyService,
+    FlutterwaveService,
   ],
   exports: [BillsService],
 })
