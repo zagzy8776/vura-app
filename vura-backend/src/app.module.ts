@@ -21,6 +21,7 @@ import { CardsModule } from './cards/cards.module';
 import { BankAccountsModule } from './bank-accounts/bank-accounts.module';
 import { QrCodesModule } from './qr-codes/qr-codes.module';
 import { PaymentRequestsModule } from './payment-requests/payment-requests.module';
+import { BankCodesModule } from './bank-codes/bank-codes.module';
 import { PaystackService } from './services/paystack.service';
 import { MonnifyService } from './services/monnify.service';
 import { BankCodesService } from './services/bank-codes.service';
@@ -51,6 +52,7 @@ import { BankCodesService } from './services/bank-codes.service';
     BankAccountsModule,
     QrCodesModule,
     PaymentRequestsModule,
+    BankCodesModule,
   ],
 
   controllers: [AppController, TransactionsController],
