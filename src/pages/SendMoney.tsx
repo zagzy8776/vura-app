@@ -128,7 +128,7 @@ const [userLimits, setUserLimits] = useState<{ dailyLimit: number; used: number;
     if (accountNumber.length !== 10 || !selectedBank) return;
     setVerifyingAccount(true);
     try {
-      const res = await apiFetch(`/transactions/verify-account?accountNumber=${accountNumber}&bankCode=${selectedBank}&provider=paystack`);
+const res = await apiFetch(`/transactions/verify-account?accountNumber=${accountNumber}&bankCode=${selectedBank}&provider=monnify`);
       if (res.ok) {
         const data = await res.json();
         setAccountName(data.accountName);
