@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Body, UseGuards, Request, Query } from '@nestjs/common';
+import { Controller, Post, Get, Body, UseGuards, Request, Query, BadRequestException } from '@nestjs/common';
 import { TransactionsService } from './transactions.service';
 import { AuthGuard } from '../auth/auth.guard';
 import { PaystackService } from '../services/paystack.service';
@@ -118,25 +118,33 @@ export class TransactionsController {
   async verifyAccount(
     @Query('accountNumber') accountNumber: string,
     @Query('bankCode') bankCode: string,
-    @Query('provider') provider: 'paystack' | 'monnify' = 'monnify'
+    @Query('provider') provider?: 'paystack' | 'monnify'
   ) {
+    // Auto-determine the best provider if not specified
+    let selectedProvider = provider;
+    if (!selectedProvider) {
+      selectedProvider = this.bankCodesService.getRecommendedProvider(bankCode);
+    }
+    
     try {
-      if (provider === 'paystack') {
+      if (selectedProvider === 'paystack') {
         const result = await this.paystackService.verifyAccount(accountNumber, bankCode);
         return {
           success: true,
           accountName: result.accountName,
+          provider: 'paystack',
         };
       } else {
         const result = await this.monnifyService.verifyAccount(accountNumber, bankCode);
         return {
           success: true,
           accountName: result.accountName,
+          provider: 'monnify',
         };
       }
     } catch (error: any) {
       // If primary provider fails, try the other as fallback
-      const fallbackProvider = provider === 'paystack' ? 'monnify' : 'paystack';
+      const fallbackProvider = selectedProvider === 'paystack' ? 'monnify' : 'paystack';
       try {
         let fallbackResult;
         if (fallbackProvider === 'paystack') {
@@ -148,13 +156,14 @@ export class TransactionsController {
           success: true,
           accountName: fallbackResult.accountName,
           provider: fallbackProvider,
+          note: `Fallback provider used - ${selectedProvider} failed`,
         };
       } catch (fallbackError: any) {
         // Both failed - return detailed error
         const errorMessage = error.response?.data?.message || error.message || 'Unknown error';
         const fallbackErrorMessage = fallbackError.response?.data?.message || fallbackError.message || 'Unknown error';
         throw new BadRequestException(
-          `Verification failed. ${provider}: ${errorMessage}, ${fallbackProvider}: ${fallbackErrorMessage}`
+          `Verification failed for bank ${bankCode}. ${selectedProvider}: ${errorMessage}. ${fallbackProvider}: ${fallbackErrorMessage}. Try a different bank.`
         );
       }
     }

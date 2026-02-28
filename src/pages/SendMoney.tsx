@@ -128,14 +128,16 @@ const [userLimits, setUserLimits] = useState<{ dailyLimit: number; used: number;
     if (accountNumber.length !== 10 || !selectedBank) return;
     setVerifyingAccount(true);
     try {
-const res = await apiFetch(`/transactions/verify-account?accountNumber=${accountNumber}&bankCode=${selectedBank}&provider=monnify`);
+      // Let backend auto-determine the provider based on bank code
+      const res = await apiFetch(`/transactions/verify-account?accountNumber=${accountNumber}&bankCode=${selectedBank}`);
       if (res.ok) {
         const data = await res.json();
         setAccountName(data.accountName);
         setAccountVerified(true);
         toast({ title: "Account Verified", description: `Account name: ${data.accountName}` });
       } else {
-        toast({ title: "Verification Failed", description: "Could not verify account", variant: "destructive" });
+        const errorData = await res.json();
+        toast({ title: "Verification Failed", description: errorData.message || "Could not verify account", variant: "destructive" });
       }
     } catch (error) {
       console.error("Account verification failed:", error);
