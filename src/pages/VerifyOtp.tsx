@@ -15,8 +15,11 @@ const VerifyOtp = () => {
   const location = useLocation();
   const { verifyDeviceOtp, signIn } = useAuth();
 
-  // Get verification data from location state
-  const { vuraTag, deviceFingerprint, message } = location.state || {};
+  // Get verification data from location state with validation
+  const locationState = location.state || {};
+  const vuraTag = locationState.vuraTag;
+  const deviceFingerprint = locationState.deviceFingerprint;
+  const message = locationState.message;
 
   // If no verification data, redirect to login
   if (!vuraTag || !deviceFingerprint) {
@@ -135,11 +138,11 @@ const VerifyOtp = () => {
                 onChange={setOtp}
                 render={({ slots }) => (
                   <InputOTPGroup className="gap-2">
-                    {slots.map((slot, index) => (
+                    {slots?.map((slot, index) => (
                       <InputOTPSlot
                         key={index}
                         index={index}
-                        {...slot}
+                        {...(slot || {})}
                         className="w-12 h-14 text-2xl font-bold border-2 rounded-xl"
                       />
                     ))}
