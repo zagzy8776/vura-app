@@ -58,7 +58,7 @@ export class AuthService {
     }
 
     // Hash PIN
-    const pinHash = await bcrypt.hash(pin, 10);
+    const hashedPin = await bcrypt.hash(pin, 10);
 
     // Encrypt phone with AES-256-GCM
     const phoneEncrypted = encrypt(normalizedPhone);
@@ -71,7 +71,7 @@ export class AuthService {
         vuraTag,
         phoneEncrypted,
         emailEncrypted,
-        pinHash,
+        hashedPin,
         kycTier: 1,
       },
     });
@@ -121,7 +121,7 @@ export class AuthService {
     }
 
     // Verify PIN
-    const pinValid = await bcrypt.compare(pin, user.pinHash || '');
+    const pinValid = await bcrypt.compare(pin, user.hashedPin || '');
 
     if (!pinValid) {
       const failedAttempts = user.failedPinAttempts + 1;
@@ -243,12 +243,12 @@ export class AuthService {
    * Reset user PIN
    */
   async resetPin(userId: string, newPin: string): Promise<void> {
-    const pinHash = await bcrypt.hash(newPin, 10);
+    const hashedPin = await bcrypt.hash(newPin, 10);
 
     await this.prisma.user.update({
       where: { id: userId },
       data: {
-        pinHash,
+        hashedPin,
         failedPinAttempts: 0,
         lockedUntil: null,
       },
