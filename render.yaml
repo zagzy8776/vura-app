@@ -36,4 +36,8 @@ services:
         sync: false
       - key: FRONTEND_URL
         sync: false
+      - key: FLUTTERWAVE_SECRET_HASH
+        sync: false
+      - key: FLUTTERWAVE_SECRET_KEY
+        sync: false
     healthCheckPath: /api/health
