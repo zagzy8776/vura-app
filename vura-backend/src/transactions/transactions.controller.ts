@@ -118,7 +118,7 @@ export class TransactionsController {
   async verifyAccount(
     @Query('accountNumber') accountNumber: string,
     @Query('bankCode') bankCode: string,
-    @Query('provider') provider: 'paystack' | 'monnify' = 'paystack'
+    @Query('provider') provider: 'paystack' | 'monnify' = 'monnify'
   ) {
     try {
       if (provider === 'paystack') {
@@ -135,21 +135,28 @@ export class TransactionsController {
         };
       }
     } catch (error: any) {
-      // If Paystack fails, try Monnify as fallback
-      if (provider === 'paystack') {
-        try {
-          const monnifyResult = await this.monnifyService.verifyAccount(accountNumber, bankCode);
-          return {
-            success: true,
-            accountName: monnifyResult.accountName,
-            provider: 'monnify',
-          };
-        } catch {
-          // Return original error
-          throw error;
+      // If primary provider fails, try the other as fallback
+      const fallbackProvider = provider === 'paystack' ? 'monnify' : 'paystack';
+      try {
+        let fallbackResult;
+        if (fallbackProvider === 'paystack') {
+          fallbackResult = await this.paystackService.verifyAccount(accountNumber, bankCode);
+        } else {
+          fallbackResult = await this.monnifyService.verifyAccount(accountNumber, bankCode);
         }
+        return {
+          success: true,
+          accountName: fallbackResult.accountName,
+          provider: fallbackProvider,
+        };
+      } catch (fallbackError: any) {
+        // Both failed - return detailed error
+        const errorMessage = error.response?.data?.message || error.message || 'Unknown error';
+        const fallbackErrorMessage = fallbackError.response?.data?.message || fallbackError.message || 'Unknown error';
+        throw new BadRequestException(
+          `Verification failed. ${provider}: ${errorMessage}, ${fallbackProvider}: ${fallbackErrorMessage}`
+        );
       }
-      throw error;
     }
   }
 }
