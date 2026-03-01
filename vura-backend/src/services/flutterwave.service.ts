@@ -8,6 +8,7 @@ export class FlutterwaveService {
   private readonly publicKey: string;
   private readonly secretKey: string;
   private readonly baseUrl: string;
+  private readonly v3BaseUrl: string;
 
   constructor(private configService: ConfigService) {
     this.publicKey =
@@ -16,6 +17,9 @@ export class FlutterwaveService {
     this.baseUrl =
       this.configService.get<string>('FLUTTERWAVE_BASE_URL') ||
       'https://api.flutterwave.com/v4';
+
+    // Some endpoints (like account resolution) are still exposed on v3.
+    this.v3BaseUrl = 'https://api.flutterwave.com/v3';
   }
 
   /**
@@ -160,21 +164,38 @@ export class FlutterwaveService {
    */
   async verifyAccount(accountNumber: string, bankCode: string) {
     try {
-      // Flutterwave does not support GET /v4/accounts/resolve (it returns "Cannot GET ...").
-      // Use the newer endpoint for account resolution.
-      const response = await axios.post(
-        `${this.baseUrl}/accounts/resolve`,
-        {
-          account_number: accountNumber,
-          account_bank: bankCode,
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${this.secretKey}`,
-            'Content-Type': 'application/json',
+      // Account resolution is exposed on Flutterwave v3.
+      // Primary: POST /v3/accounts/resolve
+      let response;
+      try {
+        response = await axios.post(
+          `${this.v3BaseUrl}/accounts/resolve`,
+          {
+            account_number: accountNumber,
+            account_bank: bankCode,
           },
-        },
-      );
+          {
+            headers: {
+              Authorization: `Bearer ${this.secretKey}`,
+              'Content-Type': 'application/json',
+            },
+          },
+        );
+      } catch (primaryError: any) {
+        const status = primaryError.response?.status;
+        // Fallback: GET /v3/bank/resolve
+        if (status === 404) {
+          response = await axios.get(`${this.v3BaseUrl}/bank/resolve`, {
+            params: {
+              account_number: accountNumber,
+              bank_code: bankCode,
+            },
+            headers: { Authorization: `Bearer ${this.secretKey}` },
+          });
+        } else {
+          throw primaryError;
+        }
+      }
 
       const responseData = response.data;
       const accountData = responseData.data;
@@ -192,6 +213,7 @@ export class FlutterwaveService {
         status,
         data,
         baseUrl: this.baseUrl,
+        v3BaseUrl: this.v3BaseUrl,
       });
       return {
         success: false,
