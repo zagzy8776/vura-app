@@ -14,31 +14,15 @@ import { SecurityCountdownModal } from "@/components/SecurityCountdownModal";
 import { apiFetch } from "@/hooks/useAuth";
 import { toast } from "@/hooks/use-toast";
 
-const NIGERIAN_BANKS = [
+type BankOption = { code: string; name: string };
+type FlutterwaveBank = { code: string; name: string };
+
+const FALLBACK_BANKS: BankOption[] = [
+  // Minimal fallback list (codes may not match Flutterwave; only used if API fails)
   { code: "044", name: "Access Bank" },
-  { code: "023", name: "Citibank Nigeria" },
-  { code: "050", name: "Ecobank Nigeria" },
-  { code: "011", name: "First Bank of Nigeria" },
-  { code: "214", name: "First City Monument Bank (FCMB)" },
-  { code: "070", name: "Fidelity Bank" },
   { code: "058", name: "Guaranty Trust Bank (GTB)" },
-  { code: "030", name: "Heritage Bank" },
-  { code: "301", name: "Jaiz Bank" },
-  { code: "082", name: "Keystone Bank" },
-  { code: "076", name: "Polaris Bank" },
-  { code: "221", name: "Stanbic IBTC Bank" },
-  { code: "068", name: "Standard Chartered Bank" },
-  { code: "232", name: "Sterling Bank" },
-  { code: "100", name: "SunTrust Bank" },
-  { code: "032", name: "Union Bank of Nigeria" },
   { code: "033", name: "United Bank for Africa (UBA)" },
-  { code: "215", name: "Unity Bank" },
-  { code: "035", name: "Wema Bank" },
   { code: "057", name: "Zenith Bank" },
-  { code: "999", name: "Kuda Bank" },
-  { code: "502", name: "PalmPay" },
-  { code: "503", name: "OPay" },
-  { code: "505", name: "Moniepoint" },
 ];
 
 type TransferMode = "tag" | "bank";
@@ -87,6 +71,9 @@ const [userLimits, setUserLimits] = useState<{ dailyLimit: number; used: number;
   const [showAccountSuggestion, setShowAccountSuggestion] = useState(false);
   const [showSecurityModal, setShowSecurityModal] = useState(false);
 
+  const [banks, setBanks] = useState<BankOption[]>(FALLBACK_BANKS);
+  const [bankSearch, setBankSearch] = useState("");
+
   const [feeBreakdown, setFeeBreakdown] = useState<
     | null
     | {
@@ -127,6 +114,26 @@ const [userLimits, setUserLimits] = useState<{ dailyLimit: number; used: number;
     const debounce = setTimeout(lookupRecipient, 500);
     return () => clearTimeout(debounce);
   }, [recipientTag]);
+
+  useEffect(() => {
+    const loadBanks = async () => {
+      try {
+        const res = await apiFetch('/bank-codes/flutterwave');
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data?.success && Array.isArray(data.banks)) {
+          // Flutterwave returns { id, code, name } objects
+          const mapped: BankOption[] = data.banks
+            .filter((b: FlutterwaveBank) => b?.code && b?.name)
+            .map((b: FlutterwaveBank) => ({ code: String(b.code), name: String(b.name) }));
+          if (mapped.length > 0) setBanks(mapped);
+        }
+      } catch {
+        // keep fallback
+      }
+    };
+    loadBanks();
+  }, []);
 
   useEffect(() => {
     const cleanInput = recipientTag.replace(/\D/g, "");
@@ -258,7 +265,7 @@ const [userLimits, setUserLimits] = useState<{ dailyLimit: number; used: number;
         name: transferMode === "tag" ? `@${recipientTag}` : accountName,
         identifier: transferMode === "tag" ? recipientTag : accountNumber,
         bankCode: selectedBank,
-        bankName: NIGERIAN_BANKS.find(b => b.code === selectedBank)?.name,
+        bankName: banks.find(b => b.code === selectedBank)?.name,
         lastUsed: new Date().toISOString(),
         isFavorite: false,
       };
@@ -306,7 +313,7 @@ const [userLimits, setUserLimits] = useState<{ dailyLimit: number; used: number;
     setRecentRecipients(prev => prev.map(r => r.id === id ? { ...r, isFavorite: !r.isFavorite } : r));
   };
 
-  const selectedBankName = NIGERIAN_BANKS.find(b => b.code === selectedBank)?.name || "Select Bank";
+  const selectedBankName = banks.find(b => b.code === selectedBank)?.name || "Select Bank";
   const favorites = recentRecipients.filter(r => r.isFavorite);
   const others = recentRecipients.filter(r => !r.isFavorite);
 
@@ -438,7 +445,21 @@ const [userLimits, setUserLimits] = useState<{ dailyLimit: number; used: number;
                           </button>
                           {showBankDropdown && (
                             <div className="absolute top-full left-0 right-0 mt-1 max-h-60 overflow-y-auto rounded-xl border border-border bg-card shadow-lg z-50">
-                              {NIGERIAN_BANKS.map((bank) => (
+                              <div className="p-2">
+                                <Input
+                                  placeholder="Search bank..."
+                                  value={bankSearch}
+                                  onChange={(e) => setBankSearch(e.target.value)}
+                                  className="h-10 rounded-lg"
+                                />
+                              </div>
+                              {banks
+                                .filter((bank) =>
+                                  bank.name
+                                    .toLowerCase()
+                                    .includes(bankSearch.toLowerCase()),
+                                )
+                                .map((bank) => (
                                 <button key={bank.code} onClick={() => { setSelectedBank(bank.code); setShowBankDropdown(false); setAccountVerified(false); }} className={`w-full px-4 py-3 text-left hover:bg-secondary transition-colors ${selectedBank === bank.code ? "bg-primary/10" : ""}`}>
                                   <span className="text-sm">{bank.name}</span>
                                   {selectedBank === bank.code && <Check className="h-4 w-4 text-primary ml-auto" />}
