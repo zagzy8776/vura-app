@@ -575,8 +575,10 @@ const [userLimits, setUserLimits] = useState<{ dailyLimit: number; used: number;
             isOpen={showSecurityModal}
             onClose={() => setShowSecurityModal(false)}
             onConfirm={handleSecurityConfirm}
+            transferMode={transferMode}
             recipientName={transferMode === "tag" ? recipientData?.vuraTag || recipientTag : accountName}
             recipientTag={transferMode === "tag" ? recipientTag : accountNumber}
+            bankName={transferMode === 'bank' ? selectedBankName : undefined}
             amount={Number(amount)}
             currency="NGN"
             countdownSeconds={10}

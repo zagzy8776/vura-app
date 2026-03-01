@@ -13,8 +13,10 @@ interface SecurityCountdownModalProps {
   isOpen: boolean;
   onClose: () => void;
   onConfirm: () => void;
+  transferMode?: 'tag' | 'bank';
   recipientName: string;
   recipientTag: string;
+  bankName?: string;
   amount: number;
   currency?: string;
   countdownSeconds?: number;
@@ -24,8 +26,10 @@ export const SecurityCountdownModal: React.FC<SecurityCountdownModalProps> = ({
   isOpen,
   onClose,
   onConfirm,
+  transferMode = 'tag',
   recipientName,
   recipientTag,
+  bankName,
   amount,
   currency = 'NGN',
   countdownSeconds = 10,
@@ -93,7 +97,14 @@ export const SecurityCountdownModal: React.FC<SecurityCountdownModalProps> = ({
               </div>
               <div>
                 <p className="font-semibold text-gray-900">{recipientName}</p>
-                <p className="text-sm text-gray-500">@{recipientTag}</p>
+                {transferMode === 'tag' ? (
+                  <p className="text-sm text-gray-500">@{recipientTag}</p>
+                ) : (
+                  <div className="text-sm text-gray-500 space-y-0.5">
+                    <p>Account: {recipientTag}</p>
+                    {bankName ? <p>Bank: {bankName}</p> : null}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -113,7 +124,7 @@ export const SecurityCountdownModal: React.FC<SecurityCountdownModalProps> = ({
           {/* Warning Message */}
           <div className="bg-amber-50 border border-amber-200 p-3 rounded-lg">
             <p className="text-sm text-amber-800 text-center">
-              ⚠️ Only proceed if you trust this recipient. Transactions cannot be reversed.
+              ⚠️ Only proceed if you trust this recipient. Transfers may not be recoverable once sent.
             </p>
           </div>
 
