@@ -21,9 +21,16 @@ model User {
   vuraTag              String    @unique @map("vura_tag")
   phoneEncrypted       String    @map("phone_encrypted")
   emailEncrypted       String?   @map("email_encrypted")
+  // Government-verified legal name (read-only once set)
+  legalFirstName       String?   @map("legal_first_name")
+  legalLastName        String?   @map("legal_last_name")
+
   kycTier              Int       @default(1) @map("kyc_tier")
   kycStatus            KycStatus @default(PENDING) @map("kyc_status")
   bvnHash              String?   @map("bvn_hash")
+  // Encrypted BVN (AES-256-GCM). Unique to prevent multi-account BVN fraud.
+  bvnEncrypted         String?   @unique @map("bvn_encrypted")
+  bvnIv                String?   @map("bvn_iv")
   bvnVerified          Boolean   @default(false) @map("bvn_verified")
   bvnVerifiedAt        DateTime? @map("bvn_verified_at")
   // NIN Verification (Tier 1 KYC)
@@ -45,6 +52,8 @@ model User {
   // Added for Flutterwave/Monnify reserved account functionality
   reservedAccountNumber String? @map("reserved_account_number")
   flutterwaveOrderRef String? @map("flutterwave_order_ref")
+  reservedAccountBankName String? @map("reserved_account_bank_name")
+  flutterwaveRef String? @map("flutterwave_ref")
   
   // KYC Image Storage (Tier 3)
   idCardUrl    String?   @map("id_card_url")

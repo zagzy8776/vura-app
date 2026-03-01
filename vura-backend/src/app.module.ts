@@ -23,6 +23,7 @@ import { BankAccountsModule } from './bank-accounts/bank-accounts.module';
 import { QrCodesModule } from './qr-codes/qr-codes.module';
 import { PaymentRequestsModule } from './payment-requests/payment-requests.module';
 import { BankCodesModule } from './bank-codes/bank-codes.module';
+import { VirtualAccountsModule } from './virtual-accounts/virtual-accounts.module';
 import { PaystackService } from './services/paystack.service';
 import { BankCodesService } from './services/bank-codes.service';
 import { FlutterwaveService } from './services/flutterwave.service';
@@ -62,6 +63,7 @@ import { SecurityMiddleware } from './middleware/security.middleware';
     QrCodesModule,
     PaymentRequestsModule,
     BankCodesModule,
+    VirtualAccountsModule,
   ],
   controllers: [AppController, TransactionsController],
   providers: [

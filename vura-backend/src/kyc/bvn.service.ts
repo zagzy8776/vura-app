@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
 import { QoreIDService } from './qoreid.service';
+import { encryptToColumns } from '../utils/field-encryption';
 
 @Injectable()
 export class BVNService {
@@ -64,10 +65,17 @@ export class BVNService {
     const newKycTier = requiresReview ? 1 : 2;
 
     // Update user with verified BVN
+    // Store encrypted BVN for provider integrations (never log plaintext BVN)
+    const encrypted = encryptToColumns(bvn);
     await this.prisma.user.update({
       where: { id: userId },
       data: {
         bvnHash,
+        bvnEncrypted: encrypted.ciphertext,
+        bvnIv: encrypted.iv,
+        // Legal name from BVN verification (read-only once set)
+        legalFirstName: verificationResult.firstName,
+        legalLastName: verificationResult.lastName,
         bvnVerified: !requiresReview,
         bvnVerifiedAt: !requiresReview ? new Date() : null,
         kycTier: newKycTier,

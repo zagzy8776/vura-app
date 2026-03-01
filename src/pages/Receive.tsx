@@ -1,9 +1,8 @@
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Copy, CheckCircle, QrCode, Share2, Link2, Building2, Plus, Trash2, Star } from "lucide-react";
+import { Copy, CheckCircle, QrCode, Share2, Link2, Sparkles, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import AppSidebar from "@/components/AppSidebar";
 import DashboardHeader from "@/components/DashboardHeader";
@@ -12,21 +11,20 @@ import { toast } from "@/hooks/use-toast";
 import QRCode from "qrcode";
 import { apiFetch } from "@/hooks/useAuth";
 
+type VirtualAccount = {
+  accountNumber: string;
+  bankName: string;
+  accountName: string;
+};
+
 const Receive = () => {
   const { user } = useAuth();
   const [copied, setCopied] = useState(false);
   const [requestAmount, setRequestAmount] = useState("");
   const [qrDataUrl, setQrDataUrl] = useState<string>("");
   const [paymentLink, setPaymentLink] = useState<string>("");
-  const [bankAccounts, setBankAccounts] = useState<any[]>([]);
-  const [showBankForm, setShowBankForm] = useState(false);
-  const [newAccount, setNewAccount] = useState({
-    accountNumber: '',
-    bankCode: '',
-    bankName: '',
-    accountName: ''
-  });
-  const [loading, setLoading] = useState(false);
+  const [virtualAccount, setVirtualAccount] = useState<VirtualAccount | null>(null);
+  const [isMinting, setIsMinting] = useState(false);
   const tag = user?.vuraTag ? `@${user.vuraTag}` : "@user";
 
   // Generate QR code when user changes
@@ -48,91 +46,41 @@ const Receive = () => {
     }
   }, [user]);
 
-  // Load bank accounts
-  useEffect(() => {
-    const loadBankAccounts = async () => {
-      try {
-        const res = await apiFetch('/bank-accounts');
-        if (res.ok) {
-          const data = await res.json();
-          setBankAccounts(data);
-        }
-      } catch (error) {
-        console.error('Failed to load bank accounts:', error);
-      }
-    };
-    if (user) {
-      loadBankAccounts();
-    }
-  }, [user]);
 
-  const handleAddBankAccount = async () => {
-    if (!newAccount.accountNumber || !newAccount.bankCode || !newAccount.bankName || !newAccount.accountName) {
-      toast({ title: "Error", description: "Please fill in all fields", variant: "destructive" });
-      return;
-    }
-
-    setLoading(true);
+  const handleGenerateVirtualAccount = async () => {
+    setIsMinting(true);
     try {
-      const res = await apiFetch('/bank-accounts', {
-        method: 'POST',
-        body: JSON.stringify(newAccount)
-      });
-      
-      if (res.ok) {
-        const data = await res.json();
-        setBankAccounts(prev => [...prev, data]);
-        setNewAccount({ accountNumber: '', bankCode: '', bankName: '', accountName: '' });
-        setShowBankForm(false);
-        toast({ title: "Success", description: "Bank account added successfully" });
-      } else {
-        const errorData = await res.json();
-        toast({ title: "Error", description: errorData.message || "Failed to add bank account", variant: "destructive" });
+      const res = await apiFetch('/virtual-accounts/create', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) {
+        toast({
+          title: 'Cannot generate account',
+          description: data.message || 'Please complete BVN verification first.',
+          variant: 'destructive',
+        });
+        return;
       }
-    } catch (error) {
-      toast({ title: "Error", description: "Failed to add bank account", variant: "destructive" });
+
+      setVirtualAccount(data.data);
+      toast({
+        title: 'Account generated',
+        description: 'Your permanent Vura bank account is ready.',
+      });
+    } catch (e: unknown) {
+      toast({
+        title: 'Error',
+        description: e instanceof Error ? e.message : 'Failed to generate account',
+        variant: 'destructive',
+      });
     } finally {
-      setLoading(false);
+      setIsMinting(false);
     }
   };
 
-  const handleDeleteBankAccount = async (accountId: string) => {
-    try {
-      const res = await apiFetch(`/bank-accounts/${accountId}`, {
-        method: 'DELETE'
-      });
-      
-      if (res.ok) {
-        setBankAccounts(prev => prev.filter(acc => acc.id !== accountId));
-        toast({ title: "Success", description: "Bank account deleted successfully" });
-      } else {
-        toast({ title: "Error", description: "Failed to delete bank account", variant: "destructive" });
-      }
-    } catch (error) {
-      toast({ title: "Error", description: "Failed to delete bank account", variant: "destructive" });
-    }
-  };
-
-  const handleSetPrimary = async (accountId: string) => {
-    try {
-      const res = await apiFetch(`/bank-accounts/${accountId}/set-primary`, {
-        method: 'POST'
-      });
-      
-      if (res.ok) {
-        const data = await res.json();
-        setBankAccounts(prev => prev.map(acc => ({
-          ...acc,
-          isPrimary: acc.id === accountId
-        })));
-        toast({ title: "Success", description: "Primary account updated successfully" });
-      } else {
-        toast({ title: "Error", description: "Failed to set primary account", variant: "destructive" });
-      }
-    } catch (error) {
-      toast({ title: "Error", description: "Failed to set primary account", variant: "destructive" });
-    }
-  };
+  // Try to generate/fetch virtual account after BVN is verified (user action still needed if missing)
+  useEffect(() => {
+    setVirtualAccount(null);
+  }, [user?.id]);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(tag);
@@ -171,6 +119,106 @@ const Receive = () => {
     } else {
       handleCopy();
     }
+  };
+
+  const handleCopyAccountNumber = async () => {
+    if (!virtualAccount?.accountNumber) return;
+    await navigator.clipboard.writeText(virtualAccount.accountNumber);
+    toast({ title: 'Copied!', description: 'Account number copied' });
+  };
+
+  const handleShareReceiptImage = async () => {
+    if (!virtualAccount) return;
+
+    // Create a simple branded receipt on canvas, then share/download
+    const canvas = document.createElement('canvas');
+    canvas.width = 1080;
+    canvas.height = 1080;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    // background
+    const gradient = ctx.createLinearGradient(0, 0, 1080, 1080);
+    gradient.addColorStop(0, '#0ea5e9');
+    gradient.addColorStop(1, '#10b981');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, 1080, 1080);
+
+    // card
+    ctx.fillStyle = 'rgba(255,255,255,0.92)';
+    ctx.beginPath();
+    ctx.roundRect(90, 150, 900, 780, 40);
+    ctx.fill();
+
+    // header
+    ctx.fillStyle = '#0f172a';
+    ctx.font = 'bold 72px Inter, system-ui, -apple-system, Segoe UI, Roboto';
+    ctx.fillText('Vura', 140, 260);
+    ctx.font = '500 34px Inter, system-ui, -apple-system, Segoe UI, Roboto';
+    ctx.fillStyle = '#334155';
+    ctx.fillText('Bank Transfer Details', 140, 315);
+
+    const rows = [
+      { label: 'Account Number', value: virtualAccount.accountNumber },
+      { label: 'Bank Name', value: virtualAccount.bankName },
+      { label: 'Account Name', value: virtualAccount.accountName },
+      { label: 'Vura Tag', value: tag },
+    ];
+
+    let y = 420;
+    for (const r of rows) {
+      ctx.fillStyle = '#64748b';
+      ctx.font = '600 28px Inter, system-ui, -apple-system, Segoe UI, Roboto';
+      ctx.fillText(r.label.toUpperCase(), 140, y);
+      y += 52;
+      ctx.fillStyle = '#0f172a';
+      ctx.font = '700 52px Inter, system-ui, -apple-system, Segoe UI, Roboto';
+      ctx.fillText(String(r.value), 140, y);
+      y += 110;
+    }
+
+    ctx.fillStyle = '#475569';
+    ctx.font = '500 28px Inter, system-ui, -apple-system, Segoe UI, Roboto';
+    ctx.fillText('Share this to receive money instantly.', 140, 900);
+
+    const blob: Blob | null = await new Promise((resolve) =>
+      canvas.toBlob((b) => resolve(b), 'image/png', 1),
+    );
+    if (!blob) return;
+
+    const file = new File([blob], `vura-bank-details-${user?.vuraTag || 'user'}.png`, {
+      type: 'image/png',
+    });
+
+    // Try native share first
+    // @ts-expect-error - Web Share API types vary by browser
+    if (navigator.share && navigator.canShare?.({ files: [file] })) {
+      try {
+        // @ts-expect-error - Web Share API types vary by browser
+        await navigator.share({
+          title: 'Vura Bank Details',
+          text: 'Use these details to send me money on Vura.',
+          files: [file],
+        });
+        return;
+      } catch {
+        // user cancelled, fallback to download
+      }
+    }
+
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = file.name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+
+    toast({
+      title: 'Saved',
+      description: 'Receipt image downloaded. You can share it on WhatsApp.',
+    });
   };
 
   return (
@@ -235,117 +283,73 @@ const Receive = () => {
             )}
           </motion.div>
 
-          {/* Bank Accounts */}
+          {/* Your Vura Bank Account (Flutterwave Virtual Account) */}
           <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="rounded-2xl bg-card border border-border p-6 shadow-card space-y-4">
             <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold text-foreground">Bank Accounts</h3>
-              <Button onClick={() => setShowBankForm(!showBankForm)} variant="outline" className="rounded-xl">
-                <Plus className="h-4 w-4 mr-2" />
-                Add Account
-              </Button>
+              <h3 className="text-lg font-semibold text-foreground">Your Vura Bank Account</h3>
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Sparkles className="h-4 w-4" />
+                Flutterwave Virtual Account
+              </div>
             </div>
-            
-            {showBankForm && (
-              <Card>
+
+            {virtualAccount ? (
+              <Card className="border-2 border-primary/30">
                 <CardHeader>
-                  <CardTitle className="text-sm">Add New Bank Account</CardTitle>
+                  <CardTitle className="text-base">Bank Transfer Details</CardTitle>
                 </CardHeader>
-                <CardContent className="space-y-4">
-                  <div>
-                    <Label className="text-sm font-medium text-foreground mb-1.5 block">Account Number</Label>
-                    <Input 
-                      placeholder="1234567890" 
-                      value={newAccount.accountNumber} 
-                      onChange={(e) => setNewAccount({...newAccount, accountNumber: e.target.value})}
-                      className="h-12 rounded-xl"
-                    />
+                <CardContent className="space-y-3">
+                  <div className="rounded-xl bg-muted/40 p-4">
+                    <p className="text-xs text-muted-foreground">Account Number</p>
+                    <p className="text-2xl font-bold tracking-wider text-foreground">
+                      {virtualAccount.accountNumber}
+                    </p>
+                    <p className="text-sm text-muted-foreground">{virtualAccount.bankName}</p>
                   </div>
+
                   <div>
-                    <Label className="text-sm font-medium text-foreground mb-1.5 block">Bank Code</Label>
-                    <Input 
-                      placeholder="058" 
-                      value={newAccount.bankCode} 
-                      onChange={(e) => setNewAccount({...newAccount, bankCode: e.target.value})}
-                      className="h-12 rounded-xl"
-                    />
+                    <p className="text-xs text-muted-foreground">Account Name</p>
+                    <p className="font-semibold text-foreground">{virtualAccount.accountName}</p>
                   </div>
-                  <div>
-                    <Label className="text-sm font-medium text-foreground mb-1.5 block">Bank Name</Label>
-                    <Input 
-                      placeholder="GT Bank" 
-                      value={newAccount.bankName} 
-                      onChange={(e) => setNewAccount({...newAccount, bankName: e.target.value})}
-                      className="h-12 rounded-xl"
-                    />
-                  </div>
-                  <div>
-                    <Label className="text-sm font-medium text-foreground mb-1.5 block">Account Name</Label>
-                    <Input 
-                      placeholder="John Doe" 
-                      value={newAccount.accountName} 
-                      onChange={(e) => setNewAccount({...newAccount, accountName: e.target.value})}
-                      className="h-12 rounded-xl"
-                    />
-                  </div>
+
                   <div className="flex gap-3">
-                    <Button onClick={handleAddBankAccount} disabled={loading} className="flex-1 rounded-xl gradient-brand text-primary-foreground font-semibold border-0 hover:opacity-90">
-                      {loading ? "Adding..." : "Add Account"}
+                    <Button onClick={handleCopyAccountNumber} variant="outline" className="flex-1 rounded-xl">
+                      <Copy className="h-4 w-4 mr-2" />
+                      Copy Number
                     </Button>
-                    <Button onClick={() => setShowBankForm(false)} variant="outline" className="flex-1 rounded-xl">
-                      Cancel
+                    <Button onClick={handleShareReceiptImage} className="flex-1 rounded-xl gradient-brand text-primary-foreground font-semibold border-0 hover:opacity-90">
+                      <Share2 className="h-4 w-4 mr-2" />
+                      Share Receipt
                     </Button>
                   </div>
                 </CardContent>
               </Card>
-            )}
-
-            {bankAccounts.length > 0 ? (
-              <div className="space-y-3">
-                {bankAccounts.map((account) => (
-                  <Card key={account.id} className={`border-2 ${account.isPrimary ? 'border-primary' : 'border-border'}`}>
-                    <CardContent className="p-4">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <Building2 className="h-6 w-6 text-foreground" />
-                          <div>
-                            <p className="font-semibold text-foreground">{account.accountName}</p>
-                            <p className="text-sm text-muted-foreground">{account.accountNumber} - {account.bankName}</p>
-                            {account.isPrimary && (
-                              <span className="inline-flex items-center gap-1 px-2 py-1 bg-primary/10 text-primary text-xs rounded-full">
-                                <Star className="h-3 w-3" />
-                                Primary
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                        <div className="flex gap-2">
-                          {!account.isPrimary && (
-                            <Button 
-                              onClick={() => handleSetPrimary(account.id)} 
-                              variant="outline" 
-                              size="sm" 
-                              className="rounded-lg"
-                            >
-                              Set Primary
-                            </Button>
-                          )}
-                          <Button 
-                            onClick={() => handleDeleteBankAccount(account.id)} 
-                            variant="outline" 
-                            size="sm" 
-                            className="rounded-lg text-destructive hover:text-destructive-foreground"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
             ) : (
-              <div className="text-center py-8 text-muted-foreground">
-                No bank accounts added yet. Add your bank account to receive payments directly to your bank.
+              <div className="space-y-3">
+                <div className="rounded-xl border border-border bg-muted/20 p-4">
+                  <p className="text-sm text-foreground font-medium">Generate your permanent account</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    This creates a bank account tied to your BVN name. Any deposit to it credits your Vura balance instantly.
+                  </p>
+                </div>
+
+                <Button
+                  onClick={handleGenerateVirtualAccount}
+                  disabled={isMinting}
+                  className="w-full h-12 rounded-xl gradient-brand text-primary-foreground font-semibold border-0 hover:opacity-90"
+                >
+                  {isMinting ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Minting your account...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="h-4 w-4 mr-2" />
+                      Generate My Vura Bank Account
+                    </>
+                  )}
+                </Button>
               </div>
             )}
           </motion.div>

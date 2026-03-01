@@ -80,6 +80,75 @@ export class FlutterwaveService {
   }
 
   /**
+   * Create a permanent virtual account using Flutterwave v4 endpoint.
+   * We pass BVN + legal names to satisfy NIBSS name-matching checks.
+   */
+  async createVirtualAccountV4(input: {
+    userId: string;
+    email: string;
+    bvn: string;
+    firstName: string;
+    lastName: string;
+  }): Promise<
+    | {
+        success: true;
+        accountNumber: string;
+        bankName: string;
+        orderRef: string;
+        flutterwaveRef?: string;
+      }
+    | { success: false; error: string }
+  > {
+    try {
+      const response = await axios.post(
+        `${this.baseUrl}/virtual-account-numbers`,
+        {
+          email: input.email,
+          bvn: input.bvn,
+          first_name: input.firstName,
+          last_name: input.lastName,
+          country: 'NG',
+          currency: 'NGN',
+          // permanent account
+          is_permanent: true,
+          // our internal ref
+          tx_ref: `VURA-VA-${input.userId}-${Date.now()}`,
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${this.secretKey}`,
+            'Content-Type': 'application/json',
+          },
+        },
+      );
+
+      const accountData = response.data?.data;
+      if (!accountData?.account_number || !accountData?.bank_name) {
+        return {
+          success: false,
+          error: 'Flutterwave returned an unexpected virtual account response',
+        };
+      }
+
+      return {
+        success: true,
+        accountNumber: accountData.account_number,
+        bankName: accountData.bank_name,
+        orderRef: accountData.order_ref,
+        flutterwaveRef: accountData.flw_ref,
+      };
+    } catch (error: any) {
+      this.logger.error(
+        `Failed to create virtual account (v4): ${error.message}`,
+      );
+      return {
+        success: false,
+        error: error.response?.data?.message || error.message,
+      };
+    }
+  }
+
+  /**
    * Get virtual account details
    */
   async getVirtualAccount(orderRef: string) {

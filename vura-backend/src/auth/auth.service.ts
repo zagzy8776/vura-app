@@ -27,7 +27,8 @@ export class AuthService {
     const { phone, email, pin, vuraTag } = dto;
 
     const bypassOtpEmail = process.env.BYPASS_OTP_EMAIL === 'true';
-    const disableOtpVerification = process.env.DISABLE_OTP_VERIFICATION === 'true';
+    const disableOtpVerification =
+      process.env.DISABLE_OTP_VERIFICATION === 'true';
 
     // Validate phone format
     if (!validatePhone(phone)) {
@@ -259,7 +260,8 @@ export class AuthService {
     const { vuraTag, pin, deviceFingerprint } = dto;
 
     const bypassOtpEmail = process.env.BYPASS_OTP_EMAIL === 'true';
-    const disableOtpVerification = process.env.DISABLE_OTP_VERIFICATION === 'true';
+    const disableOtpVerification =
+      process.env.DISABLE_OTP_VERIFICATION === 'true';
 
     const user = await this.prisma.user.findUnique({
       where: { vuraTag },

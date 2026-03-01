@@ -66,91 +66,113 @@ export class FlutterwaveWebhookController {
    * This is when someone sends money to a Vura virtual account
    */
   private async handleChargeCompleted(data: any) {
-    const { amount, currency, tx_ref, flw_ref, customer } = data;
+    const { amount, currency, tx_ref, flw_ref, customer, account_number } = data;
 
-    // Extract user ID from the transaction reference (format: VURA-{userId}-{timestamp})
-    const userId = tx_ref?.replace('VURA-', '')?.split('-')[0];
-
-    if (!userId) {
-      this.logger.error(`Could not extract userId from tx_ref: ${tx_ref}`);
+    // Preferred matching: account_number -> user.reservedAccountNumber
+    const accountNumber = String(account_number || '').trim();
+    if (!accountNumber) {
+      this.logger.error('Flutterwave charge.completed missing account_number', {
+        tx_ref,
+        flw_ref,
+      });
       return;
     }
+
+    const user = await this.prisma.user.findFirst({
+      where: { reservedAccountNumber: accountNumber },
+    });
+
+    if (!user) {
+      this.logger.error(`No user mapped to virtual account ${accountNumber}`);
+      return;
+    }
+
+    const userId = user.id;
 
     this.logger.log(
       `Processing deposit: ${amount} ${currency} for user ${userId}`,
     );
 
-    // Find the user
-    const user = await this.prisma.user.findUnique({ where: { id: userId } });
-    if (!user) {
-      this.logger.error(`User not found: ${userId}`);
-      return;
-    }
-
     // Calculate fee (1.5% for inflow)
     const fee = amount * 0.015;
     const netAmount = amount - fee;
 
-    // Get or create balance
-    const balance = await this.prisma.balance.findUnique({
-      where: { userId_currency: { userId, currency: 'NGN' } },
+    // Idempotency shield: providerTxId must be unique for Flutterwave deposits.
+    // If Flutterwave retries the same event, we must not double-credit.
+    const existingTx = await this.prisma.transaction.findFirst({
+      where: { providerTxId: flw_ref },
+      select: { id: true },
     });
-
-    if (balance) {
-      // Update existing balance
-      await this.prisma.balance.update({
-        where: { id: balance.id },
-        data: {
-          amount: Number(balance.amount) + netAmount,
-          lastUpdatedBy: 'flutterwave',
-        },
+    if (existingTx) {
+      this.logger.warn('Duplicate Flutterwave deposit webhook ignored', {
+        flw_ref,
+        tx_ref,
+        userId,
       });
-    } else {
-      // Create new balance
-      await this.prisma.balance.create({
-        data: {
-          userId,
-          currency: 'NGN',
-          amount: netAmount,
-          lastUpdatedBy: 'flutterwave',
-        },
-      });
+      return;
     }
 
-    // Create transaction record
-    await this.prisma.transaction.create({
-      data: {
-        receiverId: userId,
-        amount,
-        currency: 'NGN',
-        type: 'deposit',
-        status: 'SUCCESS',
-        providerTxId: flw_ref,
-        idempotencyKey: tx_ref,
-        reference: tx_ref,
-        metadata: {
-          provider: 'flutterwave',
-          customerEmail: customer?.email,
-          fee,
-          netAmount,
-        },
-      },
-    });
+    // Atomic credit + transaction + audit
+    await this.prisma.$transaction(async (tx) => {
+      const balance = await tx.balance.findUnique({
+        where: { userId_currency: { userId, currency: 'NGN' } },
+      });
 
-    // Create audit log
-    await this.prisma.auditLog.create({
-      data: {
-        action: 'DEPOSIT_VIA_VIRTUAL_ACCOUNT',
-        userId,
-        actorType: 'system',
-        metadata: {
+      if (balance) {
+        await tx.balance.update({
+          where: { id: balance.id },
+          data: {
+            amount: Number(balance.amount) + netAmount,
+            lastUpdatedBy: 'flutterwave',
+          },
+        });
+      } else {
+        await tx.balance.create({
+          data: {
+            userId,
+            currency: 'NGN',
+            amount: netAmount,
+            lastUpdatedBy: 'flutterwave',
+          },
+        });
+      }
+
+      await tx.transaction.create({
+        data: {
+          receiverId: userId,
           amount,
-          fee,
-          netAmount,
-          txRef: tx_ref,
-          flwRef: flw_ref,
+          currency: 'NGN',
+          type: 'deposit',
+          status: 'SUCCESS',
+          providerTxId: flw_ref,
+          // Still keep an idempotency key for internal references
+          idempotencyKey: flw_ref,
+          reference: tx_ref || flw_ref,
+          metadata: {
+            provider: 'flutterwave',
+            accountNumber,
+            customerEmail: customer?.email,
+            fee,
+            netAmount,
+          },
         },
-      },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          action: 'DEPOSIT_VIA_VIRTUAL_ACCOUNT',
+          userId,
+          actorType: 'system',
+          metadata: {
+            amount,
+            fee,
+            netAmount,
+            txRef: tx_ref,
+            flwRef: flw_ref,
+            accountNumber,
+          },
+        },
+      });
     });
 
     this.logger.log(`Successfully credited ${netAmount} NGN to user ${userId}`);
