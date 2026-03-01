@@ -155,7 +155,7 @@ export class TransactionsController {
       const providerMessage =
         error.response?.data?.message || error.message || 'Unknown error';
       // Keep provider message in logs for debugging.
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
+
       console.error('verify-account failed', { bankCode, providerMessage });
 
       throw new BadRequestException(
