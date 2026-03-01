@@ -84,10 +84,13 @@ const [userLimits, setUserLimits] = useState<{ dailyLimit: number; used: number;
   >(null);
 
   const localFee = amount
-    ? Math.max(10, Number(amount) * (transferMode === "bank" ? 0.015 : 0.005))
+    ? transferMode === 'tag'
+      ? 0
+      : Math.max(10, Number(amount) * 0.015)
     : 0;
 
-  const fee = transferMode === "bank" && feeBreakdown ? feeBreakdown.totalFee : localFee;
+  const fee =
+    transferMode === "bank" && feeBreakdown ? feeBreakdown.totalFee : localFee;
   const total = Number(amount) + fee;
   const isOverLimit = Number(amount) + fee > userLimits.remaining;
 
