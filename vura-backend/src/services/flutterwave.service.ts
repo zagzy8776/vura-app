@@ -227,7 +227,8 @@ export class FlutterwaveService {
    */
   async getBanks(country: string = 'NG') {
     try {
-      const response = await axios.get(`${this.baseUrl}/banks/${country}`, {
+      // Banks list endpoint is available on v3.
+      const response = await axios.get(`${this.v3BaseUrl}/banks/${country}`, {
         headers: { Authorization: `Bearer ${this.secretKey}` },
       });
 
