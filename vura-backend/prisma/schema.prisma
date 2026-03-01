@@ -33,6 +33,12 @@ model User {
   bvnIv                String?   @map("bvn_iv")
   bvnVerified          Boolean   @default(false) @map("bvn_verified")
   bvnVerifiedAt        DateTime? @map("bvn_verified_at")
+
+  // Flutterwave BVN consent (iGree / NIBSS)
+  bvnConsentReference  String?   @map("bvn_consent_reference")
+  bvnConsentUrl        String?   @map("bvn_consent_url")
+  bvnConsentStatus     String?   @map("bvn_consent_status")
+  bvnConsentInitiatedAt DateTime? @map("bvn_consent_initiated_at")
   // NIN Verification (Tier 1 KYC)
   ninHash              String?   @map("nin_hash")
   ninVerified          Boolean   @default(false) @map("nin_verified")

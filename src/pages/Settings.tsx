@@ -35,6 +35,8 @@ const SettingsPage = () => {
   
   const [activeDialog, setActiveDialog] = useState<string | null>(null);
   const [bvn, setBvn] = useState("");
+  const [bvnFirstName, setBvnFirstName] = useState("");
+  const [bvnLastName, setBvnLastName] = useState("");
   const [bvnStatus, setBvnStatus] = useState<{ verified: boolean; tier?: number } | null>(null);
   const [currentPin, setCurrentPin] = useState("");
   const [newPin, setNewPin] = useState("");
@@ -102,25 +104,34 @@ const SettingsPage = () => {
       toast({ title: "Invalid BVN", description: "BVN must be 11 digits", variant: "destructive" });
       return;
     }
+    if (!bvnFirstName.trim() || !bvnLastName.trim()) {
+      toast({
+        title: "Missing name",
+        description: "Enter your first name and last name as it appears on your BVN.",
+        variant: "destructive",
+      });
+      return;
+    }
     setLoading(true);
     try {
       const response = await apiFetch("/kyc/verify-bvn", {
         method: "POST",
-        body: JSON.stringify({ bvn }),
+        body: JSON.stringify({ bvn, firstName: bvnFirstName.trim(), lastName: bvnLastName.trim() }),
       });
       const data = await response.json();
       if (response.ok) {
-        // backend returns { success: true, message, data: { firstName, lastName, kycTier } }
-        const firstName = data?.data?.firstName || '';
-        const lastName = data?.data?.lastName || '';
-        const tier = data?.data?.kycTier;
+        // backend now initiates consent and stores reference/url server-side
+        // It may return consent info in future; for now show guidance.
         toast({
-          title: "BVN Verified!",
-          description: `Welcome ${`${firstName} ${lastName}`.trim()}. Your KYC tier is now ${tier}.`,
+          title: "Consent required",
+          description: "A secure BVN consent page will open. Please approve, then you’ll be returned to Vura to complete verification.",
         });
-        setBvnStatus({ verified: true, tier });
-        setActiveDialog(null);
-        setBvn("");
+
+        // If backend returns a consentUrl, open it. Otherwise user will be redirected by backend implementation later.
+        const consentUrl = data?.data?.consentUrl || data?.data?.url;
+        if (consentUrl && typeof consentUrl === 'string') {
+          window.location.href = consentUrl;
+        }
       } else {
         toast({ title: "Verification Failed", description: data.message, variant: "destructive" });
       }
@@ -379,6 +390,16 @@ const SettingsPage = () => {
                 </div>
               ) : (
                 <>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-2">
+                      <Label>First name</Label>
+                      <Input value={bvnFirstName} onChange={(e) => setBvnFirstName(e.target.value)} placeholder="First name" />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Last name</Label>
+                      <Input value={bvnLastName} onChange={(e) => setBvnLastName(e.target.value)} placeholder="Last name" />
+                    </div>
+                  </div>
                   <div className="p-4 bg-amber-50 rounded-lg"><p className="text-amber-700 text-sm">Your BVN is required for regulatory compliance and to unlock higher transaction limits.</p></div>
                   <div className="space-y-2"><Label>Enter your 11-digit BVN</Label><Input value={bvn} onChange={(e) => setBvn(e.target.value.replace(/\D/g, "").slice(0, 11))} placeholder="12345678901" maxLength={11} /></div>
                   <Button onClick={handleBvnSubmit} className="w-full" disabled={bvn.length !== 11 || loading}>{loading ? "Verifying..." : "Verify BVN"}</Button>

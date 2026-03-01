@@ -21,17 +21,42 @@ export class KYCController {
 
   @Post('verify-bvn')
   async verifyBVN(
-    @Body() body: { bvn: string },
+    @Body() body: { bvn: string; firstName?: string; lastName?: string },
     @Request() req: { user?: { userId?: string } },
   ) {
     const userId = req.user?.userId;
     if (!userId) {
       throw new UnauthorizedException();
     }
-    const result = await this.bvnService.verifyBVN(userId, body.bvn);
+    const result = await this.bvnService.verifyBVN(
+      userId,
+      body.bvn,
+      body.firstName,
+      body.lastName,
+    );
     return {
       success: true,
-      message: 'BVN verified successfully',
+      message: 'BVN consent initiated',
+      data: result,
+    };
+  }
+
+  @Post('complete-bvn')
+  async completeBVN(
+    @Body() body: { reference: string },
+    @Request() req: { user?: { userId?: string } },
+  ) {
+    const userId = req.user?.userId;
+    if (!userId) {
+      throw new UnauthorizedException();
+    }
+    const result = await this.bvnService.completeBvnConsent(
+      userId,
+      body.reference,
+    );
+    return {
+      success: true,
+      message: 'BVN verification completed',
       data: result,
     };
   }

@@ -3,6 +3,17 @@ import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 import crypto from 'crypto';
 
+type UnknownRecord = Record<string, unknown>;
+
+const asRecord = (value: unknown): UnknownRecord | null => {
+  if (!value || typeof value !== 'object') return null;
+  return value as UnknownRecord;
+};
+
+const asString = (value: unknown): string | undefined => {
+  return typeof value === 'string' ? value : undefined;
+};
+
 @Injectable()
 export class FlutterwaveService {
   private readonly logger = new Logger(FlutterwaveService.name);
@@ -33,6 +44,8 @@ export class FlutterwaveService {
     firstName: string,
     lastName: string,
   ) {
+    /* eslint-disable @typescript-eslint/no-unsafe-assignment */
+    /* eslint-disable @typescript-eslint/no-unsafe-member-access */
     try {
       const response = await axios.post(
         `${this.baseUrl}/virtual-account-numbers`,
@@ -78,6 +91,8 @@ export class FlutterwaveService {
         error: error.response?.data?.message || error.message,
       };
     }
+    /* eslint-enable @typescript-eslint/no-unsafe-assignment */
+    /* eslint-enable @typescript-eslint/no-unsafe-member-access */
   }
 
   /**
@@ -100,6 +115,8 @@ export class FlutterwaveService {
       }
     | { success: false; error: string }
   > {
+    /* eslint-disable @typescript-eslint/no-unsafe-assignment */
+    /* eslint-disable @typescript-eslint/no-unsafe-member-access */
     try {
       const response = await axios.post(
         `${this.baseUrl}/virtual-account-numbers`,
@@ -147,12 +164,16 @@ export class FlutterwaveService {
         error: error.response?.data?.message || error.message,
       };
     }
+    /* eslint-enable @typescript-eslint/no-unsafe-assignment */
+    /* eslint-enable @typescript-eslint/no-unsafe-member-access */
   }
 
   /**
    * Get virtual account details
    */
   async getVirtualAccount(orderRef: string) {
+    /* eslint-disable @typescript-eslint/no-unsafe-assignment */
+    /* eslint-disable @typescript-eslint/no-unsafe-member-access */
     try {
       const response = await axios.get(
         `${this.baseUrl}/virtual-account-numbers/${orderRef}`,
@@ -166,6 +187,8 @@ export class FlutterwaveService {
       this.logger.error(`Failed to get virtual account: ${error.message}`);
       return { success: false, error: error.message };
     }
+    /* eslint-enable @typescript-eslint/no-unsafe-assignment */
+    /* eslint-enable @typescript-eslint/no-unsafe-member-access */
   }
 
   /**
@@ -180,6 +203,8 @@ export class FlutterwaveService {
     reference: string,
     description?: string,
   ) {
+    /* eslint-disable @typescript-eslint/no-unsafe-assignment */
+    /* eslint-disable @typescript-eslint/no-unsafe-member-access */
     try {
       // Calculate fee based on amount (2026 rules)
       const isLargeTransfer = amount >= 10000;
@@ -227,12 +252,16 @@ export class FlutterwaveService {
         error: error.response?.data?.message || error.message,
       };
     }
+    /* eslint-enable @typescript-eslint/no-unsafe-assignment */
+    /* eslint-enable @typescript-eslint/no-unsafe-member-access */
   }
 
   /**
    * Verify account number with bank
    */
   async verifyAccount(accountNumber: string, bankCode: string) {
+    /* eslint-disable @typescript-eslint/no-unsafe-assignment */
+    /* eslint-disable @typescript-eslint/no-unsafe-member-access */
     try {
       // Account resolution is exposed on Flutterwave v3.
       // Primary: POST /v3/accounts/resolve
@@ -290,12 +319,16 @@ export class FlutterwaveService {
         error: error.response?.data?.message || error.message,
       };
     }
+    /* eslint-enable @typescript-eslint/no-unsafe-assignment */
+    /* eslint-enable @typescript-eslint/no-unsafe-member-access */
   }
 
   /**
    * Get list of banks
    */
   async getBanks(country: string = 'NG') {
+    /* eslint-disable @typescript-eslint/no-unsafe-assignment */
+    /* eslint-disable @typescript-eslint/no-unsafe-member-access */
     try {
       // Banks list endpoint is available on v3.
       const url = `${this.v3BaseUrl}/banks/${country}`;
@@ -314,6 +347,8 @@ export class FlutterwaveService {
       });
       return { success: false, error: error.message };
     }
+    /* eslint-enable @typescript-eslint/no-unsafe-assignment */
+    /* eslint-enable @typescript-eslint/no-unsafe-member-access */
   }
 
   /**
@@ -348,33 +383,32 @@ export class FlutterwaveService {
   }
 
   /**
-   * BVN verification (Flutterwave v3).
-   * NOTE: Endpoint availability depends on your Flutterwave account permissions.
+   * Flutterwave BVN consent initiation (iGree / NIBSS).
+   * POST /v3/bvn/verifications -> returns consent url + reference.
    */
-  async verifyBvn(input: {
+  async initiateBvnConsent(input: {
     bvn: string;
-    firstName?: string;
-    lastName?: string;
+    firstName: string;
+    lastName: string;
+    redirectUrl?: string;
   }): Promise<
     | {
         success: true;
-        firstName: string;
-        lastName: string;
-        dateOfBirth?: string;
-        phoneNumber?: string;
-        reference?: string;
+        url: string;
+        reference: string;
       }
     | { success: false; error: string }
   > {
+    /* eslint-disable @typescript-eslint/no-unsafe-assignment */
+    /* eslint-disable @typescript-eslint/no-unsafe-member-access */
     try {
-      // Flutterwave docs often use v3 endpoints for identity/BVN.
       const response = await axios.post(
         `${this.v3BaseUrl}/bvn/verifications`,
         {
           bvn: input.bvn,
-          // Optional fields for better matching if supported by your account
           firstname: input.firstName,
           lastname: input.lastName,
+          redirect_url: input.redirectUrl,
         },
         {
           headers: {
@@ -384,31 +418,27 @@ export class FlutterwaveService {
         },
       );
 
-      const data: unknown = response.data?.data;
-      const obj = (data && typeof data === 'object') ? (data as Record<string, unknown>) : null;
-      // Be defensive: different accounts return slightly different shapes
-      const firstName = obj?.first_name ?? obj?.firstname ?? obj?.firstName;
-      const lastName = obj?.last_name ?? obj?.lastname ?? obj?.lastName;
-      if (!firstName || !lastName) {
+      const responseObj = asRecord(response.data);
+      const data = asRecord(responseObj?.data);
+      const url = asString(data?.url);
+      const reference = asString(data?.reference);
+      if (!url || !reference) {
         return {
           success: false,
-          error: 'Flutterwave BVN verification returned unexpected data',
+          error: 'Flutterwave BVN consent initiation returned unexpected data',
         };
       }
 
       return {
         success: true,
-        firstName: String(firstName),
-        lastName: String(lastName),
-        dateOfBirth: (obj?.date_of_birth ?? obj?.dob) ? String(obj?.date_of_birth ?? obj?.dob) : undefined,
-        phoneNumber: (obj?.phone_number ?? obj?.phone) ? String(obj?.phone_number ?? obj?.phone) : undefined,
-        reference: (obj?.reference ?? obj?.flw_ref) ? String(obj?.reference ?? obj?.flw_ref) : undefined,
+        url,
+        reference,
       };
     } catch (error: any) {
       const status = error.response?.status;
       const data = error.response?.data;
       this.logger.error(
-        `Flutterwave BVN verification failed: ${error.message}`,
+        `Flutterwave BVN consent initiation failed: ${error.message}`,
         {
           status,
           data,
@@ -420,6 +450,81 @@ export class FlutterwaveService {
         error: data?.message || error.message,
       };
     }
+    /* eslint-enable @typescript-eslint/no-unsafe-assignment */
+    /* eslint-enable @typescript-eslint/no-unsafe-member-access */
+  }
+
+  /**
+   * Retrieve BVN info after consent has been completed.
+   * GET /v3/bvn/verifications/{reference}
+   */
+  async retrieveBvnInformation(input: { reference: string }): Promise<
+    | {
+        success: true;
+        status: string;
+        firstName?: string;
+        lastName?: string;
+        bvn?: string;
+      }
+    | { success: false; error: string }
+  > {
+    /* eslint-disable @typescript-eslint/no-unsafe-assignment */
+    /* eslint-disable @typescript-eslint/no-unsafe-member-access */
+    try {
+      const response = await axios.get(
+        `${this.v3BaseUrl}/bvn/verifications/${encodeURIComponent(input.reference)}`,
+        {
+          params: { include_complete_message: '1' },
+          headers: {
+            Authorization: `Bearer ${this.secretKey}`,
+            'Content-Type': 'application/json',
+          },
+        },
+      );
+
+      const responseObj = asRecord(response.data);
+      const obj = asRecord(responseObj?.data);
+      if (!obj) {
+        return {
+          success: false,
+          error: 'Flutterwave returned an unexpected BVN info response',
+        };
+      }
+
+      const status = asString(obj.status) || 'UNKNOWN';
+      const firstName = asString(obj.first_name);
+      const lastName = asString(obj.last_name);
+      const bvnData =
+        obj.bvn_data && typeof obj.bvn_data === 'object'
+          ? (obj.bvn_data as UnknownRecord)
+          : null;
+      const bvn = asString(bvnData?.bvn);
+
+      return {
+        success: true,
+        status,
+        firstName,
+        lastName,
+        bvn,
+      };
+    } catch (error: any) {
+      const status = error.response?.status;
+      const data = error.response?.data;
+      this.logger.error(
+        `Flutterwave BVN info retrieval failed: ${error.message}`,
+        {
+          status,
+          data,
+          v3BaseUrl: this.v3BaseUrl,
+        },
+      );
+      return {
+        success: false,
+        error: data?.message || error.message,
+      };
+    }
+    /* eslint-enable @typescript-eslint/no-unsafe-assignment */
+    /* eslint-enable @typescript-eslint/no-unsafe-member-access */
   }
 
   /**
@@ -438,6 +543,7 @@ export class FlutterwaveService {
   > {
     // TODO: Wire real Flutterwave Identity endpoint once confirmed in your Flutterwave dashboard.
     void input;
+    await Promise.resolve();
     return {
       success: false,
       error:

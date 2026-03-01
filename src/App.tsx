@@ -21,6 +21,7 @@ import { MerchantDashboard } from "./pages/MerchantDashboard";
 import { TermsOfService } from "./pages/TermsOfService";
 import { PrivacyPolicy } from "./pages/PrivacyPolicy";
 import VerifyOtp from "./pages/VerifyOtp";
+import BvnCallback from "@/pages/BvnCallback";
 import IdUpload from "./pages/IdUpload";
 import AdminDashboard from "./pages/AdminDashboard";
 
@@ -71,6 +72,7 @@ const AppRoutes = () => (
     <Route path="/transactions" element={<ProtectedRoute><Transactions /></ProtectedRoute>} />
     <Route path="/accounts" element={<ProtectedRoute><Accounts /></ProtectedRoute>} />
     <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+    <Route path="/kyc/bvn-callback" element={<ProtectedRoute><BvnCallback /></ProtectedRoute>} />
     <Route path="/help" element={<ProtectedRoute><Help /></ProtectedRoute>} />
     <Route path="/crypto-deposit" element={<ProtectedRoute><CryptoDeposit /></ProtectedRoute>} />
     <Route path="/merchant-dashboard" element={<ProtectedRoute><MerchantDashboard /></ProtectedRoute>} />
