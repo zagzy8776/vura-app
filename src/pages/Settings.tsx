@@ -84,10 +84,13 @@ const SettingsPage = () => {
 
   const fetchBvnStatus = async () => {
     try {
-      const response = await apiFetch("/kyc/status");
+      const response = await apiFetch("/kyc/bvn-status");
       if (response.ok) {
         const data = await response.json();
-        setBvnStatus(data);
+        // backend returns { success: true, data: { verified, verifiedAt, kycTier } }
+        if (data?.data) {
+          setBvnStatus({ verified: !!data.data.verified, tier: data.data.kycTier });
+        }
       }
     } catch (error) {
       console.error("Failed to fetch BVN status:", error);
@@ -101,14 +104,21 @@ const SettingsPage = () => {
     }
     setLoading(true);
     try {
-      const response = await apiFetch("/kyc/bvn", {
+      const response = await apiFetch("/kyc/verify-bvn", {
         method: "POST",
         body: JSON.stringify({ bvn }),
       });
       const data = await response.json();
       if (response.ok) {
-        toast({ title: "BVN Verified!", description: `Welcome ${data.userName}. Your KYC tier has been upgraded.` });
-        setBvnStatus({ verified: true, tier: data.tier });
+        // backend returns { success: true, message, data: { firstName, lastName, kycTier } }
+        const firstName = data?.data?.firstName || '';
+        const lastName = data?.data?.lastName || '';
+        const tier = data?.data?.kycTier;
+        toast({
+          title: "BVN Verified!",
+          description: `Welcome ${`${firstName} ${lastName}`.trim()}. Your KYC tier is now ${tier}.`,
+        });
+        setBvnStatus({ verified: true, tier });
         setActiveDialog(null);
         setBvn("");
       } else {
