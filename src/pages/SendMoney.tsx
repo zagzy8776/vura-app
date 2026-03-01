@@ -46,7 +46,7 @@ const DEFAULT_RECIPIENTS: RecentRecipient[] = [];
 const SendMoney = () => {
   const [step, setStep] = useState<"form" | "confirm" | "success">("form");
   const [transferMode, setTransferMode] = useState<TransferMode>("tag");
-const [userLimits, setUserLimits] = useState<{ dailyLimit: number; used: number; remaining: number }>({ dailyLimit: 30000, used: 0, remaining: 30000 });
+  const [userLimits, setUserLimits] = useState<{ dailyLimit: number; used: number; remaining: number }>({ dailyLimit: 50000, used: 0, remaining: 50000 });
   const [recentRecipients, setRecentRecipients] = useState<RecentRecipient[]>(DEFAULT_RECIPIENTS);
   const [showRecentList, setShowRecentList] = useState(false);
   const [recipientTag, setRecipientTag] = useState("");
@@ -117,6 +117,33 @@ const [userLimits, setUserLimits] = useState<{ dailyLimit: number; used: number;
     const debounce = setTimeout(lookupRecipient, 500);
     return () => clearTimeout(debounce);
   }, [recipientTag]);
+
+  // Load real tier-based limits & today's usage from backend (source of truth)
+  useEffect(() => {
+    const loadLimits = async () => {
+      try {
+        // vura-backend: GET /limits
+        const res = await apiFetch('/limits');
+        if (!res.ok) return;
+        const data = await res.json();
+
+        // Backend returns string amounts with 2dp (e.g. "50000.00")
+        const dailyLimit = Number(data?.dailySendLimit);
+        const used = Number(data?.dailySent);
+        const remaining = Number(data?.remainingDaily);
+        if (
+          Number.isFinite(dailyLimit) &&
+          Number.isFinite(used) &&
+          Number.isFinite(remaining)
+        ) {
+          setUserLimits({ dailyLimit, used, remaining });
+        }
+      } catch {
+        // Keep safe fallback if API fails
+      }
+    };
+    loadLimits();
+  }, []);
 
   useEffect(() => {
     const loadBanks = async () => {
