@@ -10,6 +10,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/hooks/use-toast";
 import QRCode from "qrcode";
 import { apiFetch } from "@/hooks/useAuth";
+import { useNavigate } from "react-router-dom";
 
 type VirtualAccount = {
   accountNumber: string;
@@ -19,12 +20,14 @@ type VirtualAccount = {
 
 const Receive = () => {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [copied, setCopied] = useState(false);
   const [requestAmount, setRequestAmount] = useState("");
   const [qrDataUrl, setQrDataUrl] = useState<string>("");
   const [paymentLink, setPaymentLink] = useState<string>("");
   const [virtualAccount, setVirtualAccount] = useState<VirtualAccount | null>(null);
   const [isMinting, setIsMinting] = useState(false);
+  const [needsBvn, setNeedsBvn] = useState(false);
   const tag = user?.vuraTag ? `@${user.vuraTag}` : "@user";
 
   // Generate QR code when user changes
@@ -49,13 +52,18 @@ const Receive = () => {
 
   const handleGenerateVirtualAccount = async () => {
     setIsMinting(true);
+    setNeedsBvn(false);
     try {
       const res = await apiFetch('/virtual-accounts/create', { method: 'POST' });
       const data = await res.json();
       if (!res.ok) {
+        const message = String(data.message || 'Please complete BVN verification first.');
+        if (message.toLowerCase().includes('bvn')) {
+          setNeedsBvn(true);
+        }
         toast({
           title: 'Cannot generate account',
-          description: data.message || 'Please complete BVN verification first.',
+          description: message,
           variant: 'destructive',
         });
         return;
@@ -332,6 +340,16 @@ const Receive = () => {
                     This creates a bank account tied to your BVN name. Any deposit to it credits your Vura balance instantly.
                   </p>
                 </div>
+
+                {needsBvn && (
+                  <Button
+                    onClick={() => navigate('/settings')}
+                    variant="outline"
+                    className="w-full h-12 rounded-xl"
+                  >
+                    Verify BVN to Generate Account
+                  </Button>
+                )}
 
                 <Button
                   onClick={handleGenerateVirtualAccount}
