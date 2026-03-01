@@ -228,13 +228,20 @@ export class FlutterwaveService {
   async getBanks(country: string = 'NG') {
     try {
       // Banks list endpoint is available on v3.
-      const response = await axios.get(`${this.v3BaseUrl}/banks/${country}`, {
+      const url = `${this.v3BaseUrl}/banks/${country}`;
+      const response = await axios.get(url, {
         headers: { Authorization: `Bearer ${this.secretKey}` },
       });
 
       return { success: true, banks: response.data.data };
     } catch (error: any) {
-      this.logger.error(`Failed to get banks: ${error.message}`);
+      const status = error.response?.status;
+      const data = error.response?.data;
+      this.logger.error(`Failed to get banks: ${error.message}`, {
+        status,
+        data,
+        v3BaseUrl: this.v3BaseUrl,
+      });
       return { success: false, error: error.message };
     }
   }
