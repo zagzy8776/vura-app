@@ -5,13 +5,17 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
 import { QoreIDService } from './qoreid.service';
+import { FlutterwaveService } from '../services/flutterwave.service';
 import { encryptToColumns } from '../utils/field-encryption';
+import { VirtualAccountsService } from '../virtual-accounts/virtual-accounts.service';
 
 @Injectable()
 export class BVNService {
   constructor(
     private prisma: PrismaService,
     private qoreIdService: QoreIDService,
+    private flutterwaveService: FlutterwaveService,
+    private virtualAccountsService: VirtualAccountsService,
   ) {}
 
   /**
@@ -42,27 +46,18 @@ export class BVNService {
       throw new ConflictException('BVN already registered to another account');
     }
 
-    // Verify BVN with QoreID
-    const verificationResult = await this.qoreIdService.verifyBVN(bvn);
-
+    // Verify BVN with Flutterwave (Tier 2 provider)
+    const verificationResult = await this.flutterwaveService.verifyBvn({ bvn });
     if (!verificationResult.success) {
-      throw new BadRequestException('BVN verification failed');
+      throw new BadRequestException(
+        verificationResult.error || 'BVN verification failed',
+      );
     }
 
-    // Check if manual review is required based on AML screening
-    const requiresReview = this.qoreIdService.requiresManualReview({
-      aml_status: verificationResult.amlStatus,
-      pep_status: verificationResult.pepStatus,
-      sanction_status: 'clear',
-      adverse_media_status: 'clear',
-      risk_level: verificationResult.riskLevel,
-      risk_reasons: verificationResult.riskReasons,
-    });
-
-    // Determine KYC tier based on risk level
-    // Low risk: Tier 2
-    // Medium/High risk: Tier 1 (manual review required before upgrade)
-    const newKycTier = requiresReview ? 1 : 2;
+    // For now, upgrade immediately to Tier 2 on successful provider verification.
+    // If you later add AML/PEP checks, this is where you'd decide manual review.
+    const requiresReview = false;
+    const newKycTier = 2;
 
     // Update user with verified BVN
     // Store encrypted BVN for provider integrations (never log plaintext BVN)
@@ -79,9 +74,17 @@ export class BVNService {
         bvnVerified: !requiresReview,
         bvnVerifiedAt: !requiresReview ? new Date() : null,
         kycTier: newKycTier,
-        fraudScore: verificationResult.riskLevel === 'high' ? 75 : 10,
+        fraudScore: 10,
       },
     });
+
+    // After successful BVN verification (Tier 2), attempt to create a permanent virtual account.
+    // This makes receiving via bank transfer available immediately.
+    try {
+      await this.virtualAccountsService.createOrGet(userId);
+    } catch {
+      // Non-fatal: user can retry in Receive page.
+    }
 
     // Log the verification
     await this.prisma.auditLog.create({
@@ -92,8 +95,7 @@ export class BVNService {
         metadata: {
           kycTier: newKycTier,
           verified: !requiresReview,
-          riskLevel: verificationResult.riskLevel,
-          amlStatus: verificationResult.amlStatus,
+          provider: 'flutterwave',
           requiresManualReview: requiresReview,
           verificationTime: new Date().toISOString(),
           last4: bvn.slice(-4),
@@ -103,7 +105,7 @@ export class BVNService {
 
     if (requiresReview) {
       throw new BadRequestException(
-        `BVN verification flagged for manual review. Risk level: ${verificationResult.riskLevel}. Our team will contact you within 24 hours.`,
+        `BVN verification flagged for manual review. Our team will contact you within 24 hours.`,
       );
     }
 

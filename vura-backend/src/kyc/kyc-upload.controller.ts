@@ -6,6 +6,7 @@ import {
   UploadedFile,
   UseInterceptors,
   BadRequestException,
+  Request,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { AuthGuard } from '@nestjs/passport';
@@ -27,6 +28,7 @@ export class KYCUploadController {
   async uploadIdCard(
     @UploadedFile() file: Express.Multer.File,
     @Body('idType') idType: string,
+    @Request() req: { user?: { userId?: string } },
   ) {
     if (!file) {
       throw new BadRequestException('No file uploaded');
@@ -75,20 +77,40 @@ export class KYCUploadController {
         file.mimetype,
       );
 
+      const userId = req.user?.userId;
+      if (!userId) {
+        throw new BadRequestException('Unauthorized');
+      }
+
+      // Attach to authenticated user and mark as pending review (Tier 3 flow)
+      await this.prisma.user.update({
+        where: { id: userId },
+        data: {
+          idCardUrl: result.url,
+          idType,
+          // keep selfieUrl as-is if already uploaded
+          kycStatus: 'PENDING',
+        },
+      });
+
       return {
         success: true,
         url: result.url,
         fileName: result.publicId,
       };
-    } catch (error) {
-      throw new BadRequestException(`Upload failed: ${error.message}`);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Upload failed';
+      throw new BadRequestException(`Upload failed: ${message}`);
     }
   }
 
   @Post('upload-selfie')
   @UseGuards(AuthGuard('jwt'))
   @UseInterceptors(FileInterceptor('file'))
-  async uploadSelfie(@UploadedFile() file: Express.Multer.File) {
+  async uploadSelfie(
+    @UploadedFile() file: Express.Multer.File,
+    @Request() req: { user?: { userId?: string } },
+  ) {
     if (!file) {
       throw new BadRequestException('No file uploaded');
     }
@@ -125,13 +147,29 @@ export class KYCUploadController {
         file.mimetype,
       );
 
+      const userId = req.user?.userId;
+      if (!userId) {
+        throw new BadRequestException('Unauthorized');
+      }
+
+      // Attach to authenticated user and mark as pending review (Tier 3 flow)
+      await this.prisma.user.update({
+        where: { id: userId },
+        data: {
+          selfieUrl: result.url,
+          // keep idCardUrl/idType as-is if already uploaded
+          kycStatus: 'PENDING',
+        },
+      });
+
       return {
         success: true,
         url: result.url,
         fileName: result.publicId,
       };
-    } catch (error) {
-      throw new BadRequestException(`Upload failed: ${error.message}`);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Upload failed';
+      throw new BadRequestException(`Upload failed: ${message}`);
     }
   }
 
@@ -139,6 +177,7 @@ export class KYCUploadController {
   @UseGuards(AuthGuard('jwt'))
   async submitKYC(
     @Body() body: { idCardUrl: string; selfieUrl: string; idType: string },
+    @Request() req: { user?: { userId?: string } },
   ) {
     const { idCardUrl, selfieUrl, idType } = body;
 
@@ -160,9 +199,21 @@ export class KYCUploadController {
       throw new BadRequestException('Invalid ID type');
     }
 
-    // Update user record with KYC details
-    // Note: userId would come from the JWT token in a real implementation
-    // For now, this is a placeholder
+    const userId = req.user?.userId;
+    if (!userId) {
+      throw new BadRequestException('Unauthorized');
+    }
+
+    // Persist submitted KYC payload to authenticated user
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        idCardUrl,
+        selfieUrl,
+        idType,
+        kycStatus: 'PENDING',
+      },
+    });
 
     return {
       success: true,

@@ -23,7 +23,7 @@ export class LimitsService {
       cumulativeLimit: new Decimal(300000), // ₦300k annual cumulative
     },
     2: {
-      dailySendLimit: new Decimal(100000), // ₦100k
+      dailySendLimit: new Decimal(200000), // ₦200k
       maxBalance: new Decimal(500000), // ₦500k
       requiresBiometric: false,
       cumulativeLimit: new Decimal(5000000), // ₦5m annual cumulative

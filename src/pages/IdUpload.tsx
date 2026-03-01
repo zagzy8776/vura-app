@@ -35,12 +35,12 @@ export default function IdUpload() {
         if (res.ok) {
           const data = await res.json();
           setKycStatus(data);
-          if (data.idCardUrl) setIdCardUrl(data.idCardUrl);
-          if (data.selfieUrl) setSelfieUrl(data.selfieUrl);
-          if (data.idType) setIdType(data.idType);
-          if (data.idCardUrl && data.selfieUrl) {
+          if (data?.idCardUrl) setIdCardUrl(data.idCardUrl);
+          if (data?.selfieUrl) setSelfieUrl(data.selfieUrl);
+          if (data?.idType) setIdType(data.idType);
+          if (data?.idCardUrl && data?.selfieUrl) {
             setStep(3);
-          } else if (data.idCardUrl) {
+          } else if (data?.idCardUrl) {
             setStep(2);
           }
         }
@@ -78,8 +78,9 @@ export default function IdUpload() {
       setIdCardUrl(data.url);
       toast.success('ID uploaded successfully');
       setStep(2);
-    } catch (error: any) {
-      toast.error(error.message || 'Failed to upload ID');
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Failed to upload ID';
+      toast.error(message);
     } finally {
       setLoading(false);
     }
@@ -111,8 +112,9 @@ export default function IdUpload() {
       setSelfieUrl(data.url);
       toast.success('Selfie uploaded successfully');
       setStep(3);
-    } catch (error: any) {
-      toast.error(error.message || 'Failed to upload selfie');
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Failed to upload selfie';
+      toast.error(message);
     } finally {
       setLoading(false);
     }
@@ -146,8 +148,9 @@ export default function IdUpload() {
 
       toast.success('KYC submitted for review');
       navigate('/settings');
-    } catch (error: any) {
-      toast.error(error.message || 'Failed to submit KYC');
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Failed to submit KYC';
+      toast.error(message);
     } finally {
       setLoading(false);
     }

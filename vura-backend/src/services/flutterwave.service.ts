@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
+import crypto from 'crypto';
 
 @Injectable()
 export class FlutterwaveService {
@@ -339,11 +340,108 @@ export class FlutterwaveService {
    * Verify webhook signature
    */
   verifyWebhookSignature(payload: string, signature: string): boolean {
-    const crypto = require('crypto');
     const hash = crypto
       .createHmac('sha256', this.secretKey)
       .update(payload)
       .digest('hex');
     return hash === signature;
+  }
+
+  /**
+   * BVN verification (Flutterwave v3).
+   * NOTE: Endpoint availability depends on your Flutterwave account permissions.
+   */
+  async verifyBvn(input: {
+    bvn: string;
+    firstName?: string;
+    lastName?: string;
+  }): Promise<
+    | {
+        success: true;
+        firstName: string;
+        lastName: string;
+        dateOfBirth?: string;
+        phoneNumber?: string;
+        reference?: string;
+      }
+    | { success: false; error: string }
+  > {
+    try {
+      // Flutterwave docs often use v3 endpoints for identity/BVN.
+      const response = await axios.post(
+        `${this.v3BaseUrl}/bvn/verifications`,
+        {
+          bvn: input.bvn,
+          // Optional fields for better matching if supported by your account
+          firstname: input.firstName,
+          lastname: input.lastName,
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${this.secretKey}`,
+            'Content-Type': 'application/json',
+          },
+        },
+      );
+
+      const data: unknown = response.data?.data;
+      const obj = (data && typeof data === 'object') ? (data as Record<string, unknown>) : null;
+      // Be defensive: different accounts return slightly different shapes
+      const firstName = obj?.first_name ?? obj?.firstname ?? obj?.firstName;
+      const lastName = obj?.last_name ?? obj?.lastname ?? obj?.lastName;
+      if (!firstName || !lastName) {
+        return {
+          success: false,
+          error: 'Flutterwave BVN verification returned unexpected data',
+        };
+      }
+
+      return {
+        success: true,
+        firstName: String(firstName),
+        lastName: String(lastName),
+        dateOfBirth: (obj?.date_of_birth ?? obj?.dob) ? String(obj?.date_of_birth ?? obj?.dob) : undefined,
+        phoneNumber: (obj?.phone_number ?? obj?.phone) ? String(obj?.phone_number ?? obj?.phone) : undefined,
+        reference: (obj?.reference ?? obj?.flw_ref) ? String(obj?.reference ?? obj?.flw_ref) : undefined,
+      };
+    } catch (error: any) {
+      const status = error.response?.status;
+      const data = error.response?.data;
+      this.logger.error(
+        `Flutterwave BVN verification failed: ${error.message}`,
+        {
+          status,
+          data,
+          v3BaseUrl: this.v3BaseUrl,
+        },
+      );
+      return {
+        success: false,
+        error: data?.message || error.message,
+      };
+    }
+  }
+
+  /**
+   * Identity verification placeholder (SmileID via Flutterwave Identity).
+   * We keep this method in place so BVN+ID flows can share one provider client.
+   * You may need to adjust endpoint/payload depending on the exact Flutterwave product enabled.
+   */
+  async verifyIdentityWithSmileId(input: {
+    idType: string;
+    idNumber?: string;
+    idImageUrl: string;
+    selfieImageUrl: string;
+  }): Promise<
+    | { success: true; matchScore?: number; reference?: string }
+    | { success: false; error: string }
+  > {
+    // TODO: Wire real Flutterwave Identity endpoint once confirmed in your Flutterwave dashboard.
+    void input;
+    return {
+      success: false,
+      error:
+        'Identity verification endpoint not wired yet. Provide Flutterwave Identity endpoint details to enable.',
+    };
   }
 }
