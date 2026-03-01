@@ -10,10 +10,16 @@ import { Users, Shield, CheckCircle, XCircle, Clock, Search, Loader2, Eye, Check
 interface User {
   id: string;
   vuraTag: string;
+  legalFirstName?: string | null;
+  legalLastName?: string | null;
   kycTier: number;
   kycStatus: string;
   bvnVerified: boolean;
+  bvnVerifiedAt?: string | null;
   ninVerified: boolean;
+  reservedAccountNumber?: string | null;
+  reservedAccountBankName?: string | null;
+  flutterwaveOrderRef?: string | null;
   idCardUrl: string | null;
   selfieUrl: string | null;
   idType: string | null;
@@ -261,6 +267,13 @@ export default function AdminDashboard() {
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
+                <div className="col-span-2">
+                  <p className="text-sm font-medium">Legal Name</p>
+                  <p>
+                    {`${selectedUser.legalFirstName || ''} ${selectedUser.legalLastName || ''}`.trim() ||
+                      'Not set'}
+                  </p>
+                </div>
                 <div>
                   <p className="text-sm font-medium">KYC Tier</p>
                   <p>{selectedUser.kycTier}</p>
@@ -276,12 +289,33 @@ export default function AdminDashboard() {
                   <p>{selectedUser.bvnVerified ? 'Yes' : 'No'}</p>
                 </div>
                 <div>
+                  <p className="text-sm font-medium">BVN Verified At</p>
+                  <p>
+                    {selectedUser.bvnVerifiedAt
+                      ? new Date(selectedUser.bvnVerifiedAt).toLocaleString()
+                      : '—'}
+                  </p>
+                </div>
+                <div>
                   <p className="text-sm font-medium">NIN Verified</p>
                   <p>{selectedUser.ninVerified ? 'Yes' : 'No'}</p>
                 </div>
                 <div>
                   <p className="text-sm font-medium">ID Type</p>
                   <p>{selectedUser.idType || 'Not provided'}</p>
+                </div>
+                <div className="col-span-2">
+                  <p className="text-sm font-medium">Vura Bank Account</p>
+                  <p>
+                    {selectedUser.reservedAccountNumber
+                      ? `${selectedUser.reservedAccountNumber} (${selectedUser.reservedAccountBankName || 'Bank'})`
+                      : 'Not generated'}
+                  </p>
+                  {selectedUser.flutterwaveOrderRef && (
+                    <p className="text-xs text-gray-500">
+                      Order Ref: {selectedUser.flutterwaveOrderRef}
+                    </p>
+                  )}
                 </div>
                 <div>
                   <p className="text-sm font-medium">Member Since</p>
