@@ -289,7 +289,7 @@ const Receive = () => {
               <h3 className="text-lg font-semibold text-foreground">Your Vura Bank Account</h3>
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 <Sparkles className="h-4 w-4" />
-                Flutterwave Virtual Account
+                Instant bank transfers
               </div>
             </div>
 
