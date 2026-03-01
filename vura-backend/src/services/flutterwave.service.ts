@@ -160,12 +160,21 @@ export class FlutterwaveService {
    */
   async verifyAccount(accountNumber: string, bankCode: string) {
     try {
-      // Flutterwave expects `account_bank` in the payload.
-      // Use the documented resolve endpoint.
-      const response = await axios.get(`${this.baseUrl}/accounts/resolve`, {
-        params: { account_number: accountNumber, account_bank: bankCode },
-        headers: { Authorization: `Bearer ${this.secretKey}` },
-      });
+      // Flutterwave does not support GET /v4/accounts/resolve (it returns "Cannot GET ...").
+      // Use the newer endpoint for account resolution.
+      const response = await axios.post(
+        `${this.baseUrl}/accounts/resolve`,
+        {
+          account_number: accountNumber,
+          account_bank: bankCode,
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${this.secretKey}`,
+            'Content-Type': 'application/json',
+          },
+        },
+      );
 
       const responseData = response.data;
       const accountData = responseData.data;
