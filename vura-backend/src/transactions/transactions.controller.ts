@@ -67,7 +67,8 @@ export class TransactionsController {
     );
     if (!verificationResult.success) {
       throw new BadRequestException(
-        `Verification failed for bank ${bankCode}. Flutterwave: ${verificationResult.error || 'Unknown error'}. Try a different bank.`,
+        verificationResult.error ||
+          'We could not verify this account. Please confirm the bank and account number and try again.',
       );
     }
 
@@ -82,7 +83,8 @@ export class TransactionsController {
 
     if (!transferResult.success) {
       throw new BadRequestException(
-        `Transfer failed. Flutterwave: ${transferResult.error || 'Unknown error'}`,
+        transferResult.error ||
+          'Transfer failed. Please try again in a few minutes.',
       );
     }
 
@@ -137,7 +139,10 @@ export class TransactionsController {
         bankCode,
       );
       if (!result.success) {
-        throw new BadRequestException(result.error || 'Could not verify account');
+        throw new BadRequestException(
+          result.error ||
+            'We could not verify this account. Please confirm the bank and account number and try again.',
+        );
       }
 
       return {
@@ -146,10 +151,15 @@ export class TransactionsController {
         provider: 'flutterwave',
       };
     } catch (error: any) {
-      const errorMessage =
+      // Do not leak provider details to users.
+      const providerMessage =
         error.response?.data?.message || error.message || 'Unknown error';
+      // Keep provider message in logs for debugging.
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
+      console.error('verify-account failed', { bankCode, providerMessage });
+
       throw new BadRequestException(
-        `Verification failed for bank ${bankCode}. Flutterwave: ${errorMessage}. Try a different bank.`,
+        'We could not verify this account. Please confirm the bank and account number and try again.',
       );
     }
   }
