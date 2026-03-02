@@ -7,7 +7,12 @@ import { ConfigService } from '@nestjs/config';
 
 @Module({
   controllers: [VirtualAccountsController],
-  providers: [VirtualAccountsService, PrismaService, FlutterwaveService, ConfigService],
+  providers: [
+    VirtualAccountsService,
+    PrismaService,
+    FlutterwaveService,
+    ConfigService,
+  ],
   exports: [VirtualAccountsService],
 })
 export class VirtualAccountsModule {}

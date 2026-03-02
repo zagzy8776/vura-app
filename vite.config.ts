@@ -27,14 +27,33 @@ export default defineConfig(({ mode }) => ({
   },
   build: {
     target: 'esnext',
+    minify: 'terser',
+    terserOptions: {
+      compress: {
+        drop_console: mode === 'production',
+        drop_debugger: mode === 'production',
+      },
+    },
     rollupOptions: {
       output: {
-        manualChunks: {
-          'vendor-react': ['react', 'react-dom', 'react-router-dom'],
-          'vendor-ui': ['@radix-ui/react-dialog', '@radix-ui/react-dropdown-menu'],
-          'vendor-motion': ['framer-motion'],
+        manualChunks: (id) => {
+          // Core React
+          if (id.includes('react-dom') || id.includes('react/') || id.includes('react-router')) {
+            return 'vendor-react';
+          }
+          // UI Components
+          if (id.includes('@radix-ui') || id.includes('lucide-react')) {
+            return 'vendor-ui';
+          }
+          // Animations
+          if (id.includes('framer-motion')) {
+            return 'vendor-motion';
+          }
+          // Charts
+          if (id.includes('recharts') || id.includes('chart.js')) {
+            return 'vendor-charts';
+          }
         },
       },
     },
   },
-}));

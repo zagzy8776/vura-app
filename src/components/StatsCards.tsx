@@ -1,5 +1,6 @@
 import { motion } from "framer-motion";
 import { TrendingUp, TrendingDown, DollarSign, Wallet } from "lucide-react";
+import LoadingSpinner from "./LoadingSpinner";
 
 interface Transaction {
   id: string;
@@ -92,24 +93,24 @@ const StatsCards = ({ transactions = [] }: StatsCardsProps) => {
 
   const stats = calculateStats();
   return (
-    <div className="grid grid-cols-3 gap-4">
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
       {stats.map((stat, i) => (
         <motion.div
           key={stat.label}
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 + i * 0.08, duration: 0.4 }}
-          className="rounded-2xl bg-card border border-border p-5 shadow-card"
+          className="rounded-2xl bg-card border border-border p-4 sm:p-5 shadow-card"
         >
           <div className="flex items-center justify-between mb-3">
-            <div className={`flex h-9 w-9 items-center justify-center rounded-xl ${stat.trend === "up" ? "bg-primary/10 text-primary" : "bg-destructive/10 text-destructive"}`}>
-              <stat.icon className="h-4.5 w-4.5" />
+            <div className={`flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center rounded-xl ${stat.trend === "up" ? "bg-primary/10 text-primary" : "bg-destructive/10 text-destructive"}`}>
+              <stat.icon className="h-4 w-4 sm:h-4.5 sm:w-4.5" />
             </div>
             <span className={`text-xs font-semibold ${stat.trend === "up" ? "text-primary" : "text-destructive"}`}>
               {stat.change}
             </span>
           </div>
-          <p className="text-2xl font-bold text-foreground">{stat.value}</p>
+          <p className="text-xl sm:text-2xl font-bold text-foreground">{stat.value}</p>
           <p className="text-xs text-muted-foreground mt-1">{stat.label} this month</p>
         </motion.div>
       ))}

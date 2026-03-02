@@ -6,6 +6,7 @@ import QuickActions from "@/components/QuickActions";
 import StatsCards from "@/components/StatsCards";
 import TransactionList from "@/components/TransactionList";
 import SpendingChart from "@/components/SpendingChart";
+import LoadingSpinner from "@/components/LoadingSpinner";
 import { useAuth, apiFetch } from "@/hooks/useAuth";
 
 interface Balance {
@@ -90,31 +91,43 @@ const Index = () => {
   return (
     <div className="flex min-h-screen bg-background">
       <AppSidebar />
-      <main className="flex-1 ml-64 px-8 pb-8">
+      <main className="flex-1 lg:ml-64 px-4 sm:px-6 lg:px-8 py-6 pb-24">
         <DashboardHeader />
         
         {error && (
-          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl">
             <p className="text-red-600 text-sm">{error}</p>
           </div>
         )}
         
-        <div className="grid grid-cols-12 gap-6">
-          {/* Left column */}
-          <div className="col-span-8 space-y-6">
+        <div className="grid grid-cols-1 gap-6">
+          {/* Balance Card - Full width on mobile */}
+          <div>
             <BalanceCard 
               ngnBalance={ngnBalance} 
               usdtBalance={usdtBalance} 
               loading={loading} 
             />
-            <StatsCards transactions={transactions} />
-            <SpendingChart transactions={transactions} />
           </div>
 
-          {/* Right column */}
-          <div className="col-span-4 space-y-6">
-            <QuickActions />
-            <TransactionList transactions={transactions} />
+          {/* Stats Cards - Responsive grid */}
+          <div>
+            <StatsCards transactions={transactions} />
+          </div>
+
+          {/* Quick Actions and Transaction List - Stacked on mobile */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="lg:col-span-1">
+              <QuickActions />
+            </div>
+            <div className="lg:col-span-2">
+              <TransactionList transactions={transactions} />
+            </div>
+          </div>
+
+          {/* Spending Chart - Full width */}
+          <div>
+            <SpendingChart transactions={transactions} />
           </div>
         </div>
       </main>

@@ -66,7 +66,8 @@ export class FlutterwaveWebhookController {
    * This is when someone sends money to a Vura virtual account
    */
   private async handleChargeCompleted(data: any) {
-    const { amount, currency, tx_ref, flw_ref, customer, account_number } = data;
+    const { amount, currency, tx_ref, flw_ref, customer, account_number } =
+      data;
 
     // Preferred matching: account_number -> user.reservedAccountNumber
     const accountNumber = String(account_number || '').trim();

@@ -1,6 +1,7 @@
 import { motion } from "framer-motion";
 import { ArrowUpRight, ArrowDownLeft, ShoppingCart, Coffee, Fuel } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import LoadingSpinner from "./LoadingSpinner";
 
 interface Transaction {
   id: string;
@@ -58,7 +59,7 @@ const TransactionList = ({ transactions = [] }: TransactionListProps) => {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-3 sm:mb-4">
         <h3 className="text-lg font-semibold text-foreground">Recent Transactions</h3>
         <button 
           onClick={() => navigate("/transactions")}
@@ -67,9 +68,9 @@ const TransactionList = ({ transactions = [] }: TransactionListProps) => {
           View All
         </button>
       </div>
-      <div className="space-y-2">
+      <div className="space-y-3">
         {transactions.length === 0 ? (
-          <div className="text-center py-8 text-muted-foreground">
+          <div className="text-center py-6 sm:py-8 text-muted-foreground">
             <p className="text-sm">No transactions yet</p>
             <p className="text-xs mt-1">Your transaction history will appear here</p>
           </div>
@@ -84,7 +85,7 @@ const TransactionList = ({ transactions = [] }: TransactionListProps) => {
               initial={{ opacity: 0, x: -8 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: i * 0.04, duration: 0.3 }}
-              className="flex items-center gap-4 rounded-xl bg-card border border-border p-4 shadow-card transition-all hover:shadow-elevated"
+              className="flex items-center gap-3 sm:gap-4 rounded-xl bg-card border border-border p-3 sm:p-4 shadow-card transition-all hover:shadow-elevated"
             >
               <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${tx.direction === "received" ? "bg-primary/10 text-primary" : "bg-secondary text-muted-foreground"}`}>
                 <Icon className="h-5 w-5" />

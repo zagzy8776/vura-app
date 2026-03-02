@@ -124,4 +124,41 @@
   .shadow-elevated {
     box-shadow: var(--shadow-elevated);
   }
+  
+  /* Performance optimizations */
+  .will-change-transform {
+    will-change: transform;
+  }
+  
+  .will-change-auto {
+    will-change: auto;
+  }
+  
+  /* Mobile-first spacing */
+  .space-y-mobile > * + * {
+    margin-top: 0.75rem;
+  }
+  
+  .space-y-desktop > * + * {
+    margin-top: 1.5rem;
+  }
+  
+  /* Optimized animations */
+  .animate-fade-in {
+    animation: fade-in 0.4s ease-out;
+  }
+  
+  .animate-slide-up {
+    animation: slide-up 0.3s ease-out;
+  }
+  
+  @keyframes fade-in {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  
+  @keyframes slide-up {
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
 }
