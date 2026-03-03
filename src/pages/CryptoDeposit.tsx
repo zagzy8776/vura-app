@@ -10,6 +10,8 @@ import {
   Shield,
   Wallet,
   RefreshCw,
+  Calculator,
+  Banknote,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
@@ -25,11 +27,12 @@ const NETWORKS: Record<string, NetworkInfo[]> = {
       id: "TRC20",
       name: "Tron (TRC20)",
       icon: "🔷",
+      ivoryNetwork: "tron",
       warnings: [
         "Send only USDT on Tron network (TRC20)",
-        "Sending other assets or networks will result in permanent loss",
+        "Sending other assets will result in permanent loss",
         "Minimum deposit: 10 USDT",
-        "Confirmations required: 19 blocks (~3 minutes)",
+        "Auto-converted to Naira on arrival",
       ],
       avgTime: "3 min",
     },
@@ -37,11 +40,11 @@ const NETWORKS: Record<string, NetworkInfo[]> = {
       id: "BEP20",
       name: "BSC (BEP20)",
       icon: "🟡",
+      ivoryNetwork: "bsc",
       warnings: [
         "Send only USDT on BSC network (BEP20)",
         "Do not send USDC or other BEP20 tokens",
         "Minimum deposit: 10 USDT",
-        "Confirmations required: 15 blocks (~45 seconds)",
       ],
       avgTime: "45 sec",
     },
@@ -49,11 +52,11 @@ const NETWORKS: Record<string, NetworkInfo[]> = {
       id: "ERC20",
       name: "Ethereum (ERC20)",
       icon: "💠",
+      ivoryNetwork: "ethereum",
       warnings: [
         "Send only USDT on Ethereum network (ERC20)",
-        "High gas fees — only recommended for large deposits",
+        "High gas fees — only for large deposits",
         "Minimum deposit: 100 USDT",
-        "Confirmations required: 12 blocks (~3 minutes)",
       ],
       avgTime: "3 min",
     },
@@ -63,10 +66,11 @@ const NETWORKS: Record<string, NetworkInfo[]> = {
       id: "BTC",
       name: "Bitcoin",
       icon: "🟠",
+      ivoryNetwork: "bitcoin",
       warnings: [
         "Send only Bitcoin (BTC)",
         "Minimum deposit: 0.001 BTC",
-        "Confirmations required: 3 blocks (~30 minutes)",
+        "3 confirmations (~30 minutes)",
       ],
       avgTime: "30 min",
     },
@@ -76,11 +80,11 @@ const NETWORKS: Record<string, NetworkInfo[]> = {
       id: "ETH",
       name: "Ethereum",
       icon: "💠",
+      ivoryNetwork: "ethereum",
       warnings: [
         "Send only Ethereum (ETH)",
-        "High gas fees — only recommended for large deposits",
+        "High gas fees — only for large deposits",
         "Minimum deposit: 0.05 ETH",
-        "Confirmations required: 12 blocks (~3 minutes)",
       ],
       avgTime: "3 min",
     },
@@ -97,6 +101,7 @@ interface NetworkInfo {
   id: string;
   name: string;
   icon: string;
+  ivoryNetwork: string;
   warnings: string[];
   avgTime: string;
 }
@@ -132,6 +137,12 @@ const CryptoDeposit = () => {
   const [exchangeRate, setExchangeRate] = useState<string | null>(null);
   const [rateExpiry, setRateExpiry] = useState<Date | null>(null);
   const [recentDeposits, setRecentDeposits] = useState<DepositRecord[]>([]);
+
+  // IvoryPay rate preview
+  const [previewAmount, setPreviewAmount] = useState("50");
+  const [previewNgn, setPreviewNgn] = useState<string | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+
   const { token } = useAuth();
   const navigate = useNavigate();
 
@@ -168,16 +179,45 @@ const CryptoDeposit = () => {
     return () => clearInterval(interval);
   }, [fetchExchangeRate, fetchRecentDeposits]);
 
-  // ── Generate deposit address + QR ──────────────────────────────────
+  // ── IvoryPay rate preview ──────────────────────────────────────────
+
+  const fetchIvoryPayPreview = useCallback(async () => {
+    if (!previewAmount || parseFloat(previewAmount) <= 0) return;
+    setPreviewLoading(true);
+    try {
+      const res = await apiFetch(
+        `/ivorypay/rates?amount=${previewAmount}&crypto=${selectedAsset}&fiat=NGN`,
+      );
+      if (!res.ok) return;
+      const json = await res.json();
+      setPreviewNgn(json.data?.fiatEquivalent ?? null);
+    } catch (err) {
+      console.error("IvoryPay rate error:", err);
+    } finally {
+      setPreviewLoading(false);
+    }
+  }, [previewAmount, selectedAsset]);
+
+  useEffect(() => {
+    const timer = setTimeout(fetchIvoryPayPreview, 500);
+    return () => clearTimeout(timer);
+  }, [fetchIvoryPayPreview]);
+
+  // ── Generate deposit address via IvoryPay + QR ─────────────────────
 
   const generateAddress = async () => {
     setLoading(true);
     try {
-      const res = await apiFetch("/crypto/deposit-address", {
+      const network = NETWORKS[selectedAsset]?.find(
+        (n) => n.id === selectedNetwork,
+      );
+
+      // Use IvoryPay for permanent address
+      const res = await apiFetch("/ivorypay/deposit-address", {
         method: "POST",
         body: JSON.stringify({
-          asset: selectedAsset,
-          network: selectedNetwork,
+          crypto: selectedAsset,
+          network: network?.ivoryNetwork || "tron",
         }),
       });
 
@@ -191,22 +231,20 @@ const CryptoDeposit = () => {
 
       const json = await res.json();
       const addr: string = json.data?.address;
-      const addrMemo: string | undefined = json.data?.memo;
 
       setDepositAddress(addr);
-      setMemo(addrMemo ?? null);
+      setMemo(null);
 
-      // Build QR data-URL
       const qr = await QRCode.toDataURL(addr, {
-        width: 200,
+        width: 220,
         margin: 2,
         color: { dark: "#000000", light: "#ffffff" },
       });
       setQrDataUrl(qr);
 
       toast({
-        title: "Address Generated",
-        description: `Your ${selectedAsset} ${selectedNetwork} deposit address is ready`,
+        title: "Address Ready",
+        description: `Send ${selectedAsset} to this address. We'll auto-convert to Naira.`,
       });
     } catch (err: unknown) {
       const message =
@@ -253,9 +291,9 @@ const CryptoDeposit = () => {
             <ArrowLeft className="h-5 w-5" />
           </button>
           <div>
-            <h1 className="text-lg font-semibold">Deposit Crypto</h1>
+            <h1 className="text-lg font-semibold">Deposit & Convert</h1>
             <p className="text-xs text-muted-foreground">
-              Receive USDT, BTC, or ETH — auto-converted to Naira
+              Send crypto, receive Naira instantly
             </p>
           </div>
         </div>
@@ -286,6 +324,62 @@ const CryptoDeposit = () => {
           <p className="text-2xl font-bold mt-1">{formatRate()}</p>
           <p className="text-xs text-muted-foreground mt-1">
             Rates locked for 15 minutes &bull; 0.5% spread applied
+          </p>
+        </motion.div>
+
+        {/* IvoryPay Rate Preview Calculator */}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
+          className="rounded-xl border border-border bg-card p-4 space-y-3"
+        >
+          <div className="flex items-center gap-2">
+            <Calculator className="h-4 w-4 text-primary" />
+            <span className="text-sm font-medium">Payout Preview</span>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <div className="flex-1">
+              <label className="text-xs text-muted-foreground mb-1 block">
+                You send
+              </label>
+              <div className="flex items-center gap-2 bg-background rounded-lg border border-border px-3 py-2">
+                <input
+                  type="number"
+                  value={previewAmount}
+                  onChange={(e) => setPreviewAmount(e.target.value)}
+                  className="flex-1 bg-transparent text-lg font-semibold outline-none w-0"
+                  placeholder="50"
+                  min="1"
+                />
+                <span className="text-sm font-medium text-muted-foreground">
+                  {selectedAsset}
+                </span>
+              </div>
+            </div>
+
+            <div className="pt-5 text-muted-foreground">→</div>
+
+            <div className="flex-1">
+              <label className="text-xs text-muted-foreground mb-1 block">
+                You receive
+              </label>
+              <div className="flex items-center gap-2 bg-green-500/5 rounded-lg border border-green-500/20 px-3 py-2">
+                <Banknote className="h-4 w-4 text-green-600 shrink-0" />
+                <span className="text-lg font-bold text-green-600 truncate">
+                  {previewLoading
+                    ? "..."
+                    : previewNgn
+                      ? `₦${parseFloat(previewNgn).toLocaleString()}`
+                      : "—"}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <p className="text-xs text-muted-foreground text-center">
+            Live rate via IvoryPay &bull; Final amount confirmed at deposit time
           </p>
         </motion.div>
 
@@ -409,8 +503,8 @@ const CryptoDeposit = () => {
                   <img
                     src={qrDataUrl}
                     alt={`${selectedAsset} ${selectedNetwork} QR code`}
-                    width={200}
-                    height={200}
+                    width={220}
+                    height={220}
                   />
                 </div>
               </div>
@@ -469,8 +563,9 @@ const CryptoDeposit = () => {
             <div className="flex items-start gap-2 text-xs text-muted-foreground">
               <Info className="h-4 w-4 shrink-0" />
               <p>
-                Deposits are auto-converted to NGN after network confirmations.
-                Large deposits may be held for security review.
+                IvoryPay watches the blockchain for your deposit. Once
+                confirmed, your Naira balance is credited automatically. If
+                Auto-Sweep is on, Naira goes straight to your bank.
               </p>
             </div>
           </motion.div>
@@ -531,11 +626,11 @@ const CryptoDeposit = () => {
         <div className="flex items-start gap-3 p-4 rounded-xl bg-muted/50 text-sm">
           <Shield className="h-5 w-5 text-primary shrink-0" />
           <div>
-            <p className="font-medium">Security Protected</p>
+            <p className="font-medium">Powered by IvoryPay</p>
             <p className="text-muted-foreground text-xs mt-1">
-              All deposits are monitored by our Early Warning System. Suspicious
-              deposits may be held for up to 16 days per CBN guidelines.
-              First-time crypto deposits have a 1-hour hold period.
+              Deposits are monitored in real-time. Naira is credited the moment
+              the blockchain confirms your transaction. Enable Auto-Sweep in
+              Settings to send Naira directly to your bank account.
             </p>
           </div>
         </div>
