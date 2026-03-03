@@ -91,16 +91,16 @@ const Index = () => {
   return (
     <div className="flex min-h-screen bg-background">
       <AppSidebar />
-      <main className="flex-1 lg:ml-64 px-4 sm:px-6 lg:px-8 py-6 pb-24">
+      <main className="flex-1 lg:ml-64 px-3 sm:px-4 lg:px-6 py-4 sm:py-6 pb-28 safe-area-bottom">
         <DashboardHeader />
         
         {error && (
-          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl">
-            <p className="text-red-600 text-sm">{error}</p>
+          <div className="mb-4 sm:mb-6 p-3 sm:p-4 bg-red-50 border border-red-200 rounded-xl">
+            <p className="text-red-600 text-xs sm:text-sm">{error}</p>
           </div>
         )}
         
-        <div className="grid grid-cols-1 gap-6">
+        <div className="space-y-4 sm:space-y-6">
           {/* Balance Card - Full width on mobile */}
           <div>
             <BalanceCard 
@@ -116,7 +116,7 @@ const Index = () => {
           </div>
 
           {/* Quick Actions and Transaction List - Stacked on mobile */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
             <div className="lg:col-span-1">
               <QuickActions />
             </div>

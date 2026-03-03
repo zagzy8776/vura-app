@@ -62,9 +62,9 @@ const AppSidebar = () => {
       {/* Mobile Menu Button */}
       <button
         onClick={() => setIsMobileOpen(!isMobileOpen)}
-        className="lg:hidden fixed top-4 left-4 z-50 flex h-12 w-12 items-center justify-center rounded-xl bg-card border border-border shadow-card hover:bg-secondary transition-colors"
+        className="lg:hidden fixed top-3 left-3 sm:top-4 z-50 flex h-11 w-11 sm:h-12 sm:w-12 items-center justify-center rounded-xl bg-card border border-border shadow-card hover:bg-secondary transition-colors safe-area-left"
       >
-        {isMobileOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
+        {isMobileOpen ? <X className="h-5 w-5 sm:h-6 sm:w-6" /> : <Menu className="h-5 w-5 sm:h-6 sm:w-6" />}
       </button>
 
       {/* Mobile Overlay */}
@@ -76,7 +76,7 @@ const AppSidebar = () => {
       )}
 
       <aside className={cn(
-        "fixed left-0 top-0 z-50 flex h-screen w-64 flex-col bg-sidebar text-sidebar-foreground border-r border-sidebar-border transition-transform duration-300 ease-in-out",
+        "fixed left-0 top-0 z-50 flex h-screen w-64 sm:w-72 flex-col bg-sidebar text-sidebar-foreground border-r border-sidebar-border transition-transform duration-300 ease-in-out",
         isMobile ? (isMobileOpen ? "translate-x-0" : "-translate-x-full") : "translate-x-0"
       )}>
         {/* Logo */}

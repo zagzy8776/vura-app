@@ -10,7 +10,7 @@ const DashboardHeader = () => {
   };
 
   return (
-    <header className="flex items-center justify-between py-4 sm:py-6 pl-14 lg:pl-0">
+    <header className="flex items-center justify-between py-4 sm:py-6 pl-14 lg:pl-0 safe-area-top">
       <div className="min-w-0 flex-1">
         <h1 className="text-lg sm:text-2xl font-bold text-foreground truncate">
           Welcome back, {user ? `@${user.vuraTag}` : "Guest"} 👋

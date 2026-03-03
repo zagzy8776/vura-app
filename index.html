@@ -5,7 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="theme-color" content="#0ea5e9" />
+    <meta name="format-detection" content="telephone=no" />
+    
+    <!-- iOS PWA Meta Tags -->
+    <link rel="apple-touch-icon" href="/favicon.ico" />
+    <link rel="apple-touch-startup-image" href="/vura-card.png" />
+    
     <title>Vura - Digital Banking</title>
     <meta name="description" content="Vura - Send, receive, and manage money with ease">
     <meta name="author" content="Vura" />
@@ -18,8 +25,39 @@
     <meta name="twitter:image" content="/vura-card.png">
     <meta property="og:title" content="Vura - Digital Banking">
   <meta name="twitter:title" content="Vura - Digital Banking">
-  <meta property="og:description" content="Vura - Send, receive, and manage money with ease">
-  <meta name="twitter:description" content="Vura - Send, receive, and manage money with ease">
+  <meta property="og:description" content="Send, receive, and manage money with ease">
+  <meta name="twitter:description" content="Send, receive, and manage money with ease">
+  
+  <style>
+    /* Prevent overscroll/bounce on iOS */
+    html, body {
+      overscroll-behavior: none;
+      -webkit-overflow-scrolling: touch;
+      touch-action: manipulation;
+    }
+    
+    /* Safe area for notched devices */
+    :root {
+      --sat: env(safe-area-inset-top);
+      --sab: env(safe-area-inset-bottom);
+      --sal: env(safe-area-inset-left);
+      --sar: env(safe-area-inset-right);
+    }
+    
+    /* iOS notch padding */
+    .safe-area-top {
+      padding-top: max(0.5rem, env(safe-area-inset-top));
+    }
+    .safe-area-bottom {
+      padding-bottom: max(1rem, env(safe-area-inset-bottom));
+    }
+    .safe-area-left {
+      padding-left: max(0.5rem, env(safe-area-inset-left));
+    }
+    .safe-area-right {
+      padding-right: max(0.5rem, env(safe-area-inset-right));
+    }
+  </style>
 </head>
 
   <body>
@@ -27,3 +65,4 @@
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
+
