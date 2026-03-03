@@ -129,6 +129,7 @@ const Index = () => {
           <div>
             <SpendingChart transactions={transactions} />
           </div>
+        </div>
       </main>
     </div>
   );
