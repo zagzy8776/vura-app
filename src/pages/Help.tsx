@@ -22,7 +22,7 @@ const Help = () => {
   return (
     <div className="flex min-h-screen bg-background">
       <AppSidebar />
-      <main className="flex-1 ml-64 px-8 pb-8">
+      <main className="flex-1 lg:ml-64 px-4 sm:px-6 lg:px-8 py-6 pb-24">
         <DashboardHeader />
         <div className="max-w-2xl">
           <div className="mb-6">
@@ -37,7 +37,7 @@ const Help = () => {
           </div>
 
           {/* Contact Options */}
-          <div className="grid grid-cols-3 gap-4 mb-8">
+          <div className="grid grid-cols-3 gap-2 sm:gap-4 mb-8">
             {[
               { icon: MessageCircle, label: "Live Chat", desc: "Online now", color: "bg-primary/10 text-primary" },
               { icon: Phone, label: "Call Us", desc: "0800-VURA", color: "bg-accent/10 text-accent-foreground" },
@@ -48,7 +48,7 @@ const Help = () => {
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: i * 0.08 }}
-                className="flex flex-col items-center gap-2 rounded-2xl bg-card border border-border p-5 shadow-card hover:shadow-elevated transition-all"
+                className="flex flex-col items-center gap-1.5 sm:gap-2 rounded-2xl bg-card border border-border p-3 sm:p-5 shadow-card hover:shadow-elevated transition-all"
               >
                 <div className={`flex h-11 w-11 items-center justify-center rounded-xl ${c.color}`}>
                   <c.icon className="h-5 w-5" />

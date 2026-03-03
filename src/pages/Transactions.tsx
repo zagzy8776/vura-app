@@ -72,15 +72,15 @@ const Transactions = () => {
   return (
     <div className="flex min-h-screen bg-background">
       <AppSidebar />
-      <main className="flex-1 ml-64 px-8 pb-8">
+      <main className="flex-1 lg:ml-64 px-4 sm:px-6 lg:px-8 py-6 pb-24">
         <DashboardHeader />
         <div className="max-w-3xl">
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <h2 className="text-2xl font-bold text-foreground">Transactions</h2>
+          <div className="flex items-center justify-between gap-3 mb-6">
+            <div className="min-w-0">
+              <h2 className="text-xl sm:text-2xl font-bold text-foreground">Transactions</h2>
               <p className="text-muted-foreground text-sm mt-1">Your complete transaction history</p>
             </div>
-            <Button variant="outline" className="rounded-xl">
+            <Button variant="outline" className="rounded-xl shrink-0" size="sm">
               <Download className="h-4 w-4 mr-1" /> Export
             </Button>
           </div>
@@ -98,12 +98,12 @@ const Transactions = () => {
             </div>
           </div>
 
-          <div className="flex gap-2 mb-6">
+          <div className="flex gap-2 mb-6 overflow-x-auto pb-1 -mx-1 px-1 scrollbar-hide">
             {filters.map((f) => (
               <button
                 key={f}
                 onClick={() => setActiveFilter(f)}
-                className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors ${
+                className={`px-3 sm:px-4 py-2 rounded-xl text-sm font-medium transition-colors whitespace-nowrap ${
                   activeFilter === f
                     ? "bg-primary text-primary-foreground"
                     : "bg-card border border-border text-muted-foreground hover:text-foreground"
@@ -129,7 +129,7 @@ const Transactions = () => {
                     initial={{ opacity: 0, x: -8 }}
                     animate={{ opacity: 1, x: 0 }}
                     transition={{ delay: i * 0.03 }}
-                    className="flex items-center gap-4 rounded-xl bg-card border border-border p-4 shadow-card hover:shadow-elevated transition-all"
+                    className="flex items-center gap-3 sm:gap-4 rounded-xl bg-card border border-border p-3 sm:p-4 shadow-card hover:shadow-elevated transition-all"
                   >
                     <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${tx.direction === "received" ? "bg-primary/10 text-primary" : "bg-secondary text-muted-foreground"}`}>
                       <Icon className="h-5 w-5" />

@@ -76,8 +76,8 @@ const AppSidebar = () => {
       )}
 
       <aside className={cn(
-        "fixed left-0 top-0 z-50 flex h-screen flex-col bg-sidebar text-sidebar-foreground border-r border-sidebar-border transition-transform duration-300 ease-in-out",
-        isMobile ? (isMobileOpen ? "translate-x-0" : "-translate-x-full") : "w-64"
+        "fixed left-0 top-0 z-50 flex h-screen w-64 flex-col bg-sidebar text-sidebar-foreground border-r border-sidebar-border transition-transform duration-300 ease-in-out",
+        isMobile ? (isMobileOpen ? "translate-x-0" : "-translate-x-full") : "translate-x-0"
       )}>
         {/* Logo */}
         <div className="flex items-center gap-2 px-6 py-6">

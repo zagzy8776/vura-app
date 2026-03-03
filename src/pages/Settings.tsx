@@ -277,7 +277,7 @@ const SettingsPage = () => {
   return (
     <div className="flex min-h-screen bg-background">
       <AppSidebar />
-      <main className="flex-1 ml-64 px-8 pb-8">
+      <main className="flex-1 lg:ml-64 px-4 sm:px-6 lg:px-8 py-6 pb-24">
         <DashboardHeader />
         <div className="max-w-2xl">
           

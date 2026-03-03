@@ -232,7 +232,7 @@ const Receive = () => {
   return (
     <div className="flex min-h-screen bg-background">
       <AppSidebar />
-      <main className="flex-1 ml-64 px-8 pb-8">
+      <main className="flex-1 lg:ml-64 px-4 sm:px-6 lg:px-8 py-6 pb-24">
         <DashboardHeader />
         <div className="max-w-lg mx-auto space-y-6">
           <div>
@@ -241,8 +241,8 @@ const Receive = () => {
           </div>
 
           {/* QR / Tag Card */}
-          <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="rounded-2xl gradient-card p-8 text-center text-primary-foreground shadow-elevated">
-            <div className="flex h-48 w-48 mx-auto items-center justify-center rounded-2xl bg-white p-3 mb-6">
+          <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="rounded-2xl gradient-card p-5 sm:p-8 text-center text-primary-foreground shadow-elevated">
+            <div className="flex h-36 w-36 sm:h-48 sm:w-48 mx-auto items-center justify-center rounded-2xl bg-white p-3 mb-4 sm:mb-6">
               {qrDataUrl ? (
                 <img src={qrDataUrl} alt="Payment QR Code" className="h-full w-full" />
               ) : (
@@ -250,8 +250,8 @@ const Receive = () => {
               )}
             </div>
             <p className="text-sm opacity-70 mb-1">Your Vura Tag</p>
-            <p className="text-3xl font-bold mb-4">{tag}</p>
-            <p className="text-xs opacity-60 mb-4">Scan to send money instantly</p>
+            <p className="text-2xl sm:text-3xl font-bold mb-3 sm:mb-4">{tag}</p>
+            <p className="text-xs opacity-60 mb-3 sm:mb-4">Scan to send money instantly</p>
             <div className="flex justify-center gap-3">
               <Button onClick={handleCopy} variant="outline" className="rounded-xl bg-primary-foreground/10 border-primary-foreground/20 text-primary-foreground hover:bg-primary-foreground/20 hover:text-primary-foreground">
                 {copied ? <CheckCircle className="h-4 w-4 mr-1" /> : <Copy className="h-4 w-4 mr-1" />}

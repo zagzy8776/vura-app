@@ -65,11 +65,11 @@ const SpendingChart = ({ transactions = [] }: SpendingChartProps) => {
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.2, duration: 0.4 }}
-      className="rounded-2xl bg-card border border-border p-6 shadow-card"
+      className="rounded-2xl bg-card border border-border p-4 sm:p-6 shadow-card"
     >
-      <div className="flex items-center justify-between mb-6">
-        <h3 className="text-lg font-semibold text-foreground">Cash Flow</h3>
-        <div className="flex gap-4 text-xs text-muted-foreground">
+      <div className="flex items-center justify-between mb-4 sm:mb-6">
+        <h3 className="text-base sm:text-lg font-semibold text-foreground">Cash Flow</h3>
+        <div className="flex gap-3 sm:gap-4 text-xs text-muted-foreground">
           <span className="flex items-center gap-1.5">
             <span className="h-2.5 w-2.5 rounded-full bg-primary" /> Income
           </span>
@@ -78,7 +78,7 @@ const SpendingChart = ({ transactions = [] }: SpendingChartProps) => {
           </span>
         </div>
       </div>
-      <ResponsiveContainer width="100%" height={220}>
+      <ResponsiveContainer width="100%" height={180}>
         <AreaChart data={data}>
           <defs>
             <linearGradient id="incomeGrad" x1="0" y1="0" x2="0" y2="1">
@@ -91,8 +91,8 @@ const SpendingChart = ({ transactions = [] }: SpendingChartProps) => {
             </linearGradient>
           </defs>
           <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 16%, 90%)" vertical={false} />
-          <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: "hsl(220, 10%, 46%)" }} />
-          <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: "hsl(220, 10%, 46%)" }} tickFormatter={(v) => `₦${v / 1000}k`} />
+          <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: "hsl(220, 10%, 46%)" }} />
+          <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: "hsl(220, 10%, 46%)" }} tickFormatter={(v) => `₦${v / 1000}k`} width={45} />
           <Tooltip
             contentStyle={{
               background: "hsl(220, 25%, 7%)",

@@ -67,19 +67,19 @@ const Accounts = () => {
   return (
     <div className="flex min-h-screen bg-background">
       <AppSidebar />
-      <main className="flex-1 ml-64 px-8 pb-8">
+      <main className="flex-1 lg:ml-64 px-4 sm:px-6 lg:px-8 py-6 pb-24">
         <DashboardHeader />
         <div className="max-w-3xl">
-          <div className="flex items-center justify-between mb-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
             <div>
-              <h2 className="text-2xl font-bold text-foreground">Accounts</h2>
+              <h2 className="text-xl sm:text-2xl font-bold text-foreground">Accounts</h2>
               <p className="text-muted-foreground text-sm mt-1">Manage your multi-currency wallets</p>
             </div>
             <div className="flex gap-2">
-              <Button variant="outline" className="rounded-xl">
+              <Button variant="outline" className="rounded-xl text-sm" size="sm">
                 <ArrowRightLeft className="h-4 w-4 mr-1" /> Convert
               </Button>
-              <Button className="rounded-xl gradient-brand text-primary-foreground font-semibold border-0 hover:opacity-90">
+              <Button className="rounded-xl gradient-brand text-primary-foreground font-semibold border-0 hover:opacity-90 text-sm" size="sm">
                 <Plus className="h-4 w-4 mr-1" /> Add Currency
               </Button>
             </div>

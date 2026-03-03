@@ -383,7 +383,7 @@ const SendMoney = () => {
   return (
     <div className="flex min-h-screen bg-background">
       <AppSidebar />
-      <main className="flex-1 ml-64 px-8 pb-8">
+      <main className="flex-1 lg:ml-64 px-4 sm:px-6 lg:px-8 py-6 pb-24">
         <DashboardHeader />
         <div className="max-w-lg mx-auto">
           {step === "form" && (
@@ -445,7 +445,7 @@ const SendMoney = () => {
                 </div>
               )}
 
-              <div className="rounded-2xl bg-card border border-border p-6 shadow-card space-y-5">
+              <div className="rounded-2xl bg-card border border-border p-4 sm:p-6 shadow-card space-y-5">
                 <AnimatePresence mode="wait">
                   {transferMode === "tag" ? (
                     <motion.div key="tag" initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="space-y-5">
@@ -526,10 +526,10 @@ const SendMoney = () => {
                   </button>
                   {showScheduleOptions && (
                     <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} className="p-4 rounded-xl bg-secondary space-y-3">
-                      <div className="flex gap-2">
-                        <button onClick={() => setScheduleType("now")} className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors ${scheduleType === "now" ? "bg-primary text-primary-foreground" : "bg-background text-foreground"}`}>Send Now</button>
-                        <button onClick={() => setScheduleType("later")} className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors ${scheduleType === "later" ? "bg-primary text-primary-foreground" : "bg-background text-foreground"}`}><Calendar className="h-4 w-4 inline mr-1" /> Schedule</button>
-                        <button onClick={() => setScheduleType("recurring")} className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors ${scheduleType === "recurring" ? "bg-primary text-primary-foreground" : "bg-background text-foreground"}`}><Repeat className="h-4 w-4 inline mr-1" /> Recurring</button>
+                      <div className="flex gap-1.5 sm:gap-2">
+                        <button onClick={() => setScheduleType("now")} className={`flex-1 py-2 px-2 sm:px-3 rounded-lg text-xs sm:text-sm font-medium transition-colors ${scheduleType === "now" ? "bg-primary text-primary-foreground" : "bg-background text-foreground"}`}>Now</button>
+                        <button onClick={() => setScheduleType("later")} className={`flex-1 py-2 px-2 sm:px-3 rounded-lg text-xs sm:text-sm font-medium transition-colors ${scheduleType === "later" ? "bg-primary text-primary-foreground" : "bg-background text-foreground"}`}><Calendar className="h-3.5 w-3.5 sm:h-4 sm:w-4 inline mr-0.5 sm:mr-1" /> Schedule</button>
+                        <button onClick={() => setScheduleType("recurring")} className={`flex-1 py-2 px-2 sm:px-3 rounded-lg text-xs sm:text-sm font-medium transition-colors ${scheduleType === "recurring" ? "bg-primary text-primary-foreground" : "bg-background text-foreground"}`}><Repeat className="h-3.5 w-3.5 sm:h-4 sm:w-4 inline mr-0.5 sm:mr-1" /> Recurring</button>
                       </div>
                       {scheduleType === "later" && <div><Label className="text-xs text-muted-foreground">Select Date</Label><Input type="date" value={scheduleDate} min={new Date().toISOString().split("T")[0]} onChange={(e) => setScheduleDate(e.target.value)} className="mt-1" /></div>}
                       {scheduleType === "recurring" && <div className="space-y-2"><Label className="text-xs text-muted-foreground">Frequency</Label><div className="flex gap-2">{["daily", "weekly", "monthly"].map((freq) => <button key={freq} onClick={() => setRecurringFrequency(freq as RecurringFrequency)} className={`flex-1 py-2 rounded-lg text-xs font-medium capitalize transition-colors ${recurringFrequency === freq ? "bg-primary text-primary-foreground" : "bg-background text-foreground"}`}>{freq}</button>)}</div></div>}

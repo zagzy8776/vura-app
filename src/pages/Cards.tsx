@@ -297,12 +297,12 @@ const Cards = () => {
   return (
     <div className="flex min-h-screen bg-background">
       <AppSidebar />
-      <main className="flex-1 ml-64 px-8 pb-8">
+      <main className="flex-1 lg:ml-64 px-4 sm:px-6 lg:px-8 py-6 pb-24">
         <DashboardHeader />
         <div className="max-w-3xl">
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <h2 className="text-2xl font-bold text-foreground">Cards</h2>
+          <div className="flex items-center justify-between gap-3 mb-6">
+            <div className="min-w-0">
+              <h2 className="text-xl sm:text-2xl font-bold text-foreground">Cards</h2>
               <p className="text-muted-foreground text-sm mt-1">Manage your virtual and physical cards</p>
             </div>
             <Button 
@@ -481,7 +481,7 @@ const Cards = () => {
                       </div>
                       <span className="text-xl font-bold tracking-tight">Vura</span>
                     </div>
-                    <p className="text-2xl font-mono tracking-widest mb-4">
+                    <p className="text-base sm:text-2xl font-mono tracking-widest mb-4 break-all">
                       {showDetails[card.id] ? card.cardNumber : `•••• •••• •••• ${card.last4}`}
                     </p>
                     <div className="flex items-center justify-between">
