@@ -40,9 +40,7 @@ export default defineConfig(({ mode }) => ({
           if (id.includes('framer-motion')) {
             return 'vendor-motion';
           }
-          if (id.includes('recharts') || id.includes('d3-') || id.includes('d3-scale') || id.includes('victory') || id.includes('chart.js')) {
-            return 'vendor-charts';
-          }
+          // Removed vendor-charts chunk to fix circular dependency with recharts
         },
       },
     },
