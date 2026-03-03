@@ -1,59 +1,62 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
-import { 
-  ArrowLeft, 
-  Copy, 
-  Check, 
-  AlertTriangle, 
+import {
+  ArrowLeft,
+  Copy,
+  Check,
+  AlertTriangle,
   Info,
   Clock,
   Shield,
-  Wallet
+  Wallet,
+  RefreshCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
+import { apiFetch } from "@/hooks/useAuth";
 import { toast } from "@/hooks/use-toast";
 import { useNavigate } from "react-router-dom";
+import QRCode from "qrcode";
 
-// Network configuration with warnings
-const NETWORKS = {
+// ── Network / asset config ────────────────────────────────────────────
+const NETWORKS: Record<string, NetworkInfo[]> = {
   USDT: [
-    { 
-      id: "TRC20", 
-      name: "Tron (TRC20)", 
+    {
+      id: "TRC20",
+      name: "Tron (TRC20)",
       icon: "🔷",
       warnings: [
         "Send only USDT on Tron network (TRC20)",
         "Sending other assets or networks will result in permanent loss",
         "Minimum deposit: 10 USDT",
-        "Confirmations required: 19 blocks (~3 minutes)"
+        "Confirmations required: 19 blocks (~3 minutes)",
       ],
-      avgTime: "3 min"
+      avgTime: "3 min",
     },
-    { 
-      id: "BEP20", 
-      name: "BSC (BEP20)", 
+    {
+      id: "BEP20",
+      name: "BSC (BEP20)",
       icon: "🟡",
       warnings: [
         "Send only USDT on BSC network (BEP20)",
         "Do not send USDC or other BEP20 tokens",
         "Minimum deposit: 10 USDT",
-        "Confirmations required: 15 blocks (~45 seconds)"
+        "Confirmations required: 15 blocks (~45 seconds)",
       ],
-      avgTime: "45 sec"
+      avgTime: "45 sec",
     },
-    { 
-      id: "ERC20", 
-      name: "Ethereum (ERC20)", 
+    {
+      id: "ERC20",
+      name: "Ethereum (ERC20)",
       icon: "💠",
       warnings: [
         "Send only USDT on Ethereum network (ERC20)",
-        "High gas fees - only recommended for large deposits",
+        "High gas fees — only recommended for large deposits",
         "Minimum deposit: 100 USDT",
-        "Confirmations required: 12 blocks (~3 minutes)"
+        "Confirmations required: 12 blocks (~3 minutes)",
       ],
-      avgTime: "3 min"
-    }
+      avgTime: "3 min",
+    },
   ],
   BTC: [
     {
@@ -63,10 +66,10 @@ const NETWORKS = {
       warnings: [
         "Send only Bitcoin (BTC)",
         "Minimum deposit: 0.001 BTC",
-        "Confirmations required: 3 blocks (~30 minutes)"
+        "Confirmations required: 3 blocks (~30 minutes)",
       ],
-      avgTime: "30 min"
-    }
+      avgTime: "30 min",
+    },
   ],
   ETH: [
     {
@@ -75,13 +78,13 @@ const NETWORKS = {
       icon: "💠",
       warnings: [
         "Send only Ethereum (ETH)",
-        "High gas fees - only recommended for large deposits",
+        "High gas fees — only recommended for large deposits",
         "Minimum deposit: 0.05 ETH",
-        "Confirmations required: 12 blocks (~3 minutes)"
+        "Confirmations required: 12 blocks (~3 minutes)",
       ],
-      avgTime: "3 min"
-    }
-  ]
+      avgTime: "3 min",
+    },
+  ],
 };
 
 const ASSETS = [
@@ -90,120 +93,131 @@ const ASSETS = [
   { id: "ETH", name: "Ethereum", icon: "💠", color: "bg-blue-500" },
 ];
 
-// Get API URL from environment - must be HTTPS in production
-const getApiUrl = (): string => {
-  const url = import.meta.env.VITE_API_URL || "http://localhost:3000";
-  if (import.meta.env.PROD && url.startsWith("http:")) {
-    console.error("SECURITY WARNING: Using HTTP in production!");
-  }
-  return url;
-};
-
-interface Deposit {
+interface NetworkInfo {
   id: string;
-  asset: string;
-  network: string;
+  name: string;
+  icon: string;
+  warnings: string[];
+  avgTime: string;
+}
+
+interface DepositTx {
+  id: string;
   cryptoAmount: string;
-  ngnAmount: string | null;
+  ngnAmount: string;
   status: string;
   createdAt: string;
 }
 
+interface DepositRecord {
+  id: string;
+  asset: string;
+  network: string;
+  address: string;
+  status: string;
+  createdAt: string;
+  transactions: DepositTx[];
+}
+
+// ── Component ─────────────────────────────────────────────────────────
+
 const CryptoDeposit = () => {
-  const [selectedAsset, setSelectedAsset] = useState<string>("USDT");
-  const [selectedNetwork, setSelectedNetwork] = useState<string>("TRC20");
+  const [selectedAsset, setSelectedAsset] = useState("USDT");
+  const [selectedNetwork, setSelectedNetwork] = useState("TRC20");
   const [depositAddress, setDepositAddress] = useState<string | null>(null);
   const [memo, setMemo] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [exchangeRate, setExchangeRate] = useState<string | null>(null);
   const [rateExpiry, setRateExpiry] = useState<Date | null>(null);
-  const [recentDeposits, setRecentDeposits] = useState<Deposit[]>([]);
+  const [recentDeposits, setRecentDeposits] = useState<DepositRecord[]>([]);
   const { token } = useAuth();
   const navigate = useNavigate();
 
-  // Fetch exchange rate on mount
-  useEffect(() => {
-    fetchExchangeRate();
-    fetchRecentDeposits();
-    
-    // Refresh rate every 10 minutes
-    const interval = setInterval(fetchExchangeRate, 10 * 60 * 1000);
-    return () => clearInterval(interval);
-  }, [selectedAsset]);
+  // ── Data fetchers ──────────────────────────────────────────────────
 
-  const fetchRecentDeposits = async () => {
+  const fetchExchangeRate = useCallback(async () => {
     try {
-const response = await fetch(`${getApiUrl()}/crypto/deposits`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      
-      if (!response.ok) throw new Error("Failed to fetch deposits");
-      
-      const data = await response.json();
-      setRecentDeposits(data.data.slice(0, 5));
-    } catch (err) {
-      console.error("Deposits fetch error:", err);
-    }
-  };
-
-  const fetchExchangeRate = async () => {
-    try {
-const response = await fetch(`${getApiUrl()}/crypto/rates`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      
-      if (!response.ok) throw new Error("Failed to fetch rates");
-      
-      const data = await response.json();
+      const res = await apiFetch("/crypto/rates");
+      if (!res.ok) return;
+      const json = await res.json();
       const pair = `${selectedAsset}_NGN`;
-      const rate = data.data[pair];
-      
-      setExchangeRate(rate);
-      setRateExpiry(new Date(Date.now() + 15 * 60 * 1000)); // 15 min expiry
+      setExchangeRate(json.data?.[pair] ?? null);
+      setRateExpiry(new Date(Date.now() + 15 * 60_000));
     } catch (err) {
       console.error("Rate fetch error:", err);
     }
-  };
+  }, [selectedAsset]);
+
+  const fetchRecentDeposits = useCallback(async () => {
+    try {
+      const res = await apiFetch("/crypto/deposits");
+      if (!res.ok) return;
+      const json = await res.json();
+      setRecentDeposits((json.data ?? []).slice(0, 5));
+    } catch (err) {
+      console.error("Deposits fetch error:", err);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchExchangeRate();
+    fetchRecentDeposits();
+    const interval = setInterval(fetchExchangeRate, 10 * 60_000);
+    return () => clearInterval(interval);
+  }, [fetchExchangeRate, fetchRecentDeposits]);
+
+  // ── Generate deposit address + QR ──────────────────────────────────
 
   const generateAddress = async () => {
     setLoading(true);
     try {
-      const response = await fetch(`${API_URL}/crypto/deposit-address`, {
+      const res = await apiFetch("/crypto/deposit-address", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
         body: JSON.stringify({
           asset: selectedAsset,
           network: selectedNetwork,
         }),
       });
 
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || "Failed to generate address");
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}));
+        throw new Error(
+          (errBody as Record<string, string>).message ||
+            "Failed to generate address",
+        );
       }
 
-      const data = await response.json();
-      setDepositAddress(data.data.address);
-      setMemo(data.data.memo);
-      
+      const json = await res.json();
+      const addr: string = json.data?.address;
+      const addrMemo: string | undefined = json.data?.memo;
+
+      setDepositAddress(addr);
+      setMemo(addrMemo ?? null);
+
+      // Build QR data-URL
+      const qr = await QRCode.toDataURL(addr, {
+        width: 200,
+        margin: 2,
+        color: { dark: "#000000", light: "#ffffff" },
+      });
+      setQrDataUrl(qr);
+
       toast({
         title: "Address Generated",
         description: `Your ${selectedAsset} ${selectedNetwork} deposit address is ready`,
       });
-    } catch (err: any) {
-      toast({
-        title: "Error",
-        description: err.message,
-        variant: "destructive",
-      });
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error ? err.message : "Something went wrong";
+      toast({ title: "Error", description: message, variant: "destructive" });
     } finally {
       setLoading(false);
     }
   };
+
+  // ── Clipboard ──────────────────────────────────────────────────────
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -212,27 +226,27 @@ const response = await fetch(`${getApiUrl()}/crypto/rates`, {
     toast({ title: "Copied to clipboard" });
   };
 
-  const currentNetwork = NETWORKS[selectedAsset as keyof typeof NETWORKS]?.find(
-    (n) => n.id === selectedNetwork
+  // ── Helpers ────────────────────────────────────────────────────────
+
+  const currentNetwork = NETWORKS[selectedAsset]?.find(
+    (n) => n.id === selectedNetwork,
   );
 
   const formatRate = () => {
     if (!exchangeRate) return "Loading...";
-    const rate = parseFloat(exchangeRate);
-    return `₦${rate.toLocaleString()} per ${selectedAsset}`;
+    return `₦${parseFloat(exchangeRate).toLocaleString()} per ${selectedAsset}`;
   };
 
-  const isRateExpired = () => {
-    if (!rateExpiry) return true;
-    return new Date() > rateExpiry;
-  };
+  const isRateExpired = () => !rateExpiry || new Date() > rateExpiry;
+
+  // ── Render ─────────────────────────────────────────────────────────
 
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
       <div className="sticky top-0 z-10 bg-background/80 backdrop-blur-md border-b border-border">
         <div className="flex items-center gap-4 px-4 py-4 max-w-2xl mx-auto">
-          <button 
+          <button
             onClick={() => navigate("/")}
             className="p-2 hover:bg-muted rounded-full transition-colors"
           >
@@ -240,12 +254,14 @@ const response = await fetch(`${getApiUrl()}/crypto/rates`, {
           </button>
           <div>
             <h1 className="text-lg font-semibold">Deposit Crypto</h1>
-            <p className="text-xs text-muted-foreground">Receive USDT, BTC, or ETH</p>
+            <p className="text-xs text-muted-foreground">
+              Receive USDT, BTC, or ETH — auto-converted to Naira
+            </p>
           </div>
         </div>
       </div>
 
-      <div className="max-w-2xl mx-auto p-4 space-y-6">
+      <div className="max-w-2xl mx-auto p-4 space-y-6 pb-24">
         {/* Rate Card */}
         <motion.div
           initial={{ opacity: 0, y: 10 }}
@@ -257,16 +273,19 @@ const response = await fetch(`${getApiUrl()}/crypto/rates`, {
               <Wallet className="h-4 w-4 text-primary" />
               <span className="text-sm font-medium">Current Rate</span>
             </div>
-            {isRateExpired() && (
-              <span className="text-xs text-destructive flex items-center gap-1">
-                <Clock className="h-3 w-3" />
-                Expired - Refreshing...
-              </span>
-            )}
+            {isRateExpired() ? (
+              <button
+                onClick={fetchExchangeRate}
+                className="text-xs text-destructive flex items-center gap-1"
+              >
+                <RefreshCw className="h-3 w-3" />
+                Refresh
+              </button>
+            ) : null}
           </div>
           <p className="text-2xl font-bold mt-1">{formatRate()}</p>
           <p className="text-xs text-muted-foreground mt-1">
-            Rates locked for 15 minutes • 0.5% spread applied
+            Rates locked for 15 minutes &bull; 0.5% spread applied
           </p>
         </motion.div>
 
@@ -280,9 +299,8 @@ const response = await fetch(`${getApiUrl()}/crypto/rates`, {
                 onClick={() => {
                   setSelectedAsset(asset.id);
                   setDepositAddress(null);
-                  // Set default network for asset
-                  const defaultNetwork = NETWORKS[asset.id as keyof typeof NETWORKS][0].id;
-                  setSelectedNetwork(defaultNetwork);
+                  setQrDataUrl(null);
+                  setSelectedNetwork(NETWORKS[asset.id][0].id);
                 }}
                 className={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all ${
                   selectedAsset === asset.id
@@ -292,7 +310,9 @@ const response = await fetch(`${getApiUrl()}/crypto/rates`, {
               >
                 <span className="text-2xl">{asset.icon}</span>
                 <span className="font-semibold text-sm">{asset.id}</span>
-                <span className="text-xs text-muted-foreground">{asset.name}</span>
+                <span className="text-xs text-muted-foreground">
+                  {asset.name}
+                </span>
               </button>
             ))}
           </div>
@@ -300,14 +320,17 @@ const response = await fetch(`${getApiUrl()}/crypto/rates`, {
 
         {/* Network Selection */}
         <div>
-          <label className="text-sm font-medium mb-3 block">Select Network</label>
+          <label className="text-sm font-medium mb-3 block">
+            Select Network
+          </label>
           <div className="space-y-2">
-            {NETWORKS[selectedAsset as keyof typeof NETWORKS]?.map((network) => (
+            {NETWORKS[selectedAsset]?.map((network) => (
               <button
                 key={network.id}
                 onClick={() => {
                   setSelectedNetwork(network.id);
                   setDepositAddress(null);
+                  setQrDataUrl(null);
                 }}
                 className={`w-full flex items-center gap-3 p-4 rounded-xl border-2 transition-all text-left ${
                   selectedNetwork === network.id
@@ -342,12 +365,17 @@ const response = await fetch(`${getApiUrl()}/crypto/rates`, {
             <div className="flex items-start gap-3">
               <AlertTriangle className="h-5 w-5 text-destructive shrink-0 mt-0.5" />
               <div>
-                <p className="font-semibold text-destructive text-sm">Critical Warnings</p>
+                <p className="font-semibold text-destructive text-sm">
+                  Critical Warnings
+                </p>
                 <ul className="mt-2 space-y-1">
-                  {currentNetwork.warnings.map((warning, i) => (
-                    <li key={i} className="text-xs text-destructive/80 flex items-start gap-2">
+                  {currentNetwork.warnings.map((w, i) => (
+                    <li
+                      key={i}
+                      className="text-xs text-destructive/80 flex items-start gap-2"
+                    >
                       <span className="mt-1.5 h-1 w-1 rounded-full bg-destructive shrink-0" />
-                      {warning}
+                      {w}
                     </li>
                   ))}
                 </ul>
@@ -367,29 +395,59 @@ const response = await fetch(`${getApiUrl()}/crypto/rates`, {
           </Button>
         )}
 
-        {/* Deposit Address Display */}
+        {/* Deposit Address + QR Code Display */}
         {depositAddress && (
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="rounded-xl border-2 border-primary bg-primary/5 p-6 space-y-4"
+            className="rounded-xl border-2 border-primary bg-primary/5 p-6 space-y-5"
           >
+            {/* QR Code */}
+            {qrDataUrl && (
+              <div className="flex justify-center">
+                <div className="bg-white p-3 rounded-xl shadow-md">
+                  <img
+                    src={qrDataUrl}
+                    alt={`${selectedAsset} ${selectedNetwork} QR code`}
+                    width={200}
+                    height={200}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Address text */}
             <div className="text-center">
-              <p className="text-sm text-muted-foreground mb-2">Your {selectedAsset} {selectedNetwork} Address</p>
+              <p className="text-sm text-muted-foreground mb-2">
+                Your {selectedAsset} {selectedNetwork} Address
+              </p>
               <div className="bg-background rounded-lg p-4 border border-border">
                 <p className="font-mono text-sm break-all">{depositAddress}</p>
               </div>
             </div>
 
+            {/* Memo (if applicable) */}
             {memo && (
               <div className="text-center">
-                <p className="text-sm text-muted-foreground mb-2">Memo (Required)</p>
+                <p className="text-sm text-muted-foreground mb-2">
+                  Memo (Required)
+                </p>
                 <div className="bg-background rounded-lg p-4 border border-border">
                   <p className="font-mono text-sm break-all">{memo}</p>
                 </div>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="mt-2"
+                  onClick={() => copyToClipboard(memo)}
+                >
+                  <Copy className="h-3 w-3 mr-1" />
+                  Copy Memo
+                </Button>
               </div>
             )}
 
+            {/* Copy address */}
             <Button
               onClick={() => copyToClipboard(depositAddress)}
               variant="outline"
@@ -411,9 +469,8 @@ const response = await fetch(`${getApiUrl()}/crypto/rates`, {
             <div className="flex items-start gap-2 text-xs text-muted-foreground">
               <Info className="h-4 w-4 shrink-0" />
               <p>
-                Deposits will be credited to your NGN balance after{" "}
-                {currentNetwork?.warnings.find(w => w.includes("Confirmations"))?.match(/\d+/)?.[0] || "required"}{" "}
-                network confirmations. Large deposits may be held for security review.
+                Deposits are auto-converted to NGN after network confirmations.
+                Large deposits may be held for security review.
               </p>
             </div>
           </motion.div>
@@ -427,35 +484,45 @@ const response = await fetch(`${getApiUrl()}/crypto/rates`, {
               Recent Deposits
             </h3>
             <div className="space-y-2">
-              {recentDeposits.map((deposit) => (
-                <div
-                  key={deposit.id}
-                  className="flex items-center justify-between p-3 rounded-lg border border-border bg-card"
-                >
-                  <div>
-                    <p className="font-medium">
-                      {deposit.cryptoAmount} {deposit.asset}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {deposit.network} • {new Date(deposit.createdAt).toLocaleDateString()}
-                    </p>
+              {recentDeposits.map((deposit) => {
+                const lastTx = deposit.transactions?.[0];
+                return (
+                  <div
+                    key={deposit.id}
+                    className="flex items-center justify-between p-3 rounded-lg border border-border bg-card"
+                  >
+                    <div>
+                      <p className="font-medium">
+                        {lastTx
+                          ? `${lastTx.cryptoAmount} ${deposit.asset}`
+                          : deposit.asset}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {deposit.network} &bull;{" "}
+                        {new Date(deposit.createdAt).toLocaleDateString()}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-semibold">
+                        {lastTx?.ngnAmount && lastTx.ngnAmount !== "0"
+                          ? `₦${parseFloat(lastTx.ngnAmount).toLocaleString()}`
+                          : "Pending"}
+                      </p>
+                      <span
+                        className={`text-xs px-2 py-0.5 rounded-full ${
+                          lastTx?.status === "confirmed"
+                            ? "bg-green-500/10 text-green-500"
+                            : lastTx?.status === "flagged"
+                              ? "bg-yellow-500/10 text-yellow-500"
+                              : "bg-blue-500/10 text-blue-500"
+                        }`}
+                      >
+                        {lastTx?.status ?? deposit.status}
+                      </span>
+                    </div>
                   </div>
-                  <div className="text-right">
-                    <p className="font-semibold">
-                      {deposit.ngnAmount ? `₦${parseFloat(deposit.ngnAmount).toLocaleString()}` : "Pending"}
-                    </p>
-                    <span className={`text-xs px-2 py-0.5 rounded-full ${
-                      deposit.status === "confirmed" 
-                        ? "bg-green-500/10 text-green-500"
-                        : deposit.status === "flagged"
-                        ? "bg-yellow-500/10 text-yellow-500"
-                        : "bg-blue-500/10 text-blue-500"
-                    }`}>
-                      {deposit.status}
-                    </span>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}
@@ -466,9 +533,9 @@ const response = await fetch(`${getApiUrl()}/crypto/rates`, {
           <div>
             <p className="font-medium">Security Protected</p>
             <p className="text-muted-foreground text-xs mt-1">
-              All deposits are monitored by our Early Warning System. Suspicious deposits 
-              may be held for up to 16 days per CBN guidelines. First-time crypto deposits 
-              have a 1-hour hold period.
+              All deposits are monitored by our Early Warning System. Suspicious
+              deposits may be held for up to 16 days per CBN guidelines.
+              First-time crypto deposits have a 1-hour hold period.
             </p>
           </div>
         </div>

@@ -9,24 +9,23 @@ import {
   Req,
 } from '@nestjs/common';
 import type { Request } from 'express';
-
 import { PrismaService } from '../prisma.service';
-import { YellowCardService } from './yellowcard.service';
+import { BushaService } from './busha.service';
 import Decimal from 'decimal.js';
 import { Prisma } from '@prisma/client';
 
-// Minimum confirmation requirements
-const MIN_CONFIRMATIONS = {
+// Minimum on-chain confirmations before crediting
+const MIN_CONFIRMATIONS: Record<string, Record<string, number>> = {
   USDT: { TRC20: 19, BEP20: 15, ERC20: 12 },
   BTC: { BTC: 3 },
   ETH: { ETH: 12 },
 };
 
-// KYC Tier limits (NGN)
-const TIER_LIMITS = {
-  1: { daily: 50000, maxBalance: 300000 },
-  2: { daily: 200000, maxBalance: 500000 },
-  3: { daily: 5000000, maxBalance: 10000000 },
+// KYC tier limits (NGN)
+const TIER_LIMITS: Record<number, { daily: number; maxBalance: number }> = {
+  1: { daily: 50_000, maxBalance: 300_000 },
+  2: { daily: 200_000, maxBalance: 500_000 },
+  3: { daily: 5_000_000, maxBalance: 10_000_000 },
 };
 
 @Controller('webhooks')
@@ -35,87 +34,76 @@ export class WebhookController {
 
   constructor(
     private prisma: PrismaService,
-    private yellowcard: YellowCardService,
+    private busha: BushaService,
   ) {}
 
-  /**
-   * Handle Yellow Card deposit webhooks
-   * Security: Signature verification + idempotency + atomic transactions
-   */
-  @Post('yellowcard')
-  async handleYellowCardWebhook(
+  // ─────────────────────────────────────────────────────────────────────
+  //  BUSHA WEBHOOK ENTRY POINT
+  // ─────────────────────────────────────────────────────────────────────
+
+  @Post('busha')
+  async handleBushaWebhook(
     @Body() payload: any,
-    @Headers('x-yellowcard-signature') signature: string,
-    @Headers('x-yellowcard-event') eventType: string,
+    @Headers('x-busha-signature') signature: string,
+    @Headers('x-busha-event') eventType: string,
     @Req() req: Request,
   ) {
-    // 1. Verify webhook signature (prevent spoofing)
+    // 1. Verify HMAC signature
     const rawBody = JSON.stringify(payload);
-    if (!this.yellowcard.verifyWebhookSignature(rawBody, signature)) {
-      this.logger.error('Invalid webhook signature', {
-        ip: req.ip,
-        eventType,
-      });
+    if (!this.busha.verifyWebhookSignature(rawBody, signature)) {
+      this.logger.error('Invalid Busha webhook signature', { ip: req.ip });
       throw new UnauthorizedException('Invalid signature');
     }
 
-    // 2. Check idempotency (prevent replay attacks)
+    // 2. Idempotency – skip replays
+    const txId: string = payload.transactionId ?? payload.id;
     const existing = await this.prisma.processedWebhook.findUnique({
-      where: { providerTxId: payload.transactionId },
+      where: { providerTxId: txId },
     });
-
     if (existing) {
-      this.logger.warn('Duplicate webhook received', {
-        providerTxId: payload.transactionId,
-      });
       return { status: 'already_processed' };
     }
 
-    // 3. Log webhook immediately (audit trail)
+    // 3. Persist raw webhook for audit
     await this.prisma.processedWebhook.create({
       data: {
-        provider: 'yellowcard',
-        providerTxId: payload.transactionId,
-        eventType: eventType || 'deposit.received',
+        provider: 'busha',
+        providerTxId: txId,
+        eventType: eventType || 'unknown',
         rawPayload: payload,
         signatureValid: true,
       },
     });
 
-    // 4. Process based on event type
-    if (eventType === 'deposit.received') {
-      return this.handleDepositReceived(payload, req);
+    // 4. Route by event type
+    switch (eventType) {
+      case 'deposit.received':
+        return this.onDepositReceived(payload);
+      case 'deposit.confirmed':
+        return this.onDepositConfirmed(payload, req);
+      default:
+        return { status: 'ignored', reason: `unhandled event: ${eventType}` };
     }
-
-    if (eventType === 'deposit.confirmed') {
-      return this.handleDepositConfirmed(payload, req);
-    }
-
-    return { status: 'ignored', reason: 'unknown_event_type' };
   }
 
-  /**
-   * Handle initial deposit notification
-   */
-  private async handleDepositReceived(payload: any, req: Request) {
-    const { transactionId, userId, asset, network, amount, address } = payload;
+  // ─────────────────────────────────────────────────────────────────────
+  //  deposit.received  → create pending tx record
+  // ─────────────────────────────────────────────────────────────────────
 
-    // Find user's deposit address
+  private async onDepositReceived(payload: any) {
+    const { transactionId, asset, network, amount, address } = payload;
+
     const deposit = await this.prisma.cryptoDeposit.findFirst({
       where: { address, asset, network, status: 'active' },
-      include: { user: true },
     });
 
     if (!deposit) {
-      this.logger.error('Deposit address not found', {
-        address,
-        asset,
-        network,
-      });
-      throw new BadRequestException('Invalid deposit address');
+      this.logger.error('Unknown deposit address', { address, asset, network });
+      throw new BadRequestException('Unknown deposit address');
     }
 
-    // Create pending deposit transaction
+    const minConf = MIN_CONFIRMATIONS[asset]?.[network] ?? 12;
+
     await this.prisma.cryptoDepositTransaction.create({
       data: {
         depositId: deposit.id,
@@ -125,52 +113,42 @@ export class WebhookController {
         network,
         cryptoAmount: new Decimal(amount),
         cryptoCurrency: asset,
-        exchangeRate: 0, // Will be set on confirmation
+        exchangeRate: 0,
         ngnAmount: 0,
         confirmations: 0,
-        minConfirmations: (MIN_CONFIRMATIONS as any)[asset]?.[network] || 12,
-
+        minConfirmations: minConf,
         status: 'pending',
         metadata: {
-          blockHash: payload.blockHash,
           txHash: payload.txHash,
           fromAddress: payload.fromAddress,
+          blockHash: payload.blockHash,
         },
       },
     });
 
-    this.logger.log(`Deposit received: ${amount} ${asset} on ${network}`, {
-      userId: deposit.userId,
-      transactionId,
-    });
-
-    return { status: 'pending', message: 'Awaiting confirmations' };
+    this.logger.log(
+      `Deposit received: ${amount} ${asset}/${network} for user ${deposit.userId}`,
+    );
+    return { status: 'pending' };
   }
 
-  /**
-   * Handle confirmed deposit (credit NGN balance)
-   * Security: Atomic transaction + SERIALIZABLE isolation + EWS checks
-   */
-  private async handleDepositConfirmed(payload: any, req: Request) {
+  // ─────────────────────────────────────────────────────────────────────
+  //  deposit.confirmed  → convert to fiat → optional auto-withdraw
+  // ─────────────────────────────────────────────────────────────────────
+
+  private async onDepositConfirmed(payload: any, req: Request) {
     const { transactionId, confirmations, blockHash } = payload;
 
-    // Find the deposit transaction
     const depositTx = await this.prisma.cryptoDepositTransaction.findUnique({
       where: { providerTxId: transactionId },
       include: { user: true },
     });
 
-    if (!depositTx) {
-      throw new BadRequestException('Deposit transaction not found');
-    }
+    if (!depositTx) throw new BadRequestException('Deposit tx not found');
+    if (depositTx.status === 'confirmed') return { status: 'already_confirmed' };
 
-    if (depositTx.status === 'confirmed') {
-      return { status: 'already_confirmed' };
-    }
-
-    // Check minimum confirmations
+    // Not enough confirmations yet → update count only
     if (confirmations < depositTx.minConfirmations) {
-      // Update confirmation count but don't credit yet
       await this.prisma.cryptoDepositTransaction.update({
         where: { id: depositTx.id },
         data: { confirmations },
@@ -182,111 +160,86 @@ export class WebhookController {
       };
     }
 
-    // Run EWS checks before crediting
-    const ewsCheck = await this.runEWSChecks(depositTx);
-
-    if (ewsCheck.action === 'block') {
+    // ── EWS checks ───────────────────────────────────────────────────
+    const ews = await this.runEWSChecks(depositTx);
+    if (ews.action === 'block') {
       await this.prisma.cryptoDepositTransaction.update({
         where: { id: depositTx.id },
-        data: {
-          status: 'flagged',
-          ewsScore: ewsCheck.score,
-          ewsFlags: ewsCheck.flags,
-        },
+        data: { status: 'flagged', ewsScore: ews.score, ewsFlags: ews.flags },
       });
-
-      // Alert admin
-      this.logger.error('Deposit blocked by EWS', {
-        transactionId,
-        flags: ewsCheck.flags,
-      });
-
+      this.logger.error('Deposit blocked by EWS', { transactionId, flags: ews.flags });
       return { status: 'flagged', reason: 'ews_block' };
     }
 
-    // Calculate NGN amount
-    const { ngnAmount, rate } = await this.yellowcard.calculateNgnAmount(
-      depositTx.cryptoAmount,
-      depositTx.asset,
-    );
+    // ── Convert to fiat via Busha (with slippage guard) ──────────────
+    const quotedRate = await this.busha.getRate(`${depositTx.asset}_NGN`);
+    const cryptoAmount = new Decimal(depositTx.cryptoAmount.toString());
 
-    // Check KYC tier limits
-    const tierLimit = (TIER_LIMITS as any)[depositTx.user.kycTier];
+    const { executedRate, ngnAmount, slippageBps } =
+      await this.busha.convertToFiat(depositTx.asset, cryptoAmount, quotedRate);
 
-    const currentBalance = await this.getCurrentBalance(depositTx.userId);
+    // ── KYC tier balance cap ─────────────────────────────────────────
+    const tierLimit = TIER_LIMITS[depositTx.user.kycTier] ?? TIER_LIMITS[1];
+    const currentBal = await this.getCurrentBalance(depositTx.userId);
 
-    if (currentBalance.add(ngnAmount).greaterThan(tierLimit.maxBalance)) {
+    if (currentBal.add(ngnAmount).greaterThan(tierLimit.maxBalance)) {
       await this.prisma.cryptoDepositTransaction.update({
         where: { id: depositTx.id },
-        data: {
-          status: 'flagged',
-          ewsFlags: ['tier_limit_exceeded'],
-        },
+        data: { status: 'flagged', ewsFlags: ['tier_limit_exceeded'] },
       });
-
       throw new BadRequestException('Deposit would exceed KYC tier limit');
     }
 
-    // ATOMIC TRANSACTION: Credit NGN balance
-    // SERIALIZABLE isolation prevents race conditions
-    const result = await this.prisma.$transaction(
+    // ── ATOMIC: credit NGN balance + update records ──────────────────
+    await this.prisma.$transaction(
       async (tx) => {
-        // 1. Get current balance with lock
         const balance = await tx.balance.findUnique({
           where: {
-            userId_currency: {
-              userId: depositTx.userId,
-              currency: 'NGN',
-            },
+            userId_currency: { userId: depositTx.userId, currency: 'NGN' },
           },
         });
 
-        const beforeBalance = balance
+        const before = balance
           ? new Decimal(balance.amount.toString())
           : new Decimal(0);
-        const afterBalance = beforeBalance.add(ngnAmount);
+        const after = before.add(ngnAmount);
 
-        // 2. Update or create balance
         await tx.balance.upsert({
           where: {
-            userId_currency: {
-              userId: depositTx.userId,
-              currency: 'NGN',
-            },
+            userId_currency: { userId: depositTx.userId, currency: 'NGN' },
           },
           create: {
             userId: depositTx.userId,
             currency: 'NGN',
             amount: ngnAmount.toNumber(),
-            lastUpdatedBy: 'crypto_deposit',
+            lastUpdatedBy: 'busha_deposit',
           },
           update: {
-            amount: afterBalance.toNumber(),
-            lastUpdatedBy: 'crypto_deposit',
+            amount: after.toNumber(),
+            lastUpdatedBy: 'busha_deposit',
           },
         });
 
-        // 3. Update deposit transaction
-        const updated = await tx.cryptoDepositTransaction.update({
+        const updatedTx = await tx.cryptoDepositTransaction.update({
           where: { id: depositTx.id },
           data: {
-            status: ewsCheck.action === 'delay' ? 'flagged' : 'confirmed',
+            status: ews.action === 'delay' ? 'flagged' : 'confirmed',
             confirmations,
-            exchangeRate: rate.toNumber(),
+            exchangeRate: executedRate.toNumber(),
             ngnAmount: ngnAmount.toNumber(),
             creditedAt: new Date(),
-            ewsScore: ewsCheck.score,
-            ewsFlags: ewsCheck.flags,
-            holdUntil: ewsCheck.holdUntil,
+            ewsScore: ews.score,
+            ewsFlags: ews.flags,
+            holdUntil: ews.holdUntil,
             metadata: {
               ...(depositTx.metadata as object),
               creditedBlockHash: blockHash,
-              ewsAction: ewsCheck.action,
+              ewsAction: ews.action,
+              slippageBps,
             },
           },
         });
 
-        // 4. Create main transaction record
         await tx.transaction.create({
           data: {
             receiverId: depositTx.userId,
@@ -296,21 +249,21 @@ export class WebhookController {
             status: 'SUCCESS',
             idempotencyKey: `crypto_${transactionId}`,
             providerTxId: transactionId,
-            beforeBalance: beforeBalance.toNumber(),
-            afterBalance: afterBalance.toNumber(),
+            beforeBalance: before.toNumber(),
+            afterBalance: after.toNumber(),
             reference: `CRYPTO-${transactionId}`,
             externalReference: depositTx.asset,
             metadata: {
-              cryptoAmount: depositTx.cryptoAmount.toString(),
+              cryptoAmount: cryptoAmount.toString(),
               cryptoCurrency: depositTx.asset,
               network: depositTx.network,
-              exchangeRate: rate.toString(),
+              exchangeRate: executedRate.toString(),
+              slippageBps,
               confirmations,
             },
           },
         });
 
-        // 5. Create audit log
         await tx.auditLog.create({
           data: {
             action: 'CRYPTO_DEPOSIT_CREDITED',
@@ -318,44 +271,87 @@ export class WebhookController {
             actorType: 'system',
             metadata: {
               transactionId,
-              cryptoAmount: depositTx.cryptoAmount.toString(),
+              cryptoAmount: cryptoAmount.toString(),
               ngnAmount: ngnAmount.toString(),
-              asset: depositTx.asset,
-              network: depositTx.network,
-              ewsScore: ewsCheck.score,
-              ewsFlags: ewsCheck.flags,
+              exchangeRate: executedRate.toString(),
+              slippageBps,
+              ewsScore: ews.score,
             },
             ipAddress: req.ip,
           },
         });
 
-        return updated;
+        return updatedTx;
       },
-      {
-        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
 
     this.logger.log(
-      `Credited ${ngnAmount.toString()} NGN for ${depositTx.cryptoAmount.toString()} ${depositTx.asset}`,
-      {
-        userId: depositTx.userId,
-        transactionId,
-        ewsAction: ewsCheck.action,
-      },
+      `Credited ₦${ngnAmount.toFixed(2)} for ${cryptoAmount.toString()} ${depositTx.asset} ` +
+        `(rate ${executedRate.toString()}, slip ${slippageBps} bps)`,
     );
 
+    // ── AUTO-WITHDRAW if user enabled it ─────────────────────────────
+    if (
+      (depositTx.user as any).cryptoAutoWithdraw &&
+      ews.action === 'allow' &&
+      ngnAmount.greaterThan(50)
+    ) {
+      try {
+        const ref = `AW-${transactionId}`;
+        const payout = await this.busha.payoutToBank(
+          depositTx.userId,
+          ngnAmount,
+          ref,
+        );
+
+        await this.prisma.auditLog.create({
+          data: {
+            action: 'CRYPTO_AUTO_WITHDRAW',
+            userId: depositTx.userId,
+            actorType: 'system',
+            metadata: {
+              payoutId: payout.id,
+              amount: payout.amount,
+              bankName: payout.bankName,
+              reference: ref,
+            },
+          },
+        });
+
+        this.logger.log(
+          `Auto-withdraw ₦${payout.amount} → ${payout.bankName} (ref ${ref})`,
+        );
+
+        return {
+          status: 'confirmed_and_withdrawn',
+          ngnAmount: ngnAmount.toString(),
+          payout: {
+            amount: payout.amount,
+            bank: payout.bankName,
+            reference: ref,
+          },
+        };
+      } catch (withdrawErr) {
+        this.logger.error(
+          `Auto-withdraw failed: ${(withdrawErr as Error).message}`,
+          (withdrawErr as Error).stack,
+        );
+        // Deposit is still credited – withdrawal can be retried manually
+      }
+    }
+
     return {
-      status: ewsCheck.action === 'delay' ? 'held' : 'confirmed',
+      status: ews.action === 'delay' ? 'held' : 'confirmed',
       ngnAmount: ngnAmount.toString(),
-      holdUntil: ewsCheck.holdUntil,
+      holdUntil: ews.holdUntil,
     };
   }
 
-  /**
-   * Early Warning System checks
-   * Returns: action ('allow', 'delay', 'block'), score, flags, holdUntil
-   */
+  // ─────────────────────────────────────────────────────────────────────
+  //  EWS – Early Warning System
+  // ─────────────────────────────────────────────────────────────────────
+
   private async runEWSChecks(depositTx: any): Promise<{
     action: 'allow' | 'delay' | 'block';
     score: number;
@@ -365,67 +361,44 @@ export class WebhookController {
     const flags: string[] = [];
     let score = 0;
 
-    // 1. First-time crypto deposit (delay 1 hour)
-    const previousDeposits = await this.prisma.cryptoDepositTransaction.count({
+    // First-time crypto user
+    const pastConfirmed = await this.prisma.cryptoDepositTransaction.count({
       where: { userId: depositTx.userId, status: 'confirmed' },
     });
-
-    if (previousDeposits === 0) {
+    if (pastConfirmed === 0) {
       score += 30;
       flags.push('first_time_crypto_deposit');
     }
 
-    // 2. Large amount check (>₦100k)
-    const estimatedNgn = depositTx.cryptoAmount.mul(1500); // Rough estimate
-    if (estimatedNgn.greaterThan(100000)) {
+    // Large deposit (rough estimate > ₦100 k)
+    const rough = new Decimal(depositTx.cryptoAmount.toString()).mul(1_500);
+    if (rough.greaterThan(100_000)) {
       score += 40;
       flags.push('large_deposit');
     }
 
-    // 3. Velocity check (max 3 deposits per hour)
-    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
-    const recentDeposits = await this.prisma.cryptoDepositTransaction.count({
-      where: {
-        userId: depositTx.userId,
-        createdAt: { gte: oneHourAgo },
-      },
+    // Velocity: > 3 deposits in last hour
+    const oneHourAgo = new Date(Date.now() - 3_600_000);
+    const recent = await this.prisma.cryptoDepositTransaction.count({
+      where: { userId: depositTx.userId, createdAt: { gte: oneHourAgo } },
     });
-
-    if (recentDeposits >= 3) {
+    if (recent >= 3) {
       score += 50;
       flags.push('velocity_exceeded');
     }
 
-    // 4. Device fingerprint mismatch
-    // (Would check against user's last device fingerprint)
-
-    // Determine action based on score
-    if (score >= 80) {
-      return { action: 'block', score, flags };
-    }
-
+    if (score >= 80) return { action: 'block', score, flags };
     if (score >= 40) {
-      // Hold for 16 days (CBN requirement for flagged transactions)
-      const holdUntil = new Date(Date.now() + 16 * 24 * 60 * 60 * 1000);
+      const holdUntil = new Date(Date.now() + 16 * 86_400_000);
       return { action: 'delay', score, flags, holdUntil };
     }
-
     return { action: 'allow', score, flags };
   }
 
-  /**
-   * Get current NGN balance for a user
-   */
   private async getCurrentBalance(userId: string): Promise<Decimal> {
-    const balance = await this.prisma.balance.findUnique({
-      where: {
-        userId_currency: {
-          userId,
-          currency: 'NGN',
-        },
-      },
+    const bal = await this.prisma.balance.findUnique({
+      where: { userId_currency: { userId, currency: 'NGN' } },
     });
-
-    return balance ? new Decimal(balance.amount.toString()) : new Decimal(0);
+    return bal ? new Decimal(bal.amount.toString()) : new Decimal(0);
   }
 }

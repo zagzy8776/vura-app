@@ -60,6 +60,9 @@ model User {
   flutterwaveOrderRef String? @map("flutterwave_order_ref")
   reservedAccountBankName String? @map("reserved_account_bank_name")
   flutterwaveRef String? @map("flutterwave_ref")
+
+  // Crypto auto-withdraw: when a deposit confirms, auto-send NGN to primary bank
+  cryptoAutoWithdraw Boolean @default(false) @map("crypto_auto_withdraw")
   
   // KYC Image Storage (Tier 3)
   idCardUrl    String?   @map("id_card_url")
