@@ -41,17 +41,25 @@ const StatsCards = ({ transactions = [] }: StatsCardsProps) => {
       }
     });
     
-    // Calculate income (received money) with validation
+    // Calculate income (received money) - check multiple direction values
     const income = thisMonthTransactions
-      .filter(tx => tx.direction === "incoming" && tx.status === "COMPLETED")
+      .filter(tx => {
+        const isIncoming = tx.direction === "incoming" || tx.direction === "received" || tx.direction === "credit";
+        const isCompleted = tx.status === "COMPLETED" || tx.status === "success" || tx.status === "completed";
+        return isIncoming && isCompleted;
+      })
       .reduce((sum, tx) => {
         const amount = typeof tx.amount === 'number' && !isNaN(tx.amount) ? tx.amount : 0;
         return sum + amount;
       }, 0);
     
-    // Calculate expenses (sent money) with validation
+    // Calculate expenses (sent money) - check multiple direction values
     const expenses = thisMonthTransactions
-      .filter(tx => tx.direction === "outgoing" && tx.status === "COMPLETED")
+      .filter(tx => {
+        const isOutgoing = tx.direction === "outgoing" || tx.direction === "sent" || tx.direction === "debit";
+        const isCompleted = tx.status === "COMPLETED" || tx.status === "success" || tx.status === "completed";
+        return isOutgoing && isCompleted;
+      })
       .reduce((sum, tx) => {
         const amount = typeof tx.amount === 'number' && !isNaN(tx.amount) ? tx.amount : 0;
         return sum + amount;

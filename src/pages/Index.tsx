@@ -110,26 +110,25 @@ const Index = () => {
             />
           </div>
 
+          {/* Quick Actions - Moved up after Balance */}
+          <div>
+            <QuickActions />
+          </div>
+
           {/* Stats Cards - Responsive grid */}
           <div>
             <StatsCards transactions={transactions} />
           </div>
 
-          {/* Quick Actions and Transaction List - Stacked on mobile */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
-            <div className="lg:col-span-1">
-              <QuickActions />
-            </div>
-            <div className="lg:col-span-2">
-              <TransactionList transactions={transactions} />
-            </div>
+          {/* Transaction List - Full width on mobile */}
+          <div>
+            <TransactionList transactions={transactions} />
           </div>
 
           {/* Spending Chart - Full width */}
           <div>
             <SpendingChart transactions={transactions} />
           </div>
-        </div>
       </main>
     </div>
   );
