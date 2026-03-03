@@ -31,6 +31,9 @@ async function bootstrap() {
           // Render backend URL (if needed for webhooks)
           'https://vura-backend.onrender.com',
           'https://*.onrender.com',
+          // Custom domain
+          'https://www.vura-bank.com.ng',
+          'https://vura-bank.com.ng',
         ]
       : [
           'http://localhost:8080',
