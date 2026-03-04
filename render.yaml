@@ -12,7 +12,7 @@ services:
   - type: web
     name: vura-backend
     runtime: node
-    buildCommand: cd vura-backend && npm ci --include=dev && npx prisma generate --schema=prisma/schema.prisma && npm run build
+    buildCommand: cd vura-backend && npm ci && npx prisma generate --schema=prisma/schema.prisma && npx prisma migrate deploy && npm run build
     startCommand: cd vura-backend && npm run start:prod
     envVars:
       - key: NODE_ENV
