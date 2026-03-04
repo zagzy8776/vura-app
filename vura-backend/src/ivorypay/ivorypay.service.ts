@@ -26,15 +26,12 @@ export class IvoryPayService {
   private readonly client: AxiosInstance;
   private readonly logger = new Logger(IvoryPayService.name);
   private readonly secretKey: string;
-  private readonly webhookSecret: string;
 
   constructor(
     private config: ConfigService,
     private prisma: PrismaService,
   ) {
     this.secretKey = this.config.get<string>('IVORYPAY_SECRET_KEY') ?? '';
-    this.webhookSecret =
-      this.config.get<string>('IVORYPAY_WEBHOOK_SECRET') ?? '';
 
     if (!this.secretKey) {
       this.logger.warn(
@@ -291,13 +288,9 @@ export class IvoryPayService {
   // ───────────────────────────────────────────────────────────────────
 
   verifyWebhookSignature(rawBody: string, signature: string): boolean {
-    if (!this.webhookSecret) {
-      this.logger.error('IVORYPAY_WEBHOOK_SECRET is not configured');
-      return false;
-    }
-
     const expected = crypto
-      .createHmac('sha512', this.webhookSecret)
+      // IvoryPay docs: signature is HMAC-SHA512 of raw body, signed with the API secret key
+      .createHmac('sha512', this.secretKey)
       .update(rawBody, 'utf8')
       .digest('hex');
 
