@@ -3,10 +3,10 @@ services:
     name: vura-frontend
     runtime: static
     buildCommand: npm run build
-    staticPublishPath: dist
+    publishDir: dist
     envVars:
       - key: VITE_API_URL
-        value: https://vura-backend.onrender.com/api
+        value: https://vura-app.onrender.com/api
     healthCheckPath: /
     
   - type: web
@@ -19,7 +19,6 @@ services:
         value: production
       - key: DATABASE_URL
         sync: false
-        # For Neon: Add ?connection_limit=1&pool_timeout=10 to connection string in Render dashboard
       - key: PRISMA_POOL_MAX
         value: "1"
       - key: JWT_SECRET
@@ -51,7 +50,7 @@ services:
       - key: FRONTEND_URL
         value: https://vura-app.vercel.app
       - key: VITE_API_URL
-        value: https://vura-backend.onrender.com/api
+        value: https://vura-app.onrender.com/api
       - key: FLUTTERWAVE_SECRET_HASH
         sync: false
       - key: FLUTTERWAVE_SECRET_KEY
@@ -59,5 +58,7 @@ services:
       - key: RESEND_API_KEY
         sync: false
       - key: FROM_EMAIL
+        sync: false
+      - key: IVORYPAY_SECRET_KEY
         sync: false
     healthCheckPath: /api/health

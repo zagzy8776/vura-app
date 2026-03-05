@@ -12,6 +12,11 @@ async function bootstrap() {
   const isProduction = process.env.NODE_ENV === 'production';
   const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
 
+  // Trust proxy for Render.com (required for rate limiting to work correctly)
+  if (isProduction) {
+    app.set('trust proxy', 1);
+  }
+
   // Security: HTTP headers protection
   app.use(
     helmet({

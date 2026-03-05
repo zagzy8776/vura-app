@@ -4,7 +4,7 @@ import {
   OnModuleDestroy,
   Logger,
 } from '@nestjs/common';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, Prisma } from '@prisma/client';
 
 @Injectable()
 export class PrismaService
@@ -16,13 +16,18 @@ export class PrismaService
   private readonly retryDelay = 3000;
 
   constructor() {
+    const isProduction = process.env.NODE_ENV === 'production';
+    const logLevels: Prisma.LogLevel[] = isProduction
+      ? ['error']
+      : ['error', 'warn'];
+
     super({
       datasources: {
         db: {
           url: process.env.DATABASE_URL,
         },
       },
-      log: ['error', 'warn'],
+      log: logLevels,
     });
   }
 
@@ -40,12 +45,15 @@ export class PrismaService
         this.logger.log('Database connected successfully');
         return;
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        const errorMessage =
+          error instanceof Error ? error.message : 'Unknown error';
         this.logger.warn(
           `Database connection attempt ${attempt} failed: ${errorMessage}`,
         );
         if (attempt < this.maxRetries) {
-          this.logger.log(`Retrying in ${this.retryDelay / 1000} seconds...`);
+          this.logger.log(
+            `Retrying in ${this.retryDelay / 1000} seconds...`,
+          );
           await new Promise((resolve) => setTimeout(resolve, this.retryDelay));
         }
       }
@@ -61,7 +69,7 @@ export class PrismaService
       this.logger.warn('Error during database disconnect');
     }
   }
-  
+
   // Helper method to check connection health
   async checkHealth(): Promise<boolean> {
     try {
@@ -72,3 +80,4 @@ export class PrismaService
     }
   }
 }
+

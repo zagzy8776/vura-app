@@ -37,13 +37,19 @@ export class IvoryPayService {
       this.logger.warn(
         'IVORYPAY_SECRET_KEY not set – IvoryPay operations will fail.',
       );
+    } else {
+      // Log first few chars for debugging (don't log full key)
+      this.logger.log(
+        `IVORYPAY_SECRET_KEY loaded: ${this.secretKey.substring(0, 4)}...`,
+      );
     }
 
     this.client = axios.create({
       baseURL: 'https://api.ivorypay.io/api/v1',
       timeout: 30_000,
       headers: {
-        Authorization: this.secretKey, // IvoryPay uses raw key, no "Bearer"
+        // IvoryPay docs: Authorization: <secret-key> (no Bearer prefix)
+        Authorization: this.secretKey,
         'Content-Type': 'application/json',
       },
     });
@@ -349,13 +355,15 @@ export class IvoryPayService {
     switch (status) {
       case 400:
         this.logger.error(`[${method}] 400 Bad Request / Invalid Key: ${msg}`);
-        throw new BadRequestException(`IvoryPay: ${msg}`);
+        throw new BadRequestException(
+          `IvoryPay: ${msg}. Check IVORYPAY_SECRET_KEY (no 'Bearer ' prefix) and request params.`,
+        );
       case 401:
         this.logger.error(
           `[${method}] 401 Unauthorized – check IVORYPAY_SECRET_KEY`,
         );
         throw new UnauthorizedException(
-          'IvoryPay authentication failed. Verify your secret key.',
+          'IvoryPay authentication failed. Verify IVORYPAY_SECRET_KEY value (no Bearer prefix).',
         );
       case 404:
         this.logger.warn(`[${method}] 404 Not Found: ${msg}`);
