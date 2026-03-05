@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   ArrowLeft,
   Copy,
@@ -13,12 +13,31 @@ import {
   Calculator,
   Banknote,
   Send,
+  Share2,
+  ChevronDown,
+  ExternalLink,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { apiFetch } from "@/hooks/useAuth";
 import { toast } from "@/hooks/use-toast";
 import { useNavigate } from "react-router-dom";
 import QRCode from "qrcode";
+
+// ── Relative time helper ──────────────────────────────────────────────
+function timeAgo(dateStr: string): string {
+  const now = Date.now();
+  const then = new Date(dateStr).getTime();
+  const diffSec = Math.floor((now - then) / 1000);
+  if (diffSec < 60) return "Just now";
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}h ago`;
+  const diffDay = Math.floor(diffHr / 24);
+  if (diffDay === 1) return "Yesterday";
+  if (diffDay < 7) return `${diffDay}d ago`;
+  return new Date(dateStr).toLocaleDateString("en-NG", { month: "short", day: "numeric" });
+}
 
 // ── Network / asset config ────────────────────────────────────────────
 const NETWORKS: Record<string, NetworkInfo[]> = {
@@ -30,9 +49,10 @@ const NETWORKS: Record<string, NetworkInfo[]> = {
       warnings: [
         "Send only USDT on Tron network (TRC20)",
         "Sending other assets will result in permanent loss",
-        "Minimum deposit: 10 USDT",
       ],
       avgTime: "~3 min",
+      minDeposit: "10 USDT",
+      maxDeposit: null,
     },
     {
       id: "BEP20",
@@ -42,9 +62,10 @@ const NETWORKS: Record<string, NetworkInfo[]> = {
         "Do not deposit USDT via the opBNB chain",
         "Send only USDT on BSC network (BEP20)",
         "Do not send USDC or other BEP20 tokens",
-        "Minimum deposit: 10 USDT",
       ],
       avgTime: "~45 sec",
+      minDeposit: "10 USDT",
+      maxDeposit: null,
     },
   ],
   BTC: [
@@ -54,10 +75,11 @@ const NETWORKS: Record<string, NetworkInfo[]> = {
       icon: "🟠",
       warnings: [
         "Send only Bitcoin (BTC)",
-        "Minimum deposit: 0.001 BTC",
-        "3 confirmations (~30 minutes)",
+        "3 network confirmations required",
       ],
       avgTime: "~30 min",
+      minDeposit: "0.001 BTC",
+      maxDeposit: null,
     },
   ],
 };
@@ -73,6 +95,8 @@ interface NetworkInfo {
   icon: string;
   warnings: string[];
   avgTime: string;
+  minDeposit: string;
+  maxDeposit: string | null;
 }
 
 interface DepositTx {
@@ -144,6 +168,7 @@ const CryptoDeposit = () => {
   const [confirmLoading, setConfirmLoading] = useState(false);
 
   const [recentDeposits, setRecentDeposits] = useState<DepositRecord[]>([]);
+  const [showHowItWorks, setShowHowItWorks] = useState(false);
 
   const navigate = useNavigate();
 
@@ -236,6 +261,7 @@ const CryptoDeposit = () => {
         color: { dark: "#000000", light: "#ffffff" },
       });
       setQrDataUrl(qr);
+      setSentAmount(previewAmount);
       setStep("address");
 
       toast({
@@ -397,7 +423,7 @@ const CryptoDeposit = () => {
           <div>
             <h1 className="text-lg font-semibold">Deposit Crypto</h1>
             <p className="text-xs text-muted-foreground">
-              Send crypto, receive Naira instantly
+              Send crypto, receive Naira automatically
             </p>
           </div>
         </div>
@@ -483,6 +509,13 @@ const CryptoDeposit = () => {
           <p className="text-xs text-muted-foreground text-center">
             Rate updates in real-time &bull; Final amount locked at confirmation
           </p>
+          <div className="flex items-start gap-2 pt-1">
+            <Info className="h-3 w-3 text-muted-foreground shrink-0 mt-0.5" />
+            <p className="text-[11px] text-muted-foreground">
+              Payout includes 1% platform spread. Network fees from your wallet
+              are separate and deducted by the blockchain, not Vura.
+            </p>
+          </div>
         </motion.div>
 
         {/* ── Step: Select Asset & Network ──────────────────────────── */}
@@ -548,6 +581,77 @@ const CryptoDeposit = () => {
                   </button>
                 ))}
               </div>
+            </div>
+
+            {/* Deposit Limits */}
+            {currentNetwork && (
+              <div className="rounded-xl border border-border bg-card p-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium">Deposit Limits</span>
+                  <span className="text-xs text-muted-foreground">{currentNetwork.name}</span>
+                </div>
+                <div className="grid grid-cols-2 gap-3 mt-3">
+                  <div className="bg-muted/50 rounded-lg p-3 text-center">
+                    <p className="text-[11px] text-muted-foreground">Minimum</p>
+                    <p className="font-semibold text-sm mt-0.5">{currentNetwork.minDeposit}</p>
+                  </div>
+                  <div className="bg-muted/50 rounded-lg p-3 text-center">
+                    <p className="text-[11px] text-muted-foreground">Maximum</p>
+                    <p className="font-semibold text-sm mt-0.5">
+                      {currentNetwork.maxDeposit ?? "No limit"}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* First time? How it works — collapsible */}
+            <div className="rounded-xl border border-border bg-card overflow-hidden">
+              <button
+                onClick={() => setShowHowItWorks((v) => !v)}
+                className="w-full flex items-center justify-between p-4 text-left hover:bg-muted/30 transition-colors"
+              >
+                <span className="text-sm font-medium flex items-center gap-2">
+                  <Info className="h-4 w-4 text-primary" />
+                  First time? Here&apos;s how it works
+                </span>
+                <motion.div
+                  animate={{ rotate: showHowItWorks ? 180 : 0 }}
+                  transition={{ duration: 0.2 }}
+                >
+                  <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                </motion.div>
+              </button>
+              <AnimatePresence>
+                {showHowItWorks && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: "auto", opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.2 }}
+                    className="overflow-hidden"
+                  >
+                    <ol className="px-4 pb-4 space-y-3 text-xs text-muted-foreground">
+                      <li className="flex gap-3">
+                        <span className="w-6 h-6 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-bold shrink-0">1</span>
+                        <span>Pick your crypto (USDT or BTC) and the network you'll send on</span>
+                      </li>
+                      <li className="flex gap-3">
+                        <span className="w-6 h-6 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-bold shrink-0">2</span>
+                        <span>Copy the deposit address and send from your wallet (Binance, Trust Wallet, etc.)</span>
+                      </li>
+                      <li className="flex gap-3">
+                        <span className="w-6 h-6 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-bold shrink-0">3</span>
+                        <span>Enter the amount you sent and paste the transaction hash for faster verification</span>
+                      </li>
+                      <li className="flex gap-3">
+                        <span className="w-6 h-6 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-bold shrink-0">4</span>
+                        <span>Vura scans the blockchain, verifies your deposit, and credits Naira to your balance automatically</span>
+                      </li>
+                    </ol>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
 
             {/* Warnings */}
@@ -622,22 +726,38 @@ const CryptoDeposit = () => {
                 </div>
               </div>
 
-              {/* Copy */}
-              <Button
-                onClick={() => copyToClipboard(depositAddress)}
-                variant="outline"
-                className="w-full h-12 rounded-xl"
-              >
-                {copied ? (
-                  <>
-                    <Check className="h-4 w-4 mr-2" /> Copied!
-                  </>
-                ) : (
-                  <>
-                    <Copy className="h-4 w-4 mr-2" /> Copy Address
-                  </>
+              {/* Copy + Share */}
+              <div className="flex gap-3">
+                <Button
+                  onClick={() => copyToClipboard(depositAddress)}
+                  variant="outline"
+                  className="flex-1 h-12 rounded-xl"
+                >
+                  {copied ? (
+                    <>
+                      <Check className="h-4 w-4 mr-2" /> Copied!
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="h-4 w-4 mr-2" /> Copy Address
+                    </>
+                  )}
+                </Button>
+                {typeof navigator.share === "function" && (
+                  <Button
+                    onClick={() =>
+                      navigator.share({
+                        title: `${selectedAsset} Deposit Address`,
+                        text: `Send ${selectedAsset} (${selectedNetwork}) to: ${depositAddress}`,
+                      }).catch(() => {})
+                    }
+                    variant="outline"
+                    className="h-12 rounded-xl px-4"
+                  >
+                    <Share2 className="h-4 w-4" />
+                  </Button>
                 )}
-              </Button>
+              </div>
             </div>
 
             {/* How it works */}
@@ -683,7 +803,8 @@ const CryptoDeposit = () => {
 
               <div>
                 <label className="text-xs text-muted-foreground mb-1 block">
-                  Transaction hash (optional — speeds up verification)
+                  Transaction hash{" "}
+                  <span className="text-primary font-medium">(recommended — verifies in seconds)</span>
                 </label>
                 <input
                   type="text"
@@ -692,6 +813,9 @@ const CryptoDeposit = () => {
                   placeholder="e.g. 0xabc123..."
                   className="w-full bg-background rounded-lg border border-border px-3 py-2.5 text-sm font-mono outline-none focus:ring-2 focus:ring-primary/30"
                 />
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  Find this in your wallet app under transaction details or history
+                </p>
               </div>
 
               <Button
@@ -753,6 +877,11 @@ const CryptoDeposit = () => {
                 {verifyStatus?.message ||
                   "Scanning blockchain for your transaction..."}
               </p>
+              {verifyPhase >= 0 && verifyPhase < 3 && currentNetwork && (
+                <p className="text-xs text-muted-foreground/70">
+                  Estimated wait: {currentNetwork.avgTime} for {currentNetwork.name}
+                </p>
+              )}
             </div>
 
             {/* Confirmation counter */}
@@ -855,9 +984,18 @@ const CryptoDeposit = () => {
               )}
               .
             </p>
-            <Button onClick={resetFlow} variant="outline" className="rounded-xl">
-              Make Another Deposit
-            </Button>
+            <div className="flex gap-3 pt-2">
+              <Button
+                onClick={() => navigate("/")}
+                className="flex-1 rounded-xl gradient-brand text-primary-foreground font-semibold"
+              >
+                <Wallet className="h-4 w-4 mr-2" />
+                Go to Wallet
+              </Button>
+              <Button onClick={resetFlow} variant="outline" className="flex-1 rounded-xl">
+                Deposit Again
+              </Button>
+            </div>
           </motion.div>
         )}
 
@@ -876,54 +1014,71 @@ const CryptoDeposit = () => {
               <div className="space-y-2">
                 {depositsWithTx.map((deposit) => {
                   const lastTx = deposit.transactions[0];
+                  const isPending = lastTx.status === "pending" || lastTx.status === "confirming";
                   return (
-                    <div
+                    <button
                       key={deposit.id}
-                      className="flex items-center justify-between p-3 rounded-lg border border-border bg-card"
+                      onClick={() => {
+                        if (isPending) {
+                          setSelectedAsset(deposit.asset);
+                          setSelectedNetwork(deposit.network);
+                          setActiveDepositTxId(lastTx.id);
+                          setVerifyStatus(null);
+                          setVerifyPhase(0);
+                          setStep("verifying");
+                        }
+                      }}
+                      className={`w-full flex items-center justify-between p-3 rounded-lg border border-border bg-card text-left ${
+                        isPending ? "hover:border-primary/50 cursor-pointer" : ""
+                      }`}
                     >
                       <div>
                         <p className="font-medium">
                           {lastTx.cryptoAmount} {deposit.asset}
                         </p>
                         <p className="text-xs text-muted-foreground">
-                          {deposit.network} &bull;{" "}
-                          {new Date(lastTx.createdAt).toLocaleDateString()}
+                          {deposit.network} &bull; {timeAgo(lastTx.createdAt)}
                         </p>
                       </div>
-                      <div className="text-right">
-                        <p className="font-semibold">
-                          {lastTx.status === "confirmed" &&
-                          lastTx.ngnAmount &&
-                          lastTx.ngnAmount !== "0"
-                            ? `₦${parseFloat(lastTx.ngnAmount).toLocaleString()}`
-                            : lastTx.status === "failed"
-                              ? "Rejected"
-                              : lastTx.status === "confirming" &&
-                                  lastTx.confirmations
-                                ? `${lastTx.confirmations} confs`
-                                : "Scanning..."}
-                        </p>
-                        <span
-                          className={`text-xs px-2 py-0.5 rounded-full ${
-                            lastTx.status === "confirmed"
-                              ? "bg-green-500/10 text-green-500"
+                      <div className="text-right flex items-center gap-2">
+                        <div>
+                          <p className="font-semibold">
+                            {lastTx.status === "confirmed" &&
+                            lastTx.ngnAmount &&
+                            lastTx.ngnAmount !== "0"
+                              ? `₦${parseFloat(lastTx.ngnAmount).toLocaleString()}`
                               : lastTx.status === "failed"
-                                ? "bg-red-500/10 text-red-500"
+                                ? "Rejected"
+                                : lastTx.status === "confirming" &&
+                                    lastTx.confirmations
+                                  ? `${lastTx.confirmations} confs`
+                                  : "Scanning..."}
+                          </p>
+                          <span
+                            className={`text-xs px-2 py-0.5 rounded-full ${
+                              lastTx.status === "confirmed"
+                                ? "bg-green-500/10 text-green-500"
+                                : lastTx.status === "failed"
+                                  ? "bg-red-500/10 text-red-500"
+                                  : lastTx.status === "confirming"
+                                    ? "bg-blue-500/10 text-blue-500"
+                                    : "bg-yellow-500/10 text-yellow-500"
+                            }`}
+                          >
+                            {lastTx.status === "confirmed"
+                              ? "Credited"
+                              : lastTx.status === "failed"
+                                ? "Failed"
                                 : lastTx.status === "confirming"
-                                  ? "bg-blue-500/10 text-blue-500"
-                                  : "bg-yellow-500/10 text-yellow-500"
-                          }`}
-                        >
-                          {lastTx.status === "confirmed"
-                            ? "Credited"
-                            : lastTx.status === "failed"
-                              ? "Failed"
-                              : lastTx.status === "confirming"
-                                ? "Confirming"
-                                : "Scanning"}
-                        </span>
+                                  ? "Confirming"
+                                  : "Scanning"}
+                          </span>
+                        </div>
+                        {isPending && (
+                          <ExternalLink className="h-3.5 w-3.5 text-muted-foreground" />
+                        )}
                       </div>
-                    </div>
+                    </button>
                   );
                 })}
               </div>
