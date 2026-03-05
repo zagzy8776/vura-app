@@ -28,25 +28,26 @@ export class CoinGeckoService {
     this.apiKey = this.config.get('COINGECKO_API_KEY') || '';
     
     // Read business wallet addresses from environment variables
+    // Fallback to test addresses if not configured (for development)
     this.businessWallets = {
       USDT_TRC20: { 
-        address: this.config.get('BUSINESS_USDT_TRC20_ADDRESS') || '', 
+        address: this.config.get('BUSINESS_USDT_TRC20_ADDRESS') || 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t', 
         network: 'TRC20' 
       },
       USDT_BEP20: { 
-        address: this.config.get('BUSINESS_USDT_BEP20_ADDRESS') || '', 
+        address: this.config.get('BUSINESS_USDT_BEP20_ADDRESS') || '0x55d398326f99059fF775485246999027B3197955', 
         network: 'BEP20' 
       },
       USDT_ERC20: { 
-        address: this.config.get('BUSINESS_USDT_ERC20_ADDRESS') || '', 
+        address: this.config.get('BUSINESS_USDT_ERC20_ADDRESS') || '0x55d398326f99059fF775485246999027B3197955', 
         network: 'ERC20' 
       },
       BTC: { 
-        address: this.config.get('BUSINESS_BTC_ADDRESS') || '', 
+        address: this.config.get('BUSINESS_BTC_ADDRESS') || 'bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh', 
         network: 'BTC' 
       },
       ETH: { 
-        address: this.config.get('BUSINESS_ETH_ADDRESS') || '', 
+        address: this.config.get('BUSINESS_ETH_ADDRESS') || '0x55d398326f99059fF775485246999027B3197955', 
         network: 'ETH' 
       },
     };
