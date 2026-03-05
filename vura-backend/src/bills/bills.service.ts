@@ -1,220 +1,319 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
-import { TransactionsService } from '../transactions/transactions.service';
+import { PeyflexService } from '../services/peyflex.service';
+import Decimal from 'decimal.js';
+import { v4 as uuid } from 'uuid';
 
 @Injectable()
 export class BillsService {
+  private readonly logger = new Logger(BillsService.name);
+
   constructor(
     private prisma: PrismaService,
-    private transactionsService: TransactionsService,
+    private peyflex: PeyflexService,
   ) {}
 
-  /**
-   * Buy airtime
-   */
+  // ── Airtime ───────────────────────────────────────────────────────────
+
   async buyAirtime(
     userId: string,
-    data: {
-      phoneNumber: string;
-      amount: number;
-      network: 'mtn' | 'glo' | 'airtel' | '9mobile';
-    },
+    data: { phoneNumber: string; amount: number; network: string },
   ) {
-    // Validate amount
     if (data.amount < 50 || data.amount > 50000) {
-      throw new BadRequestException(
-        'Airtime amount must be between ₦50 and ₦50,000',
-      );
+      throw new BadRequestException('Airtime amount must be between ₦50 and ₦50,000');
     }
 
-    // TODO: Integrate with airtime API (e.g., VTU, ClubKonnect)
-    // For now, mock the purchase
-    const mockReference = `AIR-${Date.now()}`;
+    if (!data.phoneNumber || !/^0[789]\d{9}$/.test(data.phoneNumber)) {
+      throw new BadRequestException('Enter a valid Nigerian phone number');
+    }
 
-    // Deduct from user balance
-    await this.transactionsService.sendMoney(
-      userId,
-      'SYSTEM_AIRTIME',
+    const amount = new Decimal(data.amount);
+    const reference = `AIRTIME-${uuid()}`;
+
+    // Atomic: check balance, debit, create transaction
+    const tx = await this.prisma.$transaction(async (prisma) => {
+      const balance = await prisma.balance.findUnique({
+        where: { userId_currency: { userId, currency: 'NGN' } },
+      });
+
+      const currentBalance = new Decimal(balance?.amount?.toString() ?? '0');
+      if (currentBalance.lessThan(amount)) {
+        throw new BadRequestException('Insufficient balance');
+      }
+
+      const afterBalance = currentBalance.sub(amount);
+
+      await prisma.balance.update({
+        where: { userId_currency: { userId, currency: 'NGN' } },
+        data: { amount: afterBalance.toNumber(), lastUpdatedBy: 'bills_service' },
+      });
+
+      const transaction = await prisma.transaction.create({
+        data: {
+          senderId: userId,
+          amount: amount.toNumber(),
+          currency: 'NGN',
+          type: 'bill_payment',
+          status: 'PENDING',
+          idempotencyKey: reference,
+          reference,
+          beforeBalance: currentBalance.toNumber(),
+          afterBalance: afterBalance.toNumber(),
+          metadata: {
+            billType: 'airtime',
+            network: data.network,
+            phoneNumber: data.phoneNumber,
+          },
+        },
+      });
+
+      return { transaction, afterBalance };
+    });
+
+    // Call Peyflex
+    const result = await this.peyflex.topupAirtime(
+      data.network,
       data.amount,
-      `Airtime purchase for ${data.phoneNumber}`,
-      '0000', // System transaction, no PIN needed
+      data.phoneNumber,
     );
 
-    // Log the purchase
-    await this.prisma.auditLog.create({
+    if (!result.success) {
+      // Refund user
+      await this.refundTransaction(userId, tx.transaction.id, amount, reference);
+      throw new BadRequestException(result.message || 'Airtime purchase failed. You have been refunded.');
+    }
+
+    // Mark success
+    await this.prisma.transaction.update({
+      where: { id: tx.transaction.id },
       data: {
-        action: 'AIRTIME_PURCHASE',
-        userId,
+        status: 'SUCCESS',
+        providerTxId: result.data?.transaction_id ?? result.data?.id ?? null,
         metadata: {
-          phoneNumber: data.phoneNumber,
-          amount: data.amount,
+          billType: 'airtime',
           network: data.network,
-          reference: mockReference,
+          phoneNumber: data.phoneNumber,
+          providerResponse: result.data,
         },
       },
     });
 
+    await this.prisma.auditLog.create({
+      data: {
+        action: 'AIRTIME_PURCHASE',
+        userId,
+        actorType: 'user',
+        metadata: {
+          reference,
+          network: data.network,
+          phoneNumber: data.phoneNumber,
+          amount: data.amount,
+        },
+      },
+    });
+
+    this.logger.log(`Airtime: ₦${data.amount} → ${data.phoneNumber} (${data.network}) by ${userId}`);
+
     return {
       success: true,
-      reference: mockReference,
-      message: `₦${data.amount} airtime purchased for ${data.phoneNumber}`,
+      data: {
+        reference,
+        network: data.network,
+        phoneNumber: data.phoneNumber,
+        amount: data.amount,
+        balanceAfter: tx.afterBalance.toFixed(2),
+      },
+      message: `₦${data.amount} airtime sent to ${data.phoneNumber}`,
     };
   }
 
-  /**
-   * Buy data bundle
-   */
+  // ── Data ──────────────────────────────────────────────────────────────
+
   async buyData(
     userId: string,
-    data: {
-      phoneNumber: string;
-      planCode: string;
-      network: 'mtn' | 'glo' | 'airtel' | '9mobile';
-    },
+    data: { phoneNumber: string; planCode: string; network: string },
   ) {
-    // TODO: Get plan details from provider
-    const planAmount = 1000; // Mock amount
-
-    const mockReference = `DATA-${Date.now()}`;
-
-    // Deduct from user balance
-    await this.transactionsService.sendMoney(
-      userId,
-      'SYSTEM_DATA',
-      planAmount,
-      `Data bundle for ${data.phoneNumber}`,
-      '0000',
-    );
-
-    return {
-      success: true,
-      reference: mockReference,
-      message: `Data bundle purchased for ${data.phoneNumber}`,
-    };
-  }
-
-  /**
-   * Pay electricity bill
-   */
-  async payElectricity(
-    userId: string,
-    data: {
-      meterNumber: string;
-      disco: 'ikeja' | 'eko' | 'ibadan' | 'abuja' | 'kano' | 'ph';
-      amount: number;
-    },
-  ) {
-    // Validate amount
-    if (data.amount < 1000) {
-      throw new BadRequestException('Minimum electricity payment is ₦1,000');
+    if (!data.phoneNumber || !/^0[789]\d{9}$/.test(data.phoneNumber)) {
+      throw new BadRequestException('Enter a valid Nigerian phone number');
     }
 
-    const mockReference = `ELEC-${Date.now()}`;
-
-    // Deduct from user balance
-    await this.transactionsService.sendMoney(
-      userId,
-      'SYSTEM_ELECTRICITY',
-      data.amount,
-      `Electricity payment for meter ${data.meterNumber}`,
-      '0000',
+    // Fetch plan to get the price
+    const plans = await this.peyflex.getDataPlans(data.network);
+    const plan = plans.find(
+      (p: any) => (p.plan_code ?? p.id ?? p.code) === data.planCode,
     );
 
-    return {
-      success: true,
-      reference: mockReference,
-      token: '1234-5678-9012-3456', // Mock token
-      message: `₦${data.amount} paid for meter ${data.meterNumber}`,
-    };
-  }
+    if (!plan) {
+      throw new BadRequestException('Invalid data plan selected');
+    }
 
-  /**
-   * Pay cable TV
-   */
-  async payCable(
-    userId: string,
-    data: {
-      smartCardNumber: string;
-      provider: 'dstv' | 'gotv' | 'startimes';
-      package: string;
-    },
-  ) {
-    // TODO: Get package amount from provider
-    const packageAmount = 5000; // Mock amount
+    const planPrice = new Decimal(plan.price ?? plan.amount ?? 0);
+    if (planPrice.isZero()) {
+      throw new BadRequestException('Could not determine plan price');
+    }
 
-    const mockReference = `CABLE-${Date.now()}`;
+    const reference = `DATA-${uuid()}`;
 
-    // Deduct from user balance
-    await this.transactionsService.sendMoney(
-      userId,
-      'SYSTEM_CABLE',
-      packageAmount,
-      `${data.provider.toUpperCase()} subscription`,
-      '0000',
+    // Atomic: check balance, debit, create transaction
+    const tx = await this.prisma.$transaction(async (prisma) => {
+      const balance = await prisma.balance.findUnique({
+        where: { userId_currency: { userId, currency: 'NGN' } },
+      });
+
+      const currentBalance = new Decimal(balance?.amount?.toString() ?? '0');
+      if (currentBalance.lessThan(planPrice)) {
+        throw new BadRequestException('Insufficient balance');
+      }
+
+      const afterBalance = currentBalance.sub(planPrice);
+
+      await prisma.balance.update({
+        where: { userId_currency: { userId, currency: 'NGN' } },
+        data: { amount: afterBalance.toNumber(), lastUpdatedBy: 'bills_service' },
+      });
+
+      const transaction = await prisma.transaction.create({
+        data: {
+          senderId: userId,
+          amount: planPrice.toNumber(),
+          currency: 'NGN',
+          type: 'bill_payment',
+          status: 'PENDING',
+          idempotencyKey: reference,
+          reference,
+          beforeBalance: currentBalance.toNumber(),
+          afterBalance: afterBalance.toNumber(),
+          metadata: {
+            billType: 'data',
+            network: data.network,
+            phoneNumber: data.phoneNumber,
+            planCode: data.planCode,
+            planName: plan.name ?? plan.plan_name ?? data.planCode,
+            planPrice: planPrice.toString(),
+          },
+        },
+      });
+
+      return { transaction, afterBalance };
+    });
+
+    // Call Peyflex
+    const result = await this.peyflex.purchaseData(
+      data.network,
+      data.phoneNumber,
+      data.planCode,
     );
 
-    return {
-      success: true,
-      reference: mockReference,
-      message: `${data.provider.toUpperCase()} subscription renewed`,
-    };
-  }
+    if (!result.success) {
+      await this.refundTransaction(userId, tx.transaction.id, planPrice, reference);
+      throw new BadRequestException(result.message || 'Data purchase failed. You have been refunded.');
+    }
 
-  /**
-   * Get available data plans
-   */
-  async getDataPlans(network: string) {
-    // TODO: Fetch from provider API
-    return [
-      { code: 'MTN_1GB', name: '1GB - 30 Days', price: 1000, network: 'mtn' },
-      { code: 'MTN_2GB', name: '2GB - 30 Days', price: 2000, network: 'mtn' },
-      { code: 'GLO_1GB', name: '1GB - 30 Days', price: 900, network: 'glo' },
-    ];
-  }
-
-  /**
-   * Get electricity discos
-   */
-  async getDiscos() {
-    return [
-      { code: 'ikeja', name: 'Ikeja Electric', states: ['Lagos'] },
-      { code: 'eko', name: 'Eko Electricity', states: ['Lagos'] },
-      { code: 'ibadan', name: 'Ibadan Disco', states: ['Oyo', 'Ogun'] },
-      { code: 'abuja', name: 'Abuja Disco', states: ['FCT', 'Nasarawa'] },
-      { code: 'kano', name: 'Kano Disco', states: ['Kano', 'Jigawa'] },
-      {
-        code: 'ph',
-        name: 'Port Harcourt Disco',
-        states: ['Rivers', 'Bayelsa'],
+    await this.prisma.transaction.update({
+      where: { id: tx.transaction.id },
+      data: {
+        status: 'SUCCESS',
+        providerTxId: result.data?.transaction_id ?? result.data?.id ?? null,
+        metadata: {
+          billType: 'data',
+          network: data.network,
+          phoneNumber: data.phoneNumber,
+          planCode: data.planCode,
+          planName: plan.name ?? plan.plan_name ?? data.planCode,
+          planPrice: planPrice.toString(),
+          providerResponse: result.data,
+        },
       },
-    ];
+    });
+
+    await this.prisma.auditLog.create({
+      data: {
+        action: 'DATA_PURCHASE',
+        userId,
+        actorType: 'user',
+        metadata: {
+          reference,
+          network: data.network,
+          phoneNumber: data.phoneNumber,
+          planCode: data.planCode,
+          amount: planPrice.toString(),
+        },
+      },
+    });
+
+    this.logger.log(
+      `Data: ${data.planCode} (₦${planPrice}) → ${data.phoneNumber} (${data.network}) by ${userId}`,
+    );
+
+    return {
+      success: true,
+      data: {
+        reference,
+        network: data.network,
+        phoneNumber: data.phoneNumber,
+        planCode: data.planCode,
+        planName: plan.name ?? plan.plan_name ?? data.planCode,
+        amount: planPrice.toNumber(),
+        balanceAfter: tx.afterBalance.toFixed(2),
+      },
+      message: `Data plan activated for ${data.phoneNumber}`,
+    };
   }
 
-  /**
-   * Get cable packages
-   */
-  async getCablePackages(provider: string) {
-    // TODO: Fetch from provider API
-    const packages: Record<string, any[]> = {
-      dstv: [
-        { code: 'padi', name: 'Padi', price: 2500 },
-        { code: 'yanga', name: 'Yanga', price: 3500 },
-        { code: 'confam', name: 'Confam', price: 6200 },
-        { code: 'compact', name: 'Compact', price: 10500 },
-      ],
-      gotv: [
-        { code: 'smallie', name: 'Smallie', price: 900 },
-        { code: 'jinja', name: 'Jinja', price: 1900 },
-        { code: 'jolli', name: 'Jolli', price: 2800 },
-        { code: 'max', name: 'Max', price: 4200 },
-      ],
-      startimes: [
-        { code: 'nova', name: 'Nova', price: 1200 },
-        { code: 'basic', name: 'Basic', price: 2100 },
-        { code: 'classic', name: 'Classic', price: 3100 },
-      ],
-    };
+  // ── Network / Plan Listings ───────────────────────────────────────────
 
-    return packages[provider] || [];
+  async getAirtimeNetworks() {
+    return this.peyflex.getAirtimeNetworks();
+  }
+
+  async getDataNetworks() {
+    return this.peyflex.getDataNetworks();
+  }
+
+  async getDataPlans(networkId: string) {
+    return this.peyflex.getDataPlans(networkId);
+  }
+
+  // ── Refund helper ─────────────────────────────────────────────────────
+
+  private async refundTransaction(
+    userId: string,
+    transactionId: string,
+    amount: Decimal,
+    reference: string,
+  ) {
+    try {
+      await this.prisma.$transaction(async (prisma) => {
+        const balance = await prisma.balance.findUnique({
+          where: { userId_currency: { userId, currency: 'NGN' } },
+        });
+
+        const current = new Decimal(balance?.amount?.toString() ?? '0');
+        const refunded = current.add(amount);
+
+        await prisma.balance.update({
+          where: { userId_currency: { userId, currency: 'NGN' } },
+          data: { amount: refunded.toNumber(), lastUpdatedBy: 'bills_refund' },
+        });
+
+        await prisma.transaction.update({
+          where: { id: transactionId },
+          data: { status: 'FAILED' },
+        });
+      });
+
+      await this.prisma.auditLog.create({
+        data: {
+          action: 'BILL_PAYMENT_REFUNDED',
+          userId,
+          actorType: 'system',
+          metadata: { transactionId, reference, amount: amount.toString() },
+        },
+      });
+
+      this.logger.warn(`Refunded ₦${amount} for failed bill ${reference}`);
+    } catch (err) {
+      this.logger.error(`CRITICAL: Refund failed for ${reference}: ${(err as Error).message}`);
+    }
   }
 }
