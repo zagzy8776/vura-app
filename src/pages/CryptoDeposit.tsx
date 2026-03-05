@@ -375,7 +375,7 @@ const CryptoDeposit = () => {
           </div>
           <p className="text-2xl font-bold mt-1">{formatRate()}</p>
           <p className="text-xs text-muted-foreground mt-1">
-            Live rate via CoinGecko &bull; 1% platform spread applied
+            Live market rate &bull; Updated every 5 minutes
           </p>
         </motion.div>
 
@@ -431,7 +431,7 @@ const CryptoDeposit = () => {
           </div>
 
           <p className="text-xs text-muted-foreground text-center">
-            Live rate via CoinGecko &bull; Final amount locked at confirmation
+            Rate updates in real-time &bull; Final amount locked at confirmation
           </p>
         </motion.div>
 
@@ -753,56 +753,68 @@ const CryptoDeposit = () => {
           </motion.div>
         )}
 
-        {/* Recent Deposits */}
-        {recentDeposits.length > 0 && (
-          <div>
-            <h3 className="font-semibold mb-3 flex items-center gap-2">
-              <Clock className="h-4 w-4" />
-              Recent Deposits
-            </h3>
-            <div className="space-y-2">
-              {recentDeposits.map((deposit) => {
-                const lastTx = deposit.transactions?.[0];
-                return (
-                  <div
-                    key={deposit.id}
-                    className="flex items-center justify-between p-3 rounded-lg border border-border bg-card"
-                  >
-                    <div>
-                      <p className="font-medium">
-                        {lastTx
-                          ? `${lastTx.cryptoAmount} ${deposit.asset}`
-                          : deposit.asset}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {deposit.network} &bull;{" "}
-                        {new Date(deposit.createdAt).toLocaleDateString()}
-                      </p>
+        {/* Recent Deposits — only show entries that have actual transactions */}
+        {(() => {
+          const depositsWithTx = recentDeposits.filter(
+            (d) => d.transactions && d.transactions.length > 0,
+          );
+          if (depositsWithTx.length === 0) return null;
+          return (
+            <div>
+              <h3 className="font-semibold mb-3 flex items-center gap-2">
+                <Clock className="h-4 w-4" />
+                Recent Deposits
+              </h3>
+              <div className="space-y-2">
+                {depositsWithTx.map((deposit) => {
+                  const lastTx = deposit.transactions[0];
+                  return (
+                    <div
+                      key={deposit.id}
+                      className="flex items-center justify-between p-3 rounded-lg border border-border bg-card"
+                    >
+                      <div>
+                        <p className="font-medium">
+                          {lastTx.cryptoAmount} {deposit.asset}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {deposit.network} &bull;{" "}
+                          {new Date(lastTx.createdAt).toLocaleDateString()}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-semibold">
+                          {lastTx.status === "confirmed" &&
+                          lastTx.ngnAmount &&
+                          lastTx.ngnAmount !== "0"
+                            ? `₦${parseFloat(lastTx.ngnAmount).toLocaleString()}`
+                            : lastTx.status === "failed"
+                              ? "Rejected"
+                              : "Processing"}
+                        </p>
+                        <span
+                          className={`text-xs px-2 py-0.5 rounded-full ${
+                            lastTx.status === "confirmed"
+                              ? "bg-green-500/10 text-green-500"
+                              : lastTx.status === "failed"
+                                ? "bg-red-500/10 text-red-500"
+                                : "bg-yellow-500/10 text-yellow-500"
+                          }`}
+                        >
+                          {lastTx.status === "confirmed"
+                            ? "Credited"
+                            : lastTx.status === "failed"
+                              ? "Failed"
+                              : "Verifying"}
+                        </span>
+                      </div>
                     </div>
-                    <div className="text-right">
-                      <p className="font-semibold">
-                        {lastTx?.ngnAmount && lastTx.ngnAmount !== "0"
-                          ? `₦${parseFloat(lastTx.ngnAmount).toLocaleString()}`
-                          : "Pending"}
-                      </p>
-                      <span
-                        className={`text-xs px-2 py-0.5 rounded-full ${
-                          lastTx?.status === "confirmed"
-                            ? "bg-green-500/10 text-green-500"
-                            : lastTx?.status === "failed"
-                              ? "bg-red-500/10 text-red-500"
-                              : "bg-yellow-500/10 text-yellow-500"
-                        }`}
-                      >
-                        {lastTx?.status ?? deposit.status}
-                      </span>
-                    </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* Security Notice */}
         <div className="flex items-start gap-3 p-4 rounded-xl bg-muted/50 text-sm">
