@@ -19,6 +19,9 @@ services:
         value: production
       - key: DATABASE_URL
         sync: false
+        # For Neon: Add ?connection_limit=1&pool_timeout=10 to connection string in Render dashboard
+      - key: PRISMA_POOL_MAX
+        value: "1"
       - key: JWT_SECRET
         sync: false
       - key: ENCRYPTION_KEY
