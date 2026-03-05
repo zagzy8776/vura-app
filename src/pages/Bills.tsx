@@ -7,6 +7,7 @@ import {
   Wifi,
   Wallet,
   Loader2,
+  Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { apiFetch } from "@/hooks/useAuth";
@@ -26,6 +27,14 @@ interface DataPlan {
   name: string;
   price: number;
   [key: string]: any;
+}
+
+interface ElectricityItem {
+  item_code: string;
+  biller_code: string;
+  name: string;
+  amount: number;
+  fee: number;
 }
 
 // ── Constants ─────────────────────────────────────────────────────────
@@ -49,11 +58,19 @@ function getNetworkStyle(nameOrId: string): string {
 
 // ── Component ─────────────────────────────────────────────────────────
 
+type BillTab = "airtime" | "data" | "electricity";
+
 const Bills = () => {
   const [searchParams] = useSearchParams();
-  const initialTab = searchParams.get("tab") === "data" ? "data" : "airtime";
+  const tabParam = searchParams.get("tab");
+  const initialTab: BillTab =
+    tabParam === "data"
+      ? "data"
+      : tabParam === "electricity"
+        ? "electricity"
+        : "airtime";
 
-  const [tab, setTab] = useState<"airtime" | "data">(initialTab);
+  const [tab, setTab] = useState<BillTab>(initialTab);
   const [step, setStep] = useState<"form" | "confirm" | "success" | "error">("form");
 
   // Shared
@@ -73,6 +90,19 @@ const Bills = () => {
   const [dataPlans, setDataPlans] = useState<DataPlan[]>([]);
   const [dataPlansLoading, setDataPlansLoading] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState<DataPlan | null>(null);
+
+  // Electricity
+  const [discos, setDiscos] = useState<Network[]>([]);
+  const [discosLoading, setDiscosLoading] = useState(true);
+  const [selectedDisco, setSelectedDisco] = useState<string>("");
+  const [electricityItems, setElectricityItems] = useState<ElectricityItem[]>([]);
+  const [electricityItemsLoading, setElectricityItemsLoading] = useState(false);
+  const [selectedElectricityItem, setSelectedElectricityItem] = useState<ElectricityItem | null>(null);
+  const [meterNumber, setMeterNumber] = useState("");
+  const [meterValidated, setMeterValidated] = useState(false);
+  const [meterCustomerName, setMeterCustomerName] = useState<string>("");
+  const [electricityAmount, setElectricityAmount] = useState("");
+  const [validatingMeter, setValidatingMeter] = useState(false);
 
   // Balance
   const [balance, setBalance] = useState<string | null>(null);
@@ -123,8 +153,9 @@ const Bills = () => {
   useEffect(() => {
     fetchAirtimeNetworks();
     fetchDataNetworks();
+    fetchElectricityDiscos();
     fetchBalance();
-  }, [fetchAirtimeNetworks, fetchDataNetworks, fetchBalance]);
+  }, [fetchAirtimeNetworks, fetchDataNetworks, fetchElectricityDiscos, fetchBalance]);
 
   // ── Fetch data plans when network changes ───────────────────────────
 
@@ -155,6 +186,31 @@ const Bills = () => {
     return () => { cancelled = true; };
   }, [tab, selectedNetwork]);
 
+  // ── Fetch electricity items when disco changes ────────────────────────
+  useEffect(() => {
+    if (tab !== "electricity" || !selectedDisco) {
+      setElectricityItems([]);
+      setSelectedElectricityItem(null);
+      return;
+    }
+    let cancelled = false;
+    setElectricityItemsLoading(true);
+    setSelectedElectricityItem(null);
+    (async () => {
+      try {
+        const res = await apiFetch(`/bills/electricity/items?disco=${selectedDisco}`);
+        if (!res.ok || cancelled) return;
+        const json = await res.json();
+        setElectricityItems(json.data ?? []);
+      } catch {
+        setElectricityItems([]);
+      } finally {
+        if (!cancelled) setElectricityItemsLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [tab, selectedDisco]);
+
   // ── Handlers ────────────────────────────────────────────────────────
 
   const resetForm = () => {
@@ -164,9 +220,15 @@ const Bills = () => {
     setAirtimeAmount("");
     setSelectedPlan(null);
     setPurchaseResult(null);
+    setSelectedDisco("");
+    setSelectedElectricityItem(null);
+    setMeterNumber("");
+    setMeterValidated(false);
+    setMeterCustomerName("");
+    setElectricityAmount("");
   };
 
-  const switchTab = (newTab: "airtime" | "data") => {
+  const switchTab = (newTab: BillTab) => {
     setTab(newTab);
     resetForm();
   };
@@ -177,19 +239,76 @@ const Bills = () => {
   const canConfirmData =
     selectedNetwork && phoneNumber.length >= 11 && selectedPlan;
 
+  const canConfirmElectricity =
+    selectedDisco &&
+    selectedElectricityItem &&
+    meterNumber.length >= 6 &&
+    meterValidated &&
+    parseFloat(electricityAmount) >= 500;
+
   const currentAmount =
     tab === "airtime"
       ? parseFloat(airtimeAmount) || 0
-      : selectedPlan?.price ?? 0;
+      : tab === "data"
+        ? selectedPlan?.price ?? 0
+        : parseFloat(electricityAmount) || 0;
+
+  const electricityTotal = tab === "electricity" ? currentAmount + 100 : 0; // ₦100 fee
+
+  const handleValidateMeter = async () => {
+    if (!selectedElectricityItem || !meterNumber.trim()) {
+      toast({ title: "Error", description: "Select a meter type and enter meter number", variant: "destructive" });
+      return;
+    }
+    setValidatingMeter(true);
+    try {
+      const res = await apiFetch("/bills/electricity/validate", {
+        method: "POST",
+        body: JSON.stringify({
+          meterNumber: meterNumber.trim(),
+          itemCode: selectedElectricityItem.item_code,
+          billerCode: selectedElectricityItem.biller_code,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        throw new Error(json.message || "Validation failed");
+      }
+      setMeterValidated(true);
+      setMeterCustomerName(json.data?.customerName ?? "Valid");
+      toast({ title: "Meter verified", description: json.data?.customerName ?? "You can proceed." });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Meter validation failed";
+      toast({ title: "Error", description: msg, variant: "destructive" });
+      setMeterValidated(false);
+    } finally {
+      setValidatingMeter(false);
+    }
+  };
 
   const handleConfirm = async () => {
     setLoading(true);
     try {
-      const endpoint = tab === "airtime" ? "/bills/airtime" : "/bills/data";
-      const body =
-        tab === "airtime"
-          ? { network: selectedNetwork, amount: parseFloat(airtimeAmount), phoneNumber }
-          : { network: selectedNetwork, planCode: selectedPlan!.plan_code, phoneNumber };
+      let endpoint: string;
+      let body: Record<string, unknown>;
+      if (tab === "airtime") {
+        endpoint = "/bills/airtime";
+        body = { network: selectedNetwork, amount: parseFloat(airtimeAmount), phoneNumber };
+      } else if (tab === "data") {
+        endpoint = "/bills/data";
+        body = { network: selectedNetwork, planCode: selectedPlan!.plan_code, phoneNumber };
+      } else {
+        endpoint = "/bills/electricity";
+        const meterType = selectedElectricityItem!.name.toLowerCase().includes("prepaid") ? "prepaid" : "postpaid";
+        body = {
+          meterNumber: meterNumber.trim(),
+          amount: parseFloat(electricityAmount),
+          disco: selectedDisco,
+          type: meterType,
+          itemName: selectedElectricityItem!.name,
+          itemCode: selectedElectricityItem!.item_code,
+        };
+      }
 
       const res = await apiFetch(endpoint, {
         method: "POST",
@@ -216,14 +335,16 @@ const Bills = () => {
 
   // ── Render ──────────────────────────────────────────────────────────
 
-  const networksToShow = tab === "airtime" ? airtimeNetworks : dataNetworks;
-  const networksLoading = tab === "airtime" ? airtimeNetworksLoading : dataNetworksLoading;
+  const networksToShow =
+    tab === "airtime" ? airtimeNetworks : tab === "data" ? dataNetworks : discos;
+  const networksLoading =
+    tab === "airtime" ? airtimeNetworksLoading : tab === "data" ? dataNetworksLoading : discosLoading;
 
   const selectedNetworkName = useMemo(() => {
-    const nets = tab === "airtime" ? airtimeNetworks : dataNetworks;
-    const found = nets.find((n) => (n.id ?? n.identifier) === selectedNetwork);
-    return found?.name || selectedNetwork;
-  }, [tab, selectedNetwork, airtimeNetworks, dataNetworks]);
+    const nets = tab === "airtime" ? airtimeNetworks : tab === "data" ? dataNetworks : discos;
+    const found = nets.find((n) => (n.id ?? n.identifier) === (tab === "electricity" ? selectedDisco : selectedNetwork));
+    return found?.name || (tab === "electricity" ? selectedDisco : selectedNetwork);
+  }, [tab, selectedNetwork, selectedDisco, airtimeNetworks, dataNetworks, discos]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -238,10 +359,12 @@ const Bills = () => {
           </button>
           <div>
             <h1 className="text-lg font-semibold">
-              {tab === "airtime" ? "Buy Airtime" : "Buy Data"}
+              {tab === "airtime" ? "Buy Airtime" : tab === "data" ? "Buy Data" : "Buy Electricity"}
             </h1>
             <p className="text-xs text-muted-foreground">
-              Instant top-up to any Nigerian number
+              {tab === "electricity"
+                ? "Prepaid & postpaid meter payments"
+                : "Instant top-up to any Nigerian number"}
             </p>
           </div>
         </div>
@@ -252,25 +375,36 @@ const Bills = () => {
         <div className="flex rounded-xl bg-muted p-1">
           <button
             onClick={() => switchTab("airtime")}
-            className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-all ${
+            className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-sm font-medium transition-all ${
               tab === "airtime"
                 ? "bg-background shadow-sm text-foreground"
                 : "text-muted-foreground hover:text-foreground"
             }`}
           >
-            <Smartphone className="h-4 w-4" />
+            <Smartphone className="h-4 w-4 shrink-0" />
             Airtime
           </button>
           <button
             onClick={() => switchTab("data")}
-            className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-all ${
+            className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-sm font-medium transition-all ${
               tab === "data"
                 ? "bg-background shadow-sm text-foreground"
                 : "text-muted-foreground hover:text-foreground"
             }`}
           >
-            <Wifi className="h-4 w-4" />
+            <Wifi className="h-4 w-4 shrink-0" />
             Data
+          </button>
+          <button
+            onClick={() => switchTab("electricity")}
+            className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-sm font-medium transition-all ${
+              tab === "electricity"
+                ? "bg-background shadow-sm text-foreground"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <Zap className="h-4 w-4 shrink-0" />
+            Electricity
           </button>
         </div>
 
@@ -294,10 +428,10 @@ const Bills = () => {
             animate={{ opacity: 1, y: 0 }}
             className="space-y-6"
           >
-            {/* Network selection */}
+            {/* Network / Disco selection */}
             <div>
               <label className="text-sm font-medium mb-3 block">
-                Select Network
+                {tab === "electricity" ? "Select Disco" : "Select Network"}
               </label>
               {networksLoading ? (
                 <div className="flex justify-center py-8">
@@ -308,11 +442,14 @@ const Bills = () => {
                   {networksToShow.map((net) => {
                     const netId = net.id ?? net.identifier ?? net.network_id;
                     const netName = net.name || netId;
-                    const isSelected = selectedNetwork === netId;
+                    const isSelected =
+                      tab === "electricity" ? selectedDisco === netId : selectedNetwork === netId;
                     return (
                       <button
                         key={netId}
-                        onClick={() => setSelectedNetwork(netId)}
+                        onClick={() =>
+                          tab === "electricity" ? setSelectedDisco(netId) : setSelectedNetwork(netId)
+                        }
                         className={`flex items-center gap-3 p-4 rounded-xl border-2 transition-all ${
                           isSelected
                             ? getNetworkStyle(netName)
@@ -334,19 +471,95 @@ const Bills = () => {
               )}
             </div>
 
-            {/* Phone number */}
-            <div>
-              <label className="text-sm font-medium mb-2 block">
-                Phone Number
-              </label>
-              <input
-                type="tel"
-                value={phoneNumber}
-                onChange={(e) => setPhoneNumber(e.target.value.replace(/\D/g, "").slice(0, 11))}
-                placeholder="08012345678"
-                className="w-full bg-background rounded-xl border border-border px-4 py-3 text-base font-mono outline-none focus:ring-2 focus:ring-primary/30"
-              />
-            </div>
+            {/* Electricity: meter type (item) */}
+            {tab === "electricity" && selectedDisco && (
+              <div>
+                <label className="text-sm font-medium mb-2 block">
+                  Meter type
+                </label>
+                {electricityItemsLoading ? (
+                  <div className="flex justify-center py-6">
+                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                  </div>
+                ) : electricityItems.length === 0 ? (
+                  <p className="text-sm text-muted-foreground py-4">No plans for this disco</p>
+                ) : (
+                  <div className="space-y-2 max-h-48 overflow-y-auto">
+                    {electricityItems.map((item) => {
+                      const isSelected = selectedElectricityItem?.item_code === item.item_code;
+                      return (
+                        <button
+                          key={item.item_code}
+                          onClick={() => {
+                            setSelectedElectricityItem(item);
+                            setMeterValidated(false);
+                          }}
+                          className={`w-full flex items-center justify-between p-3 rounded-xl border-2 text-left transition-all ${
+                            isSelected ? "border-primary bg-primary/5" : "border-border hover:border-primary/50"
+                          }`}
+                        >
+                          <span className="font-medium text-sm">{item.name}</span>
+                          {isSelected && (
+                            <div className="h-5 w-5 rounded-full bg-primary flex items-center justify-center">
+                              <Check className="h-3 w-3 text-primary-foreground" />
+                            </div>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Meter number (electricity) */}
+            {tab === "electricity" && selectedElectricityItem && (
+              <div>
+                <label className="text-sm font-medium mb-2 block">
+                  Meter number
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={meterNumber}
+                    onChange={(e) => {
+                      setMeterNumber(e.target.value.replace(/\D/g, ""));
+                      setMeterValidated(false);
+                    }}
+                    placeholder="e.g. 45145984782"
+                    className="flex-1 bg-background rounded-xl border border-border px-4 py-3 text-base font-mono outline-none focus:ring-2 focus:ring-primary/30"
+                  />
+                  <Button
+                    type="button"
+                    variant={meterValidated ? "secondary" : "outline"}
+                    onClick={handleValidateMeter}
+                    disabled={validatingMeter || meterNumber.length < 6}
+                    className="shrink-0 rounded-xl"
+                  >
+                    {validatingMeter ? <Loader2 className="h-4 w-4 animate-spin" /> : meterValidated ? "Verified" : "Verify"}
+                  </Button>
+                </div>
+                {meterValidated && meterCustomerName && (
+                  <p className="text-xs text-green-600 mt-1">✓ {meterCustomerName}</p>
+                )}
+              </div>
+            )}
+
+            {/* Phone number (airtime & data) */}
+            {(tab === "airtime" || tab === "data") && (
+              <div>
+                <label className="text-sm font-medium mb-2 block">
+                  Phone Number
+                </label>
+                <input
+                  type="tel"
+                  value={phoneNumber}
+                  onChange={(e) => setPhoneNumber(e.target.value.replace(/\D/g, "").slice(0, 11))}
+                  placeholder="08012345678"
+                  className="w-full bg-background rounded-xl border border-border px-4 py-3 text-base font-mono outline-none focus:ring-2 focus:ring-primary/30"
+                />
+              </div>
+            )}
 
             {/* Airtime: amount */}
             {tab === "airtime" && (
@@ -380,6 +593,27 @@ const Bills = () => {
                 />
                 <p className="text-[11px] text-muted-foreground mt-1">
                   Min: ₦50 &bull; Max: ₦50,000
+                </p>
+              </div>
+            )}
+
+            {/* Electricity: amount */}
+            {tab === "electricity" && meterValidated && (
+              <div>
+                <label className="text-sm font-medium mb-2 block">
+                  Amount (₦)
+                </label>
+                <input
+                  type="number"
+                  value={electricityAmount}
+                  onChange={(e) => setElectricityAmount(e.target.value)}
+                  placeholder="e.g. 5000"
+                  min="500"
+                  max="500000"
+                  className="w-full bg-background rounded-xl border border-border px-4 py-3 text-base outline-none focus:ring-2 focus:ring-primary/30"
+                />
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  Min: ₦500 &bull; Max: ₦500,000 &bull; ₦100 fee applies
                 </p>
               </div>
             )}
@@ -437,7 +671,13 @@ const Bills = () => {
             {/* Continue button */}
             <Button
               onClick={() => setStep("confirm")}
-              disabled={tab === "airtime" ? !canConfirmAirtime : !canConfirmData}
+              disabled={
+                tab === "airtime"
+                  ? !canConfirmAirtime
+                  : tab === "data"
+                    ? !canConfirmData
+                    : !canConfirmElectricity
+              }
               className="w-full h-14 rounded-xl gradient-brand text-primary-foreground font-semibold text-lg"
             >
               Continue
@@ -461,13 +701,30 @@ const Bills = () => {
                   <span className="font-medium capitalize">{tab}</span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Network</span>
+                  <span className="text-muted-foreground">
+                    {tab === "electricity" ? "Disco" : "Network"}
+                  </span>
                   <span className="font-medium">{selectedNetworkName}</span>
                 </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Phone</span>
-                  <span className="font-medium font-mono">{phoneNumber}</span>
-                </div>
+                {tab === "electricity" ? (
+                  <>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Meter</span>
+                      <span className="font-medium font-mono">{meterNumber}</span>
+                    </div>
+                    {selectedElectricityItem && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Meter type</span>
+                        <span className="font-medium">{selectedElectricityItem.name}</span>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Phone</span>
+                    <span className="font-medium font-mono">{phoneNumber}</span>
+                  </div>
+                )}
                 {tab === "data" && selectedPlan && (
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Plan</span>
@@ -478,14 +735,22 @@ const Bills = () => {
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Amount</span>
                   <span className="text-xl font-bold">
-                    ₦{currentAmount.toLocaleString()}
+                    ₦{(tab === "electricity" ? electricityTotal : currentAmount).toLocaleString()}
                   </span>
                 </div>
+                {tab === "electricity" && (
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>Amount + ₦100 fee</span>
+                  </div>
+                )}
                 {balance !== null && (
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Balance after</span>
                     <span className="font-medium">
-                      ₦{(parseFloat(balance) - currentAmount).toLocaleString()}
+                      ₦{(
+                        parseFloat(balance) -
+                        (tab === "electricity" ? electricityTotal : currentAmount)
+                      ).toLocaleString()}
                     </span>
                   </div>
                 )}
@@ -510,8 +775,10 @@ const Bills = () => {
                   <Loader2 className="h-5 w-5 animate-spin" />
                 ) : tab === "airtime" ? (
                   "Buy Airtime"
-                ) : (
+                ) : tab === "data" ? (
                   "Buy Data"
+                ) : (
+                  "Pay Electricity"
                 )}
               </Button>
             </div>
@@ -530,7 +797,11 @@ const Bills = () => {
                 <Check className="h-8 w-8 text-green-500" />
               </div>
               <h2 className="text-xl font-bold">
-                {tab === "airtime" ? "Airtime Sent!" : "Data Activated!"}
+                {tab === "airtime"
+                  ? "Airtime Sent!"
+                  : tab === "data"
+                    ? "Data Activated!"
+                    : "Electricity Paid!"}
               </h2>
               <p className="text-sm text-muted-foreground">
                 {tab === "airtime" ? (
@@ -543,7 +814,7 @@ const Bills = () => {
                       {phoneNumber}
                     </span>
                   </>
-                ) : (
+                ) : tab === "data" ? (
                   <>
                     <span className="font-semibold text-foreground">
                       {selectedPlan?.name}
@@ -553,8 +824,25 @@ const Bills = () => {
                       {phoneNumber}
                     </span>
                   </>
+                ) : (
+                  <>
+                    <span className="font-semibold text-foreground">
+                      ₦{currentAmount.toLocaleString()}
+                    </span>{" "}
+                    electricity paid for meter{" "}
+                    <span className="font-semibold text-foreground font-mono">
+                      {meterNumber}
+                    </span>
+                  </>
                 )}
               </p>
+              {tab === "electricity" && purchaseResult?.token && (
+                <div className="rounded-lg bg-muted p-3 text-center">
+                  <p className="text-xs text-muted-foreground mb-1">Prepaid token</p>
+                  <p className="font-mono font-bold text-base break-all">{purchaseResult.token}</p>
+                  <p className="text-[11px] text-muted-foreground mt-1">Enter this on your meter</p>
+                </div>
+              )}
               {purchaseResult?.balanceAfter && (
                 <p className="text-xs text-muted-foreground">
                   New balance: ₦{parseFloat(purchaseResult.balanceAfter).toLocaleString()}

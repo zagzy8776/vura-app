@@ -60,4 +60,52 @@ export class BillsController {
       network: body.network,
     });
   }
+
+  // ── Electricity ──────────────────────────────────────────────────────
+
+  @Get('electricity/discos')
+  getElectricityDiscos() {
+    const discos = this.billsService.getElectricityDiscos();
+    return { success: true, data: discos };
+  }
+
+  @Get('electricity/items')
+  async getElectricityItems(@Query('disco') disco: string) {
+    const items = await this.billsService.getElectricityItems(disco);
+    return { success: true, data: items };
+  }
+
+  @Post('electricity/validate')
+  async validateMeter(
+    @Body() body: { meterNumber: string; itemCode: string; billerCode: string },
+  ) {
+    return this.billsService.validateMeter({
+      meterNumber: body.meterNumber,
+      itemCode: body.itemCode,
+      billerCode: body.billerCode,
+    });
+  }
+
+  @Post('electricity')
+  async buyElectricity(
+    @Body()
+    body: {
+      meterNumber: string;
+      amount: number;
+      disco: string;
+      type: string;
+      itemName: string;
+      itemCode: string;
+    },
+    @Request() req: any,
+  ) {
+    return this.billsService.buyElectricity(req.user.userId, {
+      meterNumber: body.meterNumber,
+      amount: body.amount,
+      disco: body.disco,
+      type: body.type,
+      itemName: body.itemName,
+      itemCode: body.itemCode,
+    });
+  }
 }

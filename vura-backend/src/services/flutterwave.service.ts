@@ -558,12 +558,57 @@ export class FlutterwaveService {
     }
   }
 
-  async getDataPlansByBiller(billerCode: string): Promise<any[]> {
+  async getBillItemsByBiller(billerCode: string): Promise<any[]> {
     const all = await this.getBillCategories();
     return all.filter(
-      (item: any) =>
-        item.biller_code === billerCode && item.is_airtime === false,
+      (item: any) => item.biller_code === billerCode,
     );
+  }
+
+  async validateBillCustomer(
+    itemCode: string,
+    billerCode: string,
+    customer: string,
+  ): Promise<{
+    success: boolean;
+    data?: any;
+    message?: string;
+  }> {
+    /* eslint-disable @typescript-eslint/no-unsafe-assignment */
+    /* eslint-disable @typescript-eslint/no-unsafe-member-access */
+    try {
+      const res = await axios.get(
+        `${this.v3BaseUrl}/bill-items/${encodeURIComponent(itemCode)}/validate`,
+        {
+          params: { customer, code: billerCode },
+          headers: { Authorization: `Bearer ${this.secretKey}` },
+          timeout: 15000,
+        },
+      );
+
+      const data = res.data?.data;
+      if (data?.response_code !== '00') {
+        return {
+          success: false,
+          message: data?.response_message ?? 'Validation failed',
+        };
+      }
+
+      return {
+        success: true,
+        data,
+        message: res.data?.message ?? 'Validated successfully',
+      };
+    } catch (error: any) {
+      const msg =
+        error.response?.data?.message ??
+        error.message ??
+        'Validation failed';
+      this.logger.error(`validateBillCustomer failed: ${msg}`);
+      return { success: false, message: msg };
+    }
+    /* eslint-enable @typescript-eslint/no-unsafe-assignment */
+    /* eslint-enable @typescript-eslint/no-unsafe-member-access */
   }
 
   async createBillPayment(input: {

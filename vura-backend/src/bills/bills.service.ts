@@ -18,6 +18,21 @@ const DATA_NETWORKS = [
   { id: 'BIL111', name: '9mobile' },
 ];
 
+const ELECTRICITY_DISCOS = [
+  { id: 'BIL112', name: 'Eko Electric', shortName: 'EKEDC' },
+  { id: 'BIL113', name: 'Ikeja Electric', shortName: 'IKEDC' },
+  { id: 'BIL114', name: 'Ibadan Electric', shortName: 'IBEDC' },
+  { id: 'BIL115', name: 'Enugu Electric', shortName: 'EEDC' },
+  { id: 'BIL116', name: 'Port Harcourt Electric', shortName: 'PHED' },
+  { id: 'BIL117', name: 'Benin Electric', shortName: 'BEDC' },
+  { id: 'BIL118', name: 'Yola Electric', shortName: 'YEDC' },
+  { id: 'BIL119', name: 'Kaduna Electric', shortName: 'KEDC' },
+  { id: 'BIL120', name: 'Kano Electric', shortName: 'KEDCO' },
+  { id: 'BIL204', name: 'Abuja Electric', shortName: 'AEDC' },
+];
+
+const ELECTRICITY_FEE = 100;
+
 @Injectable()
 export class BillsService {
   private readonly logger = new Logger(BillsService.name);
@@ -283,15 +298,213 @@ export class BillsService {
   }
 
   async getDataPlans(billerCode: string) {
-    const items = await this.flutterwave.getDataPlansByBiller(billerCode);
+    const items = await this.flutterwave.getBillItemsByBiller(billerCode);
+    const dataItems = items.filter((i: any) => i.is_airtime === false);
 
-    return items.map((item: any) => ({
+    return dataItems.map((item: any) => ({
       plan_code: item.name,
       name: item.short_name ?? item.name,
       price: item.amount,
       item_code: item.item_code,
       biller_code: item.biller_code,
     }));
+  }
+
+  // ── Electricity ────────────────────────────────────────────────────────
+
+  getElectricityDiscos() {
+    return ELECTRICITY_DISCOS;
+  }
+
+  async getElectricityItems(billerCode: string) {
+    const items = await this.flutterwave.getBillItemsByBiller(billerCode);
+
+    return items.map((item: any) => ({
+      item_code: item.item_code,
+      biller_code: item.biller_code,
+      name: item.short_name ?? item.name,
+      amount: item.amount,
+      fee: item.fee ?? ELECTRICITY_FEE,
+    }));
+  }
+
+  async validateMeter(input: {
+    meterNumber: string;
+    itemCode: string;
+    billerCode: string;
+  }) {
+    const result = await this.flutterwave.validateBillCustomer(
+      input.itemCode,
+      input.billerCode,
+      input.meterNumber,
+    );
+
+    if (!result.success) {
+      return { success: false, message: result.message || 'Meter validation failed' };
+    }
+
+    return {
+      success: true,
+      data: {
+        customerName: result.data?.name ?? 'Unknown',
+        address: result.data?.address ?? null,
+        meterNumber: result.data?.customer ?? input.meterNumber,
+        minimumAmount: result.data?.minimum ?? 0,
+      },
+    };
+  }
+
+  async buyElectricity(
+    userId: string,
+    data: {
+      meterNumber: string;
+      amount: number;
+      disco: string;
+      type: string;
+      itemName: string;
+      itemCode: string;
+    },
+  ) {
+    if (data.amount < 500) {
+      throw new BadRequestException('Minimum electricity purchase is ₦500');
+    }
+    if (data.amount > 500000) {
+      throw new BadRequestException('Maximum electricity purchase is ₦500,000');
+    }
+
+    if (!data.meterNumber || data.meterNumber.length < 6) {
+      throw new BadRequestException('Enter a valid meter number');
+    }
+
+    const amount = new Decimal(data.amount);
+    const fee = new Decimal(ELECTRICITY_FEE);
+    const totalDebit = amount.add(fee);
+    const reference = `ELEC-${uuid()}`;
+
+    const tx = await this.prisma.$transaction(async (prisma) => {
+      const balance = await prisma.balance.findUnique({
+        where: { userId_currency: { userId, currency: 'NGN' } },
+      });
+
+      const currentBalance = new Decimal(balance?.amount?.toString() ?? '0');
+      if (currentBalance.lessThan(totalDebit)) {
+        throw new BadRequestException(
+          `Insufficient balance. You need ₦${totalDebit.toFixed(0)} (₦${data.amount} + ₦${ELECTRICITY_FEE} fee)`,
+        );
+      }
+
+      const afterBalance = currentBalance.sub(totalDebit);
+
+      await prisma.balance.update({
+        where: { userId_currency: { userId, currency: 'NGN' } },
+        data: { amount: afterBalance.toNumber(), lastUpdatedBy: 'bills_service' },
+      });
+
+      const transaction = await prisma.transaction.create({
+        data: {
+          senderId: userId,
+          amount: totalDebit.toNumber(),
+          currency: 'NGN',
+          type: 'bill_payment',
+          status: 'PENDING',
+          idempotencyKey: reference,
+          reference,
+          beforeBalance: currentBalance.toNumber(),
+          afterBalance: afterBalance.toNumber(),
+          metadata: {
+            billType: 'electricity',
+            disco: data.disco,
+            meterType: data.type,
+            meterNumber: data.meterNumber,
+            amount: data.amount,
+            fee: ELECTRICITY_FEE,
+          },
+        },
+      });
+
+      return { transaction, afterBalance };
+    });
+
+    const result = await this.flutterwave.createBillPayment({
+      country: 'NG',
+      customer: data.meterNumber,
+      amount: data.amount,
+      type: data.itemName,
+      reference,
+    });
+
+    if (!result.success) {
+      await this.refundTransaction(userId, tx.transaction.id, totalDebit, reference);
+      throw new BadRequestException(
+        result.message || 'Electricity purchase failed. You have been refunded.',
+      );
+    }
+
+    // Poll status to get token (for prepaid)
+    let token: string | null = null;
+    try {
+      const status = await this.flutterwave.getBillStatus(reference);
+      if (status.success && status.data?.extra) {
+        token = status.data.extra;
+      }
+    } catch {
+      // token retrieval is best-effort
+    }
+
+    await this.prisma.transaction.update({
+      where: { id: tx.transaction.id },
+      data: {
+        status: 'SUCCESS',
+        providerTxId: result.data?.tx_ref ?? result.data?.reference ?? null,
+        metadata: {
+          billType: 'electricity',
+          disco: data.disco,
+          meterType: data.type,
+          meterNumber: data.meterNumber,
+          amount: data.amount,
+          fee: ELECTRICITY_FEE,
+          token,
+          providerResponse: result.data,
+        },
+      },
+    });
+
+    await this.prisma.auditLog.create({
+      data: {
+        action: 'ELECTRICITY_PURCHASE',
+        userId,
+        actorType: 'user',
+        metadata: {
+          reference,
+          disco: data.disco,
+          meterType: data.type,
+          meterNumber: data.meterNumber,
+          amount: data.amount,
+          fee: ELECTRICITY_FEE,
+        },
+      },
+    });
+
+    this.logger.log(
+      `Electricity: ₦${data.amount} → ${data.meterNumber} (${data.disco} ${data.type}) by ${userId}`,
+    );
+
+    return {
+      success: true,
+      data: {
+        reference,
+        disco: data.disco,
+        meterType: data.type,
+        meterNumber: data.meterNumber,
+        amount: data.amount,
+        fee: ELECTRICITY_FEE,
+        token,
+        balanceAfter: tx.afterBalance.toFixed(2),
+      },
+      message: token
+        ? `Electricity token: ${token}`
+        : `₦${data.amount} electricity payment processed`,
+    };
   }
 
   // ── Refund helper ─────────────────────────────────────────────────────
