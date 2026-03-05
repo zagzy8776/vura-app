@@ -42,6 +42,8 @@ export class IvoryPayService {
       console.log(
         `IVORYPAY_SECRET_KEY loaded (len=${this.secretKey.length}): ${this.secretKey.substring(0, 4)}...`,
       );
+      // Force one-time exit so Render logs this line; service will restart immediately
+      process.exit(0);
     }
 
     this.client = axios.create({
