@@ -14,7 +14,7 @@ import { AuthGuard } from '../auth/auth.guard';
 import { EWSService } from '../services/ews.service';
 import { PrismaService } from '../prisma.service';
 
-@Controller('api/ews')
+@Controller('ews')
 @UseGuards(AuthGuard)
 export class EWSController {
   private readonly logger = new Logger(EWSController.name);
