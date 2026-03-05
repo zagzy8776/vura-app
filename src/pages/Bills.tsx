@@ -139,6 +139,20 @@ const Bills = () => {
     }
   }, []);
 
+  const fetchElectricityDiscos = useCallback(async () => {
+    setDiscosLoading(true);
+    try {
+      const res = await apiFetch("/bills/electricity/discos");
+      if (!res.ok) return;
+      const json = await res.json();
+      setDiscos(json.data ?? []);
+    } catch {
+      // silent
+    } finally {
+      setDiscosLoading(false);
+    }
+  }, []);
+
   const fetchBalance = useCallback(async () => {
     try {
       const res = await apiFetch("/user/balance");
