@@ -80,7 +80,10 @@ interface DepositTx {
   cryptoAmount: string;
   ngnAmount: string;
   status: string;
+  confirmations?: number;
+  txHash?: string;
   createdAt: string;
+  creditedAt?: string;
 }
 
 interface DepositRecord {
@@ -93,13 +96,26 @@ interface DepositRecord {
   transactions: DepositTx[];
 }
 
+interface DepositStatusResponse {
+  id: string;
+  status: string;
+  asset: string;
+  network: string;
+  cryptoAmount: string;
+  ngnAmount: string;
+  confirmations: number;
+  txHash: string;
+  creditedAt: string | null;
+  message: string;
+}
+
 // ── Component ─────────────────────────────────────────────────────────
 
-const VERIFY_STEPS = [
-  { label: "Submitting to Vura...", duration: 800 },
-  { label: "Scanning blockchain for transaction...", duration: 1500 },
-  { label: "Verifying transaction hash...", duration: 1200 },
-  { label: "Queuing for confirmation...", duration: 1000 },
+const VERIFY_PHASES = [
+  { key: "submitted", label: "Deposit submitted to Vura" },
+  { key: "scanning", label: "Scanning blockchain for transaction..." },
+  { key: "confirming", label: "Transaction found — waiting for confirmations..." },
+  { key: "credited", label: "Verified & credited to your account!" },
 ];
 
 const CryptoDeposit = () => {
@@ -111,8 +127,11 @@ const CryptoDeposit = () => {
   const [copied, setCopied] = useState(false);
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [rates, setRates] = useState<Record<string, string>>({});
-  const [verifyStep, setVerifyStep] = useState(0);
-  const [verifyProgress, setVerifyProgress] = useState(0);
+
+  // Live verification state (real polling, not fake animation)
+  const [activeDepositTxId, setActiveDepositTxId] = useState<string | null>(null);
+  const [verifyStatus, setVerifyStatus] = useState<DepositStatusResponse | null>(null);
+  const [verifyPhase, setVerifyPhase] = useState(0); // index into VERIFY_PHASES
 
   // Preview calculator
   const [previewAmount, setPreviewAmount] = useState("50");
@@ -233,39 +252,60 @@ const CryptoDeposit = () => {
 
   // ── User confirms they sent ─────────────────────────────────────────
 
-  const runVerificationAnimation = useCallback(() => {
-    setStep("verifying");
-    setVerifyStep(0);
-    setVerifyProgress(0);
+  // ── Real blockchain polling ─────────────────────────────────────────
 
-    let currentStep = 0;
-    let progress = 0;
+  useEffect(() => {
+    if (!activeDepositTxId || step !== "verifying") return;
 
-    const progressInterval = setInterval(() => {
-      progress += 2;
-      setVerifyProgress(Math.min(progress, 100));
-    }, 90);
+    let cancelled = false;
+    let attempts = 0;
+    const MAX_ATTEMPTS = 200; // ~16 min at 5s interval
 
-    const stepInterval = setInterval(() => {
-      currentStep += 1;
-      if (currentStep < VERIFY_STEPS.length) {
-        setVerifyStep(currentStep);
-      } else {
-        clearInterval(stepInterval);
-        clearInterval(progressInterval);
-        setVerifyProgress(100);
-        setTimeout(() => {
-          setStep("done");
-          fetchRecentDeposits();
-        }, 600);
+    const poll = async () => {
+      if (cancelled) return;
+      attempts++;
+
+      try {
+        const res = await apiFetch(`/crypto/deposit-status/${activeDepositTxId}`);
+        if (!res.ok || cancelled) return;
+        const json = await res.json();
+        const data: DepositStatusResponse = json.data;
+        setVerifyStatus(data);
+
+        // Map backend status to phase index
+        if (data.status === "pending") {
+          setVerifyPhase(1); // scanning
+        } else if (data.status === "confirming") {
+          setVerifyPhase(2); // found, waiting for confirmations
+        } else if (data.status === "confirmed") {
+          setVerifyPhase(3); // done
+          setTimeout(() => {
+            setStep("done");
+            fetchRecentDeposits();
+          }, 1500);
+          return; // stop polling
+        } else if (data.status === "failed") {
+          setVerifyPhase(-1); // error
+          return; // stop polling
+        }
+      } catch {
+        // Network error — keep polling
       }
-    }, 1200);
+
+      if (!cancelled && attempts < MAX_ATTEMPTS) {
+        setTimeout(poll, 5000);
+      }
+    };
+
+    // Kick off first poll after a short delay
+    setVerifyPhase(0); // "submitted"
+    const initialDelay = setTimeout(poll, 2000);
 
     return () => {
-      clearInterval(progressInterval);
-      clearInterval(stepInterval);
+      cancelled = true;
+      clearTimeout(initialDelay);
     };
-  }, [fetchRecentDeposits]);
+  }, [activeDepositTxId, step, fetchRecentDeposits]);
 
   const handleConfirmSent = async () => {
     if (!sentAmount || parseFloat(sentAmount) <= 0) {
@@ -292,7 +332,14 @@ const CryptoDeposit = () => {
         );
       }
 
-      runVerificationAnimation();
+      const json = await res.json();
+      const txId: string = json.data?.id;
+
+      // Switch to verification screen and start polling
+      setActiveDepositTxId(txId);
+      setVerifyStatus(null);
+      setVerifyPhase(0);
+      setStep("verifying");
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Something went wrong";
       toast({ title: "Error", description: message, variant: "destructive" });
@@ -329,6 +376,9 @@ const CryptoDeposit = () => {
     setQrDataUrl(null);
     setSentAmount("");
     setTxHash("");
+    setActiveDepositTxId(null);
+    setVerifyStatus(null);
+    setVerifyPhase(0);
   };
 
   // ── Render ──────────────────────────────────────────────────────────
@@ -655,55 +705,84 @@ const CryptoDeposit = () => {
           </motion.div>
         )}
 
-        {/* ── Step: Verifying on Blockchain ────────────────────────── */}
+        {/* ── Step: Verifying on Blockchain (real polling) ────────── */}
         {step === "verifying" && (
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             className="rounded-xl border-2 border-primary/30 bg-primary/5 p-8 space-y-6"
           >
-            {/* Spinning icon */}
-            <div className="flex justify-center">
-              <motion.div
-                animate={{ rotate: 360 }}
-                transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-                className="w-16 h-16 rounded-full border-4 border-primary/20 border-t-primary flex items-center justify-center"
-              />
-            </div>
+            {/* Spinning icon (shown while not yet confirmed/failed) */}
+            {verifyPhase >= 0 && verifyPhase < 3 && (
+              <div className="flex justify-center">
+                <motion.div
+                  animate={{ rotate: 360 }}
+                  transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+                  className="w-16 h-16 rounded-full border-4 border-primary/20 border-t-primary flex items-center justify-center"
+                />
+              </div>
+            )}
+
+            {/* Success icon */}
+            {verifyPhase === 3 && (
+              <div className="flex justify-center">
+                <div className="w-16 h-16 rounded-full bg-green-500/10 flex items-center justify-center">
+                  <Check className="h-8 w-8 text-green-500" />
+                </div>
+              </div>
+            )}
+
+            {/* Failed icon */}
+            {verifyPhase === -1 && (
+              <div className="flex justify-center">
+                <div className="w-16 h-16 rounded-full bg-red-500/10 flex items-center justify-center">
+                  <AlertTriangle className="h-8 w-8 text-red-500" />
+                </div>
+              </div>
+            )}
 
             <div className="text-center space-y-2">
-              <h2 className="text-lg font-bold">Verifying on Blockchain</h2>
+              <h2 className="text-lg font-bold">
+                {verifyPhase === 3
+                  ? "Deposit Verified!"
+                  : verifyPhase === -1
+                    ? "Verification Failed"
+                    : "Verifying on Blockchain"}
+              </h2>
               <p className="text-sm text-muted-foreground">
-                Please wait while we process your deposit...
+                {verifyStatus?.message ||
+                  "Scanning blockchain for your transaction..."}
               </p>
             </div>
 
-            {/* Progress bar */}
-            <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
-              <motion.div
-                className="h-full bg-primary rounded-full"
-                initial={{ width: "0%" }}
-                animate={{ width: `${verifyProgress}%` }}
-                transition={{ duration: 0.3, ease: "easeOut" }}
-              />
-            </div>
+            {/* Confirmation counter */}
+            {verifyStatus && verifyPhase >= 2 && verifyPhase < 3 && (
+              <div className="text-center">
+                <p className="text-2xl font-bold text-primary">
+                  {verifyStatus.confirmations} confirmations
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Waiting for network to finalize...
+                </p>
+              </div>
+            )}
 
-            {/* Step labels */}
+            {/* Phase steps */}
             <div className="space-y-2">
-              {VERIFY_STEPS.map((s, i) => (
+              {VERIFY_PHASES.map((phase, i) => (
                 <motion.div
-                  key={i}
+                  key={phase.key}
                   initial={{ opacity: 0, x: -10 }}
                   animate={{
-                    opacity: i <= verifyStep ? 1 : 0.3,
+                    opacity: i <= verifyPhase ? 1 : 0.3,
                     x: 0,
                   }}
                   transition={{ delay: i * 0.1 }}
                   className="flex items-center gap-3 text-sm"
                 >
-                  {i < verifyStep ? (
+                  {i < verifyPhase ? (
                     <Check className="h-4 w-4 text-green-500 shrink-0" />
-                  ) : i === verifyStep ? (
+                  ) : i === verifyPhase && verifyPhase >= 0 ? (
                     <motion.div
                       animate={{ opacity: [0.5, 1, 0.5] }}
                       transition={{ duration: 1.5, repeat: Infinity }}
@@ -714,16 +793,37 @@ const CryptoDeposit = () => {
                   )}
                   <span
                     className={
-                      i <= verifyStep
+                      i <= verifyPhase
                         ? "text-foreground"
                         : "text-muted-foreground"
                     }
                   >
-                    {s.label}
+                    {phase.label}
                   </span>
                 </motion.div>
               ))}
             </div>
+
+            {/* Failed state — action buttons */}
+            {verifyPhase === -1 && (
+              <div className="flex gap-3 pt-2">
+                <Button
+                  onClick={resetFlow}
+                  variant="outline"
+                  className="flex-1 rounded-xl"
+                >
+                  Try Again
+                </Button>
+                <Button
+                  onClick={() =>
+                    window.open("mailto:support@vura.app", "_blank")
+                  }
+                  className="flex-1 rounded-xl"
+                >
+                  Contact Support
+                </Button>
+              </div>
+            )}
           </motion.div>
         )}
 
@@ -737,15 +837,23 @@ const CryptoDeposit = () => {
             <div className="mx-auto w-16 h-16 rounded-full bg-green-500/10 flex items-center justify-center">
               <Check className="h-8 w-8 text-green-500" />
             </div>
-            <h2 className="text-xl font-bold">Deposit Received!</h2>
+            <h2 className="text-xl font-bold">Deposit Verified & Credited!</h2>
             <p className="text-sm text-muted-foreground">
               Your deposit of{" "}
               <span className="font-semibold text-foreground">
-                {sentAmount} {selectedAsset}
+                {verifyStatus?.cryptoAmount ?? sentAmount} {selectedAsset}
               </span>{" "}
-              has been submitted for verification. Your Naira balance will be
-              credited once the blockchain confirms your transaction. This
-              usually takes a few minutes.
+              has been verified on the blockchain
+              {verifyStatus?.ngnAmount && verifyStatus.ngnAmount !== "0" && (
+                <>
+                  {" "}and{" "}
+                  <span className="font-semibold text-green-600">
+                    ₦{parseFloat(verifyStatus.ngnAmount).toLocaleString()}
+                  </span>{" "}
+                  has been credited to your account
+                </>
+              )}
+              .
             </p>
             <Button onClick={resetFlow} variant="outline" className="rounded-xl">
               Make Another Deposit
@@ -790,7 +898,10 @@ const CryptoDeposit = () => {
                             ? `₦${parseFloat(lastTx.ngnAmount).toLocaleString()}`
                             : lastTx.status === "failed"
                               ? "Rejected"
-                              : "Processing"}
+                              : lastTx.status === "confirming" &&
+                                  lastTx.confirmations
+                                ? `${lastTx.confirmations} confs`
+                                : "Scanning..."}
                         </p>
                         <span
                           className={`text-xs px-2 py-0.5 rounded-full ${
@@ -798,14 +909,18 @@ const CryptoDeposit = () => {
                               ? "bg-green-500/10 text-green-500"
                               : lastTx.status === "failed"
                                 ? "bg-red-500/10 text-red-500"
-                                : "bg-yellow-500/10 text-yellow-500"
+                                : lastTx.status === "confirming"
+                                  ? "bg-blue-500/10 text-blue-500"
+                                  : "bg-yellow-500/10 text-yellow-500"
                           }`}
                         >
                           {lastTx.status === "confirmed"
                             ? "Credited"
                             : lastTx.status === "failed"
                               ? "Failed"
-                              : "Verifying"}
+                              : lastTx.status === "confirming"
+                                ? "Confirming"
+                                : "Scanning"}
                         </span>
                       </div>
                     </div>

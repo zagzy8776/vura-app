@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 import { AuthGuard } from '../auth/auth.guard';
 import { CoinGeckoService } from './coingecko.service';
+import { BlockchainMonitorService } from './blockchain-monitor.service';
 import { PrismaService } from '../prisma.service';
 import Decimal from 'decimal.js';
 
@@ -19,6 +20,7 @@ import Decimal from 'decimal.js';
 export class CryptoController {
   constructor(
     private coinGecko: CoinGeckoService,
+    private blockchain: BlockchainMonitorService,
     private prisma: PrismaService,
   ) {}
 
@@ -128,8 +130,9 @@ export class CryptoController {
   }
 
   /**
-   * User clicks "I've sent the money" — creates a pending deposit awaiting
-   * admin confirmation.
+   * User clicks "I've sent the money" — records the deposit, then attempts
+   * instant on-chain verification.  If not yet confirmed the cron job will
+   * keep checking every 3 minutes.
    * POST /crypto/confirm-sent
    */
   @Post('confirm-sent')
@@ -193,16 +196,108 @@ export class CryptoController {
       },
     });
 
+    // Attempt instant on-chain verification if user gave a tx hash
+    let instantStatus = 'pending';
+    if (txHash && !txHash.startsWith('manual_')) {
+      try {
+        const result = await this.blockchain.verifyByTxHash(
+          txHash,
+          normalizedAsset,
+          normalizedNetwork,
+          new Decimal(amount),
+        );
+
+        if (result.found && result.confirmed) {
+          instantStatus = 'confirmed';
+        } else if (result.found) {
+          instantStatus = 'confirming';
+          await this.prisma.cryptoDepositTransaction.update({
+            where: { id: tx.id },
+            data: {
+              status: 'confirming',
+              confirmations: result.confirmations,
+              metadata: {
+                txHash,
+                submittedByUser: true,
+                submittedAt: new Date().toISOString(),
+                onChainAmount: result.amount.toString(),
+                lastChecked: new Date().toISOString(),
+              },
+            },
+          });
+        }
+      } catch {
+        // Verification failed — cron will retry
+      }
+    }
+
     return {
       success: true,
       data: {
         id: tx.id,
-        status: 'pending',
+        status: instantStatus,
         cryptoAmount: amount,
         estimatedNgn: ngnEstimate.toFixed(2),
-        message: 'Your deposit is pending admin review. You will be credited once confirmed.',
+        message:
+          instantStatus === 'confirming'
+            ? 'Transaction found on-chain. Waiting for confirmations...'
+            : instantStatus === 'confirmed'
+              ? 'Deposit verified and credited!'
+              : 'We are monitoring the blockchain for your deposit. This usually takes 3-10 minutes.',
       },
     };
+  }
+
+  /**
+   * Frontend polls this to get live verification status.
+   * GET /crypto/deposit-status/:txId
+   */
+  @Get('deposit-status/:txId')
+  async getDepositStatus(@Param('txId') txId: string, @Request() req: any) {
+    const userId: string = req.user.userId;
+
+    const tx = await this.prisma.cryptoDepositTransaction.findFirst({
+      where: { id: txId, userId },
+    });
+
+    if (!tx) {
+      throw new BadRequestException('Deposit not found');
+    }
+
+    const metadata = (tx.metadata || {}) as Record<string, any>;
+
+    return {
+      success: true,
+      data: {
+        id: tx.id,
+        status: tx.status,
+        asset: tx.asset,
+        network: tx.network,
+        cryptoAmount: tx.cryptoAmount?.toString(),
+        ngnAmount: tx.ngnAmount?.toString(),
+        exchangeRate: tx.exchangeRate?.toString(),
+        confirmations: tx.confirmations,
+        txHash: metadata.txHash || tx.providerTxId,
+        creditedAt: tx.creditedAt,
+        createdAt: tx.createdAt,
+        message: this.statusMessage(tx.status as string),
+      },
+    };
+  }
+
+  private statusMessage(status: string): string {
+    switch (status) {
+      case 'pending':
+        return 'Scanning blockchain for your transaction...';
+      case 'confirming':
+        return 'Transaction found! Waiting for network confirmations...';
+      case 'confirmed':
+        return 'Deposit verified and credited to your account!';
+      case 'failed':
+        return 'No matching transaction found. Please contact support if you sent the funds.';
+      default:
+        return 'Processing...';
+    }
   }
 
   /**
@@ -229,15 +324,20 @@ export class CryptoController {
         address: d.address,
         status: d.status,
         createdAt: d.createdAt,
-        transactions: (d.deposits ?? []).map((tx: any) => ({
-          id: tx.id,
-          cryptoAmount: tx.cryptoAmount?.toString() ?? '0',
-          ngnAmount: tx.ngnAmount?.toString() ?? '0',
-          exchangeRate: tx.exchangeRate?.toString() ?? '0',
-          status: tx.status,
-          createdAt: tx.createdAt,
-          creditedAt: tx.creditedAt,
-        })),
+        transactions: (d.deposits ?? []).map((tx: any) => {
+          const meta = (tx.metadata || {}) as Record<string, any>;
+          return {
+            id: tx.id,
+            cryptoAmount: tx.cryptoAmount?.toString() ?? '0',
+            ngnAmount: tx.ngnAmount?.toString() ?? '0',
+            exchangeRate: tx.exchangeRate?.toString() ?? '0',
+            status: tx.status,
+            confirmations: tx.confirmations ?? 0,
+            txHash: meta.txHash || tx.providerTxId || null,
+            createdAt: tx.createdAt,
+            creditedAt: tx.creditedAt,
+          };
+        }),
       })),
     };
   }
