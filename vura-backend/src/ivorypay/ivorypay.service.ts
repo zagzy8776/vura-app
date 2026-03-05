@@ -38,6 +38,11 @@ export class IvoryPayService {
         'IVORYPAY_SECRET_KEY not set – IvoryPay operations will fail.',
       );
     } else {
+      // Debug: log key length and first 4 chars to detect whitespace issues (do not log full key)
+      this.logger.log(
+        `IVORYPAY_SECRET_KEY loaded (len=${this.secretKey.length}): ${this.secretKey.substring(0, 4)}...`,
+      );
+
       // Log first few chars for debugging (don't log full key)
       this.logger.log(
         `IVORYPAY_SECRET_KEY loaded: ${this.secretKey.substring(0, 4)}...`,
