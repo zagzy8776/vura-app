@@ -364,14 +364,14 @@ export class BlockchainMonitorService {
   }
 
   // ─────────────────────────────────────────────────────────────────────
-  //  BITCOIN — via Blockstream API (free, no key needed)
+  //  BITCOIN — via Mempool.space API (open-source, free, no key needed)
   // ─────────────────────────────────────────────────────────────────────
 
   private async verifyBtcTx(txHash: string, expectedAmount: Decimal): Promise<VerifiedTransaction> {
     const walletAddr = this.businessWallets['BTC_BTC'];
 
     const res = await axios.get(
-      `https://blockstream.info/api/tx/${txHash}`,
+      `https://mempool.space/api/tx/${txHash}`,
       { timeout: 10000 },
     );
 
@@ -412,7 +412,7 @@ export class BlockchainMonitorService {
     if (!walletAddr) return [];
 
     const res = await axios.get(
-      `https://blockstream.info/api/address/${walletAddr}/txs`,
+      `https://mempool.space/api/address/${walletAddr}/txs`,
       { timeout: 10000 },
     );
 
@@ -452,7 +452,7 @@ export class BlockchainMonitorService {
 
   private async getBtcTipHeight(): Promise<number> {
     try {
-      const res = await axios.get('https://blockstream.info/api/blocks/tip/height', { timeout: 5000 });
+      const res = await axios.get('https://mempool.space/api/blocks/tip/height', { timeout: 5000 });
       return parseInt(res.data || '0');
     } catch {
       return 0;
