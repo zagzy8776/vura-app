@@ -22,7 +22,6 @@ export class PrismaService
           url: process.env.DATABASE_URL,
         },
       },
-      // Neon requires connection pooling settings
       log: ['error', 'warn'],
     });
   }
@@ -41,8 +40,9 @@ export class PrismaService
         this.logger.log('Database connected successfully');
         return;
       } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
         this.logger.warn(
-          `Database connection attempt ${attempt} failed: ${error.message}`,
+          `Database connection attempt ${attempt} failed: ${errorMessage}`,
         );
         if (attempt < this.maxRetries) {
           this.logger.log(`Retrying in ${this.retryDelay / 1000} seconds...`);
@@ -57,8 +57,18 @@ export class PrismaService
     try {
       await this.$disconnect();
       this.logger.log('Database disconnected successfully');
-    } catch (error) {
+    } catch {
       this.logger.warn('Error during database disconnect');
+    }
+  }
+  
+  // Helper method to check connection health
+  async checkHealth(): Promise<boolean> {
+    try {
+      await this.$queryRaw`SELECT 1`;
+      return true;
+    } catch {
+      return false;
     }
   }
 }
