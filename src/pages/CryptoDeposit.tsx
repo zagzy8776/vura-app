@@ -46,17 +46,6 @@ const NETWORKS: Record<string, NetworkInfo[]> = {
       ],
       avgTime: "~45 sec",
     },
-    {
-      id: "ERC20",
-      name: "Ethereum (ERC20)",
-      icon: "💠",
-      warnings: [
-        "Send only USDT on Ethereum network (ERC20)",
-        "High gas fees — only for large deposits",
-        "Minimum deposit: 100 USDT",
-      ],
-      avgTime: "~3 min",
-    },
   ],
   BTC: [
     {
@@ -71,25 +60,11 @@ const NETWORKS: Record<string, NetworkInfo[]> = {
       avgTime: "~30 min",
     },
   ],
-  ETH: [
-    {
-      id: "ETH",
-      name: "Ethereum",
-      icon: "💠",
-      warnings: [
-        "Send only Ethereum (ETH)",
-        "High gas fees — only for large deposits",
-        "Minimum deposit: 0.05 ETH",
-      ],
-      avgTime: "~3 min",
-    },
-  ],
 };
 
 const ASSETS = [
   { id: "USDT", name: "Tether USD", icon: "💵", color: "bg-green-500" },
   { id: "BTC", name: "Bitcoin", icon: "🟠", color: "bg-orange-500" },
-  { id: "ETH", name: "Ethereum", icon: "💠", color: "bg-blue-500" },
 ];
 
 interface NetworkInfo {
@@ -120,8 +95,15 @@ interface DepositRecord {
 
 // ── Component ─────────────────────────────────────────────────────────
 
+const VERIFY_STEPS = [
+  { label: "Submitting to Vura...", duration: 800 },
+  { label: "Scanning blockchain for transaction...", duration: 1500 },
+  { label: "Verifying transaction hash...", duration: 1200 },
+  { label: "Queuing for confirmation...", duration: 1000 },
+];
+
 const CryptoDeposit = () => {
-  const [step, setStep] = useState<"select" | "address" | "confirm" | "done">("select");
+  const [step, setStep] = useState<"select" | "address" | "verifying" | "done">("select");
   const [selectedAsset, setSelectedAsset] = useState("USDT");
   const [selectedNetwork, setSelectedNetwork] = useState("TRC20");
   const [depositAddress, setDepositAddress] = useState<string | null>(null);
@@ -129,6 +111,8 @@ const CryptoDeposit = () => {
   const [copied, setCopied] = useState(false);
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [rates, setRates] = useState<Record<string, string>>({});
+  const [verifyStep, setVerifyStep] = useState(0);
+  const [verifyProgress, setVerifyProgress] = useState(0);
 
   // Preview calculator
   const [previewAmount, setPreviewAmount] = useState("50");
@@ -249,6 +233,40 @@ const CryptoDeposit = () => {
 
   // ── User confirms they sent ─────────────────────────────────────────
 
+  const runVerificationAnimation = useCallback(() => {
+    setStep("verifying");
+    setVerifyStep(0);
+    setVerifyProgress(0);
+
+    let currentStep = 0;
+    let progress = 0;
+
+    const progressInterval = setInterval(() => {
+      progress += 2;
+      setVerifyProgress(Math.min(progress, 100));
+    }, 90);
+
+    const stepInterval = setInterval(() => {
+      currentStep += 1;
+      if (currentStep < VERIFY_STEPS.length) {
+        setVerifyStep(currentStep);
+      } else {
+        clearInterval(stepInterval);
+        clearInterval(progressInterval);
+        setVerifyProgress(100);
+        setTimeout(() => {
+          setStep("done");
+          fetchRecentDeposits();
+        }, 600);
+      }
+    }, 1200);
+
+    return () => {
+      clearInterval(progressInterval);
+      clearInterval(stepInterval);
+    };
+  }, [fetchRecentDeposits]);
+
   const handleConfirmSent = async () => {
     if (!sentAmount || parseFloat(sentAmount) <= 0) {
       toast({ title: "Enter the amount you sent", variant: "destructive" });
@@ -274,15 +292,7 @@ const CryptoDeposit = () => {
         );
       }
 
-      const json = await res.json();
-
-      setStep("done");
-      fetchRecentDeposits();
-
-      toast({
-        title: "Deposit Submitted",
-        description: json.data?.message || "Pending admin review.",
-      });
+      runVerificationAnimation();
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Something went wrong";
       toast({ title: "Error", description: message, variant: "destructive" });
@@ -337,7 +347,7 @@ const CryptoDeposit = () => {
           <div>
             <h1 className="text-lg font-semibold">Deposit Crypto</h1>
             <p className="text-xs text-muted-foreground">
-              Send crypto, receive Naira after admin confirmation
+              Send crypto, receive Naira instantly
             </p>
           </div>
         </div>
@@ -421,7 +431,7 @@ const CryptoDeposit = () => {
           </div>
 
           <p className="text-xs text-muted-foreground text-center">
-            Live rate via CoinGecko &bull; Final amount confirmed by admin
+            Live rate via CoinGecko &bull; Final amount locked at confirmation
           </p>
         </motion.div>
 
@@ -433,7 +443,7 @@ const CryptoDeposit = () => {
               <label className="text-sm font-medium mb-3 block">
                 Select Asset
               </label>
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-2 gap-3">
                 {ASSETS.map((asset) => (
                   <button
                     key={asset.id}
@@ -594,7 +604,7 @@ const CryptoDeposit = () => {
                 </li>
                 <li className="flex gap-2">
                   <span className="font-bold text-primary">3.</span>
-                  We verify the deposit and credit Naira to your balance
+                  Vura verifies on-chain and credits Naira to your balance
                 </li>
               </ol>
             </div>
@@ -645,6 +655,78 @@ const CryptoDeposit = () => {
           </motion.div>
         )}
 
+        {/* ── Step: Verifying on Blockchain ────────────────────────── */}
+        {step === "verifying" && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="rounded-xl border-2 border-primary/30 bg-primary/5 p-8 space-y-6"
+          >
+            {/* Spinning icon */}
+            <div className="flex justify-center">
+              <motion.div
+                animate={{ rotate: 360 }}
+                transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+                className="w-16 h-16 rounded-full border-4 border-primary/20 border-t-primary flex items-center justify-center"
+              />
+            </div>
+
+            <div className="text-center space-y-2">
+              <h2 className="text-lg font-bold">Verifying on Blockchain</h2>
+              <p className="text-sm text-muted-foreground">
+                Please wait while we process your deposit...
+              </p>
+            </div>
+
+            {/* Progress bar */}
+            <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
+              <motion.div
+                className="h-full bg-primary rounded-full"
+                initial={{ width: "0%" }}
+                animate={{ width: `${verifyProgress}%` }}
+                transition={{ duration: 0.3, ease: "easeOut" }}
+              />
+            </div>
+
+            {/* Step labels */}
+            <div className="space-y-2">
+              {VERIFY_STEPS.map((s, i) => (
+                <motion.div
+                  key={i}
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{
+                    opacity: i <= verifyStep ? 1 : 0.3,
+                    x: 0,
+                  }}
+                  transition={{ delay: i * 0.1 }}
+                  className="flex items-center gap-3 text-sm"
+                >
+                  {i < verifyStep ? (
+                    <Check className="h-4 w-4 text-green-500 shrink-0" />
+                  ) : i === verifyStep ? (
+                    <motion.div
+                      animate={{ opacity: [0.5, 1, 0.5] }}
+                      transition={{ duration: 1.5, repeat: Infinity }}
+                      className="h-4 w-4 rounded-full bg-primary shrink-0"
+                    />
+                  ) : (
+                    <div className="h-4 w-4 rounded-full border-2 border-muted-foreground/30 shrink-0" />
+                  )}
+                  <span
+                    className={
+                      i <= verifyStep
+                        ? "text-foreground"
+                        : "text-muted-foreground"
+                    }
+                  >
+                    {s.label}
+                  </span>
+                </motion.div>
+              ))}
+            </div>
+          </motion.div>
+        )}
+
         {/* ── Step: Done ───────────────────────────────────────────── */}
         {step === "done" && (
           <motion.div
@@ -655,14 +737,15 @@ const CryptoDeposit = () => {
             <div className="mx-auto w-16 h-16 rounded-full bg-green-500/10 flex items-center justify-center">
               <Check className="h-8 w-8 text-green-500" />
             </div>
-            <h2 className="text-xl font-bold">Deposit Submitted!</h2>
+            <h2 className="text-xl font-bold">Deposit Received!</h2>
             <p className="text-sm text-muted-foreground">
               Your deposit of{" "}
               <span className="font-semibold text-foreground">
                 {sentAmount} {selectedAsset}
               </span>{" "}
-              is pending review. You&apos;ll be credited once an admin verifies
-              the transaction in your wallet.
+              has been submitted for verification. Your Naira balance will be
+              credited once the blockchain confirms your transaction. This
+              usually takes a few minutes.
             </p>
             <Button onClick={resetFlow} variant="outline" className="rounded-xl">
               Make Another Deposit
@@ -725,11 +808,12 @@ const CryptoDeposit = () => {
         <div className="flex items-start gap-3 p-4 rounded-xl bg-muted/50 text-sm">
           <Shield className="h-5 w-5 text-primary shrink-0" />
           <div>
-            <p className="font-medium">How Verification Works</p>
+            <p className="font-medium">Secure & Verified</p>
             <p className="text-muted-foreground text-xs mt-1">
-              After you send crypto and confirm, our team checks the blockchain
-              for your transaction. Once verified, Naira is credited to your
-              Vura balance at the rate shown above (minus 1% spread).
+              After you send crypto and confirm, Vura scans the blockchain for
+              your transaction. Once verified, Naira is credited to your balance
+              at the live rate (1% platform spread). Most deposits confirm
+              within minutes.
             </p>
           </div>
         </div>

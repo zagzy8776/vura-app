@@ -6,7 +6,6 @@ import Decimal from 'decimal.js';
 const ASSET_MAP: Record<string, string> = {
   USDT: 'tether',
   BTC: 'bitcoin',
-  ETH: 'ethereum',
 };
 
 @Injectable()
@@ -35,17 +34,9 @@ export class CoinGeckoService {
         address: this.config.get('BUSINESS_USDT_BEP20_ADDRESS') || '',
         network: 'BEP20',
       },
-      USDT_ERC20: {
-        address: this.config.get('BUSINESS_USDT_ERC20_ADDRESS') || '',
-        network: 'ERC20',
-      },
       BTC_BTC: {
         address: this.config.get('BUSINESS_BTC_ADDRESS') || '',
         network: 'BTC',
-      },
-      ETH_ETH: {
-        address: this.config.get('BUSINESS_ETH_ADDRESS') || '',
-        network: 'ETH',
       },
     };
 
@@ -116,7 +107,7 @@ export class CoinGeckoService {
    * Get all supported rates.
    */
   async getAllRates(): Promise<Record<string, string>> {
-    const assets = ['USDT', 'BTC', 'ETH'];
+    const assets = ['USDT', 'BTC'];
     const out: Record<string, string> = {};
 
     for (const asset of assets) {

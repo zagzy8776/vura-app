@@ -78,9 +78,8 @@ export class CryptoController {
     const normalizedNetwork = (network || 'TRC20').toUpperCase();
 
     const validNetworks: Record<string, string[]> = {
-      USDT: ['TRC20', 'BEP20', 'ERC20'],
+      USDT: ['TRC20', 'BEP20'],
       BTC: ['BTC'],
-      ETH: ['ETH'],
     };
 
     if (!validNetworks[normalizedAsset]?.includes(normalizedNetwork)) {
