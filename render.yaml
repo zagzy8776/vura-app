@@ -3,7 +3,7 @@ services:
     name: vura-frontend
     runtime: static
     buildCommand: npm run build
-    publishPath: dist
+    staticPublishPath: dist
     envVars:
       - key: VITE_API_URL
         value: https://vura-backend.onrender.com/api
