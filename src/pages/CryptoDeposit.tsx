@@ -42,6 +42,8 @@ const NETWORKS: Record<string, NetworkInfo[]> = {
       icon: "🟡",
       ivoryNetwork: "bsc",
       warnings: [
+        "Do not deposit USDT via the opBNB chain",
+        "Deposits made through opBNB will result in permanent asset loss",
         "Send only USDT on BSC network (BEP20)",
         "Do not send USDC or other BEP20 tokens",
         "Minimum deposit: 10 USDT",
@@ -323,7 +325,7 @@ const CryptoDeposit = () => {
           </div>
           <p className="text-2xl font-bold mt-1">{formatRate()}</p>
           <p className="text-xs text-muted-foreground mt-1">
-            Rates locked for 15 minutes &bull; 0.5% spread applied
+            Rates locked for 15 minutes &bull; 1% spread applied
           </p>
         </motion.div>
 
@@ -379,7 +381,7 @@ const CryptoDeposit = () => {
           </div>
 
           <p className="text-xs text-muted-foreground text-center">
-            Live rate via IvoryPay &bull; Final amount confirmed at deposit time
+            Live rate via CoinGecko &bull; Final amount confirmed at deposit time
           </p>
         </motion.div>
 
@@ -563,7 +565,7 @@ const CryptoDeposit = () => {
             <div className="flex items-start gap-2 text-xs text-muted-foreground">
               <Info className="h-4 w-4 shrink-0" />
               <p>
-                IvoryPay watches the blockchain for your deposit. Once
+                Vura monitors the blockchain for your deposit. Once
                 confirmed, your Naira balance is credited automatically. If
                 Auto-Sweep is on, Naira goes straight to your bank.
               </p>
@@ -626,7 +628,7 @@ const CryptoDeposit = () => {
         <div className="flex items-start gap-3 p-4 rounded-xl bg-muted/50 text-sm">
           <Shield className="h-5 w-5 text-primary shrink-0" />
           <div>
-            <p className="font-medium">Powered by IvoryPay</p>
+            <p className="font-medium">Powered by Vura</p>
             <p className="text-muted-foreground text-xs mt-1">
               Deposits are monitored in real-time. Naira is credited the moment
               the blockchain confirms your transaction. Enable Auto-Sweep in

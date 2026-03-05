@@ -4,11 +4,13 @@ import { IvoryPayService } from './ivorypay.service';
 import { IvoryPayController } from './ivorypay.controller';
 import { IvoryPayWebhookController } from './ivorypay-webhook.controller';
 import { PrismaService } from '../prisma.service';
+import { CryptoModule } from '../crypto/crypto.module';
+import { FlutterwaveService } from '../services/flutterwave.service';
 
 @Module({
-  imports: [ConfigModule],
+  imports: [ConfigModule, CryptoModule],
   controllers: [IvoryPayController, IvoryPayWebhookController],
-  providers: [IvoryPayService, PrismaService],
+  providers: [IvoryPayService, PrismaService, FlutterwaveService],
   exports: [IvoryPayService],
 })
 export class IvoryPayModule {}
