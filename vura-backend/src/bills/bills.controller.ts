@@ -3,7 +3,6 @@ import {
   Get,
   Post,
   Body,
-  Param,
   Query,
   UseGuards,
   Request,
@@ -19,8 +18,8 @@ export class BillsController {
   // ── Airtime ─────────────────────────────────────────────────────────
 
   @Get('airtime/networks')
-  async getAirtimeNetworks() {
-    const networks = await this.billsService.getAirtimeNetworks();
+  getAirtimeNetworks() {
+    const networks = this.billsService.getAirtimeNetworks();
     return { success: true, data: networks };
   }
 
@@ -39,8 +38,8 @@ export class BillsController {
   // ── Data ────────────────────────────────────────────────────────────
 
   @Get('data/networks')
-  async getDataNetworks() {
-    const networks = await this.billsService.getDataNetworks();
+  getDataNetworks() {
+    const networks = this.billsService.getDataNetworks();
     return { success: true, data: networks };
   }
 

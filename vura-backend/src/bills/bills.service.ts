@@ -1,8 +1,22 @@
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
-import { PeyflexService } from '../services/peyflex.service';
+import { FlutterwaveService } from '../services/flutterwave.service';
 import Decimal from 'decimal.js';
 import { v4 as uuid } from 'uuid';
+
+const AIRTIME_NETWORKS = [
+  { id: 'mtn', name: 'MTN' },
+  { id: 'glo', name: 'GLO' },
+  { id: 'airtel', name: 'Airtel' },
+  { id: '9mobile', name: '9mobile' },
+];
+
+const DATA_NETWORKS = [
+  { id: 'BIL108', name: 'MTN' },
+  { id: 'BIL109', name: 'GLO' },
+  { id: 'BIL110', name: 'Airtel' },
+  { id: 'BIL111', name: '9mobile' },
+];
 
 @Injectable()
 export class BillsService {
@@ -10,7 +24,7 @@ export class BillsService {
 
   constructor(
     private prisma: PrismaService,
-    private peyflex: PeyflexService,
+    private flutterwave: FlutterwaveService,
   ) {}
 
   // ── Airtime ───────────────────────────────────────────────────────────
@@ -30,7 +44,6 @@ export class BillsService {
     const amount = new Decimal(data.amount);
     const reference = `AIRTIME-${uuid()}`;
 
-    // Atomic: check balance, debit, create transaction
     const tx = await this.prisma.$transaction(async (prisma) => {
       const balance = await prisma.balance.findUnique({
         where: { userId_currency: { userId, currency: 'NGN' } },
@@ -70,25 +83,25 @@ export class BillsService {
       return { transaction, afterBalance };
     });
 
-    // Call Peyflex
-    const result = await this.peyflex.topupAirtime(
-      data.network,
-      data.amount,
-      data.phoneNumber,
-    );
+    // Flutterwave auto-detects network from phone number
+    const result = await this.flutterwave.createBillPayment({
+      country: 'NG',
+      customer: data.phoneNumber,
+      amount: data.amount,
+      type: 'AIRTIME',
+      reference,
+    });
 
     if (!result.success) {
-      // Refund user
       await this.refundTransaction(userId, tx.transaction.id, amount, reference);
       throw new BadRequestException(result.message || 'Airtime purchase failed. You have been refunded.');
     }
 
-    // Mark success
     await this.prisma.transaction.update({
       where: { id: tx.transaction.id },
       data: {
         status: 'SUCCESS',
-        providerTxId: result.data?.transaction_id ?? result.data?.id ?? null,
+        providerTxId: result.data?.tx_ref ?? result.data?.reference ?? null,
         metadata: {
           billType: 'airtime',
           network: data.network,
@@ -137,24 +150,21 @@ export class BillsService {
       throw new BadRequestException('Enter a valid Nigerian phone number');
     }
 
-    // Fetch plan to get the price
-    const plans = await this.peyflex.getDataPlans(data.network);
-    const plan = plans.find(
-      (p: any) => (p.plan_code ?? p.id ?? p.code) === data.planCode,
-    );
+    // planCode is the Flutterwave item name (used as `type` in the bill request)
+    const plans = await this.getDataPlans(data.network);
+    const plan = plans.find((p: any) => p.plan_code === data.planCode);
 
     if (!plan) {
       throw new BadRequestException('Invalid data plan selected');
     }
 
-    const planPrice = new Decimal(plan.price ?? plan.amount ?? 0);
+    const planPrice = new Decimal(plan.price ?? 0);
     if (planPrice.isZero()) {
       throw new BadRequestException('Could not determine plan price');
     }
 
     const reference = `DATA-${uuid()}`;
 
-    // Atomic: check balance, debit, create transaction
     const tx = await this.prisma.$transaction(async (prisma) => {
       const balance = await prisma.balance.findUnique({
         where: { userId_currency: { userId, currency: 'NGN' } },
@@ -188,7 +198,7 @@ export class BillsService {
             network: data.network,
             phoneNumber: data.phoneNumber,
             planCode: data.planCode,
-            planName: plan.name ?? plan.plan_name ?? data.planCode,
+            planName: plan.name,
             planPrice: planPrice.toString(),
           },
         },
@@ -197,12 +207,14 @@ export class BillsService {
       return { transaction, afterBalance };
     });
 
-    // Call Peyflex
-    const result = await this.peyflex.purchaseData(
-      data.network,
-      data.phoneNumber,
-      data.planCode,
-    );
+    // Flutterwave: `type` = the plan name from bill-categories
+    const result = await this.flutterwave.createBillPayment({
+      country: 'NG',
+      customer: data.phoneNumber,
+      amount: planPrice.toNumber(),
+      type: data.planCode,
+      reference,
+    });
 
     if (!result.success) {
       await this.refundTransaction(userId, tx.transaction.id, planPrice, reference);
@@ -213,13 +225,13 @@ export class BillsService {
       where: { id: tx.transaction.id },
       data: {
         status: 'SUCCESS',
-        providerTxId: result.data?.transaction_id ?? result.data?.id ?? null,
+        providerTxId: result.data?.tx_ref ?? result.data?.reference ?? null,
         metadata: {
           billType: 'data',
           network: data.network,
           phoneNumber: data.phoneNumber,
           planCode: data.planCode,
-          planName: plan.name ?? plan.plan_name ?? data.planCode,
+          planName: plan.name,
           planPrice: planPrice.toString(),
           providerResponse: result.data,
         },
@@ -252,7 +264,7 @@ export class BillsService {
         network: data.network,
         phoneNumber: data.phoneNumber,
         planCode: data.planCode,
-        planName: plan.name ?? plan.plan_name ?? data.planCode,
+        planName: plan.name,
         amount: planPrice.toNumber(),
         balanceAfter: tx.afterBalance.toFixed(2),
       },
@@ -262,16 +274,24 @@ export class BillsService {
 
   // ── Network / Plan Listings ───────────────────────────────────────────
 
-  async getAirtimeNetworks() {
-    return this.peyflex.getAirtimeNetworks();
+  getAirtimeNetworks() {
+    return AIRTIME_NETWORKS;
   }
 
-  async getDataNetworks() {
-    return this.peyflex.getDataNetworks();
+  getDataNetworks() {
+    return DATA_NETWORKS;
   }
 
-  async getDataPlans(networkId: string) {
-    return this.peyflex.getDataPlans(networkId);
+  async getDataPlans(billerCode: string) {
+    const items = await this.flutterwave.getDataPlansByBiller(billerCode);
+
+    return items.map((item: any) => ({
+      plan_code: item.name,
+      name: item.short_name ?? item.name,
+      price: item.amount,
+      item_code: item.item_code,
+      biller_code: item.biller_code,
+    }));
   }
 
   // ── Refund helper ─────────────────────────────────────────────────────

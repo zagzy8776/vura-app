@@ -527,6 +527,115 @@ export class FlutterwaveService {
     /* eslint-enable @typescript-eslint/no-unsafe-member-access */
   }
 
+  // ── Bills Payment (v3) ─────────────────────────────────────────────────
+
+  private billCategoriesCache: { data: any[]; expiresAt: number } | null =
+    null;
+  private readonly BILL_CACHE_TTL = 60 * 60 * 1000; // 1 hour
+
+  async getBillCategories(): Promise<any[]> {
+    if (
+      this.billCategoriesCache &&
+      this.billCategoriesCache.expiresAt > Date.now()
+    ) {
+      return this.billCategoriesCache.data;
+    }
+
+    try {
+      const res = await axios.get(`${this.v3BaseUrl}/bill-categories`, {
+        headers: { Authorization: `Bearer ${this.secretKey}` },
+        timeout: 15000,
+      });
+      const data: any[] = res.data?.data ?? [];
+      this.billCategoriesCache = {
+        data,
+        expiresAt: Date.now() + this.BILL_CACHE_TTL,
+      };
+      return data;
+    } catch (error: any) {
+      this.logger.error(`getBillCategories failed: ${error.message}`);
+      throw error;
+    }
+  }
+
+  async getDataPlansByBiller(billerCode: string): Promise<any[]> {
+    const all = await this.getBillCategories();
+    return all.filter(
+      (item: any) =>
+        item.biller_code === billerCode && item.is_airtime === false,
+    );
+  }
+
+  async createBillPayment(input: {
+    country: string;
+    customer: string;
+    amount: number;
+    type: string;
+    reference: string;
+    callbackUrl?: string;
+  }): Promise<{ success: boolean; data?: any; message?: string }> {
+    /* eslint-disable @typescript-eslint/no-unsafe-assignment */
+    /* eslint-disable @typescript-eslint/no-unsafe-member-access */
+    try {
+      const res = await axios.post(
+        `${this.v3BaseUrl}/bills`,
+        {
+          country: input.country,
+          customer: input.customer,
+          amount: input.amount,
+          recurrence: 'ONCE',
+          type: input.type,
+          reference: input.reference,
+          ...(input.callbackUrl
+            ? { callback_url: input.callbackUrl }
+            : {}),
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${this.secretKey}`,
+            'Content-Type': 'application/json',
+          },
+          timeout: 30000,
+        },
+      );
+
+      this.logger.log(
+        `Bill payment created: ${input.type} ₦${input.amount} → ${input.customer}`,
+      );
+      return {
+        success: true,
+        data: res.data?.data,
+        message: res.data?.message ?? 'Bill payment successful',
+      };
+    } catch (error: any) {
+      const msg =
+        error.response?.data?.message ?? error.message ?? 'Bill payment failed';
+      this.logger.error(`createBillPayment failed: ${msg}`);
+      return { success: false, message: msg, data: error.response?.data };
+    }
+    /* eslint-enable @typescript-eslint/no-unsafe-assignment */
+    /* eslint-enable @typescript-eslint/no-unsafe-member-access */
+  }
+
+  async getBillStatus(
+    reference: string,
+  ): Promise<{ success: boolean; data?: any }> {
+    /* eslint-disable @typescript-eslint/no-unsafe-assignment */
+    /* eslint-disable @typescript-eslint/no-unsafe-member-access */
+    try {
+      const res = await axios.get(`${this.v3BaseUrl}/bills/${reference}`, {
+        headers: { Authorization: `Bearer ${this.secretKey}` },
+        timeout: 15000,
+      });
+      return { success: true, data: res.data?.data };
+    } catch (error: any) {
+      this.logger.error(`getBillStatus failed: ${error.message}`);
+      return { success: false };
+    }
+    /* eslint-enable @typescript-eslint/no-unsafe-assignment */
+    /* eslint-enable @typescript-eslint/no-unsafe-member-access */
+  }
+
   /**
    * Identity verification placeholder (SmileID via Flutterwave Identity).
    * We keep this method in place so BVN+ID flows can share one provider client.

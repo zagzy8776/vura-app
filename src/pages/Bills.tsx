@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   ArrowLeft,
@@ -25,7 +25,6 @@ interface DataPlan {
   plan_code: string;
   name: string;
   price: number;
-  network: string;
   [key: string]: any;
 }
 
@@ -38,32 +37,14 @@ const NETWORK_COLORS: Record<string, string> = {
   glo: "border-green-600 bg-green-600/10 text-green-700",
   airtel: "border-red-500 bg-red-500/10 text-red-600",
   "9mobile": "border-green-500 bg-green-500/10 text-green-600",
-  etisalat: "border-green-500 bg-green-500/10 text-green-600",
 };
 
-const NETWORK_LABELS: Record<string, string> = {
-  mtn: "MTN",
-  glo: "GLO",
-  airtel: "Airtel",
-  "9mobile": "9mobile",
-  etisalat: "9mobile",
-};
-
-function getNetworkStyle(id: string): string {
-  const lower = id.toLowerCase();
+function getNetworkStyle(nameOrId: string): string {
+  const lower = nameOrId.toLowerCase();
   for (const key of Object.keys(NETWORK_COLORS)) {
     if (lower.includes(key)) return NETWORK_COLORS[key];
   }
   return "border-border bg-card text-foreground";
-}
-
-function getNetworkLabel(name: string, id: string): string {
-  if (name) return name;
-  const lower = id.toLowerCase();
-  for (const key of Object.keys(NETWORK_LABELS)) {
-    if (lower.includes(key)) return NETWORK_LABELS[key];
-  }
-  return id;
 }
 
 // ── Component ─────────────────────────────────────────────────────────
@@ -208,7 +189,7 @@ const Bills = () => {
       const body =
         tab === "airtime"
           ? { network: selectedNetwork, amount: parseFloat(airtimeAmount), phoneNumber }
-          : { network: selectedNetwork, planCode: selectedPlan!.plan_code ?? selectedPlan!.id ?? selectedPlan!.code, phoneNumber };
+          : { network: selectedNetwork, planCode: selectedPlan!.plan_code, phoneNumber };
 
       const res = await apiFetch(endpoint, {
         method: "POST",
@@ -237,6 +218,12 @@ const Bills = () => {
 
   const networksToShow = tab === "airtime" ? airtimeNetworks : dataNetworks;
   const networksLoading = tab === "airtime" ? airtimeNetworksLoading : dataNetworksLoading;
+
+  const selectedNetworkName = useMemo(() => {
+    const nets = tab === "airtime" ? airtimeNetworks : dataNetworks;
+    const found = nets.find((n) => (n.id ?? n.identifier) === selectedNetwork);
+    return found?.name || selectedNetwork;
+  }, [tab, selectedNetwork, airtimeNetworks, dataNetworks]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -320,7 +307,7 @@ const Bills = () => {
                 <div className="grid grid-cols-2 gap-3">
                   {networksToShow.map((net) => {
                     const netId = net.id ?? net.identifier ?? net.network_id;
-                    const netName = getNetworkLabel(net.name, netId);
+                    const netName = net.name || netId;
                     const isSelected = selectedNetwork === netId;
                     return (
                       <button
@@ -328,7 +315,7 @@ const Bills = () => {
                         onClick={() => setSelectedNetwork(netId)}
                         className={`flex items-center gap-3 p-4 rounded-xl border-2 transition-all ${
                           isSelected
-                            ? getNetworkStyle(netId)
+                            ? getNetworkStyle(netName)
                             : "border-border hover:border-primary/50"
                         }`}
                       >
@@ -414,8 +401,8 @@ const Bills = () => {
                 ) : (
                   <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
                     {dataPlans.map((plan) => {
-                      const code = plan.plan_code ?? plan.id ?? plan.code;
-                      const isSelected = selectedPlan?.plan_code === code || selectedPlan?.id === (plan as any).id;
+                      const code = plan.plan_code;
+                      const isSelected = selectedPlan?.plan_code === code;
                       return (
                         <button
                           key={code}
@@ -427,16 +414,11 @@ const Bills = () => {
                           }`}
                         >
                           <div>
-                            <p className="font-medium text-sm">
-                              {plan.name ?? plan.plan_name ?? code}
-                            </p>
-                            {plan.validity && (
-                              <p className="text-xs text-muted-foreground">{plan.validity}</p>
-                            )}
+                            <p className="font-medium text-sm">{plan.name}</p>
                           </div>
                           <div className="flex items-center gap-2">
                             <span className="font-bold text-sm">
-                              ₦{(plan.price ?? plan.amount ?? 0).toLocaleString()}
+                              ₦{(plan.price ?? 0).toLocaleString()}
                             </span>
                             {isSelected && (
                               <div className="h-5 w-5 rounded-full bg-primary flex items-center justify-center">
@@ -480,7 +462,7 @@ const Bills = () => {
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Network</span>
-                  <span className="font-medium">{selectedNetwork}</span>
+                  <span className="font-medium">{selectedNetworkName}</span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Phone</span>
@@ -489,9 +471,7 @@ const Bills = () => {
                 {tab === "data" && selectedPlan && (
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Plan</span>
-                    <span className="font-medium">
-                      {selectedPlan.name ?? selectedPlan.plan_name ?? selectedPlan.plan_code}
-                    </span>
+                    <span className="font-medium">{selectedPlan.name}</span>
                   </div>
                 )}
                 <div className="border-t border-border my-2" />
@@ -566,7 +546,7 @@ const Bills = () => {
                 ) : (
                   <>
                     <span className="font-semibold text-foreground">
-                      {selectedPlan?.name ?? selectedPlan?.plan_name}
+                      {selectedPlan?.name}
                     </span>{" "}
                     data plan activated for{" "}
                     <span className="font-semibold text-foreground font-mono">
