@@ -10,7 +10,6 @@ import { OTPModule } from './otp/otp.module';
 import { TransactionsController } from './transactions/transactions.controller';
 import { TransactionsService } from './transactions/transactions.service';
 import { CryptoModule } from './crypto/crypto.module';
-import { IvoryPayModule } from './ivorypay/ivorypay.module';
 import { LimitsModule } from './limits/limits.module';
 import { HoldsModule } from './holds/holds.module';
 import { EWSModule } from './ews/ews.module';
@@ -32,6 +31,7 @@ import { CloudinaryService } from './services/cloudinary.service';
 import { EmailService } from './services/email.service';
 import { AccountLockoutService } from './services/account-lockout.service';
 import { FlutterwaveWebhookController } from './webhooks/flutterwave.webhook.controller';
+import { WebhookController } from './webhooks/webhook.controller';
 import { AdminController } from './admin/admin.controller';
 import { KYCUploadController } from './kyc/kyc-upload.controller';
 import { RateLimitingMiddleware } from './middleware/rate-limiting.middleware';
@@ -51,7 +51,6 @@ import { SecurityMiddleware } from './middleware/security.middleware';
     AuthModule,
     OTPModule,
     CryptoModule,
-    IvoryPayModule,
     LimitsModule,
     HoldsModule,
     EWSModule,
@@ -67,7 +66,7 @@ import { SecurityMiddleware } from './middleware/security.middleware';
     BankCodesModule,
     VirtualAccountsModule,
   ],
-  controllers: [AppController, TransactionsController],
+  controllers: [AppController, TransactionsController, WebhookController],
   providers: [
     AppService,
     PrismaService,
