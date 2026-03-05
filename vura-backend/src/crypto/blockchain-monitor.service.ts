@@ -32,10 +32,12 @@ const MIN_CONFIRMATIONS: Record<string, number> = {
 export class BlockchainMonitorService {
   private readonly logger = new Logger(BlockchainMonitorService.name);
   private readonly bscscanKey: string;
+  private readonly trongridKey: string;
   private readonly businessWallets: Record<string, string>;
 
   constructor(private config: ConfigService) {
     this.bscscanKey = this.config.get('BSCSCAN_API_KEY') || '';
+    this.trongridKey = this.config.get('TRONGRID_API_KEY') || '';
 
     this.businessWallets = {
       USDT_TRC20: (this.config.get('BUSINESS_USDT_TRC20_ADDRESS') || '').toLowerCase(),
@@ -46,6 +48,13 @@ export class BlockchainMonitorService {
     if (!this.bscscanKey) {
       this.logger.warn('BSCSCAN_API_KEY not set — BSC verification will be limited');
     }
+    if (this.trongridKey) {
+      this.logger.log('TronGrid API key configured');
+    }
+  }
+
+  private trongridHeaders(): Record<string, string> {
+    return this.trongridKey ? { 'TRON-PRO-API-KEY': this.trongridKey } : {};
   }
 
   // ─────────────────────────────────────────────────────────────────────
@@ -123,7 +132,7 @@ export class BlockchainMonitorService {
     const walletAddr = this.businessWallets['USDT_TRC20'];
     const res = await axios.get(
       `https://api.trongrid.io/v1/transactions/${txHash}/events`,
-      { timeout: 10000 },
+      { timeout: 10000, headers: this.trongridHeaders() },
     );
 
     const events = res.data?.data || [];
@@ -147,7 +156,7 @@ export class BlockchainMonitorService {
         // Get block info for confirmations
         const txInfo = await axios.get(
           `https://api.trongrid.io/wallet/gettransactioninfobyid?value=${txHash}`,
-          { timeout: 10000 },
+          { timeout: 10000, headers: this.trongridHeaders() },
         );
         const blockNumber = txInfo.data?.blockNumber || 0;
         const latestBlock = await this.getTronLatestBlock();
@@ -185,6 +194,7 @@ export class BlockchainMonitorService {
           contract_address: USDT_CONTRACTS.TRC20,
         },
         timeout: 10000,
+        headers: this.trongridHeaders(),
       },
     );
 
@@ -224,7 +234,7 @@ export class BlockchainMonitorService {
       const res = await axios.post(
         'https://api.trongrid.io/wallet/getnowblock',
         {},
-        { timeout: 5000 },
+        { timeout: 5000, headers: this.trongridHeaders() },
       );
       return res.data?.block_header?.raw_data?.number || 0;
     } catch {
