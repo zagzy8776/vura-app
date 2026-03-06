@@ -145,11 +145,16 @@ const SettingsPage = () => {
         method: "POST",
         body: JSON.stringify({ bvn, firstName: bvnFirstName.trim(), lastName: bvnLastName.trim() }),
       });
-      let data: { success?: boolean; message?: string; data?: { success?: boolean; consentUrl?: string; url?: string } };
+      const contentType = response.headers.get("content-type") || "";
+      if (contentType.includes("text/html")) {
+        toast({ title: "Wrong server", description: "The API URL may point to the app instead of the backend. Check VITE_API_URL and redeploy.", variant: "destructive" });
+        return;
+      }
+      let data: { success?: boolean; message?: string; data?: { success?: boolean; consentUrl?: string; url?: string; message?: string } };
       try {
         data = await response.json();
       } catch {
-        toast({ title: "Verification Failed", description: "Invalid response from server. Please try again.", variant: "destructive" });
+        toast({ title: "Verification Failed", description: "Invalid response from server. Please try again or contact support.", variant: "destructive" });
         return;
       }
       if (response.ok) {

@@ -36,10 +36,14 @@ const AuthContext = createContext<AuthContextType>({} as AuthContextType);
 // Session timeout in milliseconds (15 minutes)
 const SESSION_TIMEOUT = 15 * 60 * 1000;
 
-// Get API URL - use HTTPS in production
+// Get API URL - must point to your backend, not the frontend (avoids "Unexpected token 'export'" when API hits static app)
 const getApiUrl = (): string => {
-  const isProduction = import.meta.env.PROD;
-  if (isProduction) {
+  const fromEnv = import.meta.env.VITE_API_URL;
+  if (fromEnv && typeof fromEnv === "string" && fromEnv.trim()) {
+    const base = fromEnv.trim().replace(/\/$/, "");
+    return base.endsWith("/api") ? base : `${base}/api`;
+  }
+  if (import.meta.env.PROD) {
     return "https://vura-app.onrender.com/api";
   }
   return "http://localhost:3002/api";

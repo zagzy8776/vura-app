@@ -5,6 +5,7 @@ services:
     buildCommand: npm run build
     publishDir: dist
     envVars:
+      # Must be your BACKEND URL (not this frontend). If backend is a separate Render service, use its URL (e.g. https://vura-backend-xxxx.onrender.com/api). Wrong URL causes "Unexpected token 'export'" and 400.
       - key: VITE_API_URL
         value: https://vura-app.onrender.com/api
     healthCheckPath: /
