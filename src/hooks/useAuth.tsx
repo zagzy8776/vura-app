@@ -1,6 +1,7 @@
 import { useState, useEffect, createContext, useContext, ReactNode } from "react";
 import { toast } from "@/hooks/use-toast";
 import { enforceHTTPS, generateDeviceFingerprint, getSecureStorage, setSecureStorage, removeSecureStorage } from "@/lib/security";
+import { getApiUrl } from "@/lib/api";
 
 interface User {
   id: string;
@@ -36,17 +37,20 @@ const AuthContext = createContext<AuthContextType>({} as AuthContextType);
 // Session timeout in milliseconds (15 minutes)
 const SESSION_TIMEOUT = 15 * 60 * 1000;
 
-// Get API URL - must point to your backend, not the frontend (avoids "Unexpected token 'export'" when API hits static app)
-const getApiUrl = (): string => {
-  const fromEnv = import.meta.env.VITE_API_URL;
-  if (fromEnv && typeof fromEnv === "string" && fromEnv.trim()) {
-    const base = fromEnv.trim().replace(/\/$/, "");
-    return base.endsWith("/api") ? base : `${base}/api`;
+// Ensure we never try to JSON-parse an HTML 404 page from the wrong host
+const parseJsonResponse = async (response: Response, apiUrl: string) => {
+  const contentType = response.headers.get("content-type") || "";
+  if (contentType.includes("text/html")) {
+    throw new Error(
+      `Invalid server response from ${apiUrl}. Check VITE_API_URL is set to your backend (e.g. https://vura-app.onrender.com/api) and redeploy.`,
+    );
   }
-  if (import.meta.env.PROD) {
-    return "https://vura-app.onrender.com/api";
+
+  try {
+    return await response.json();
+  } catch {
+    throw new Error("Server returned invalid JSON. Please try again or contact support.");
   }
-  return "http://localhost:3002/api";
 };
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
@@ -121,7 +125,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       body: JSON.stringify({ phone, email, pin, vuraTag }),
     });
 
-    const data = await response.json();
+    const data = await parseJsonResponse(response, API_URL);
     
     if (!response.ok) {
       throw new Error(data.message || "Registration failed");
@@ -170,7 +174,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       body: JSON.stringify({ pendingId, otp }),
     });
 
-    const data = await response.json();
+    const data = await parseJsonResponse(response, API_URL);
     if (!response.ok) {
       throw new Error(data.message || "Verification failed");
     }
@@ -192,13 +196,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       body: JSON.stringify({ email, purpose }),
     });
 
-    const data = await response.json();
+    const data = await parseJsonResponse(response, API_URL);
     if (!response.ok) {
       throw new Error(data.message || "Resend failed");
     }
   };
 
-  const signIn = async (vuraTag: string, pin: string) => {
+  const signIn = async (vuraTag: string, pin: string): Promise<SignInResult> => {
     const API_URL = getApiUrl();
     const deviceFingerprint = generateDeviceFingerprint();
     
@@ -211,17 +215,17 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       body: JSON.stringify({ vuraTag, pin, deviceFingerprint }),
     });
 
-    const data = await response.json();
+    const data = await parseJsonResponse(response, API_URL);
     
     if (!response.ok) {
       throw new Error(data.message || "Login failed");
     }
 
     // Check if device verification is required
-    if (data.requiresVerification) {
+    if (data.requiresVerification === true) {
       return {
         requiresVerification: true,
-        method: data.method,
+        method: data.method || "otp",
         message: data.message,
         otp: data.otp,
         vuraTag,
@@ -248,7 +252,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       body: JSON.stringify({ vuraTag, otp, deviceFingerprint }),
     });
 
-    const data = await response.json();
+    const data = await parseJsonResponse(response, API_URL);
     
     if (!response.ok) {
       throw new Error(data.message || "Verification failed");
