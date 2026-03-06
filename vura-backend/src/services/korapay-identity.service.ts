@@ -19,10 +19,14 @@ export interface KorapayBvnResult {
 export class KorapayIdentityService {
   private readonly logger = new Logger(KorapayIdentityService.name);
   private readonly secretKey: string;
-  private readonly baseUrl = 'https://api.korapay.com/merchant/api/v1';
+  /** Base URL for Identity API. Doc: https://developers.korapay.com/docs/nigeria-bvn */
+  private readonly baseUrl: string;
 
   constructor(private config: ConfigService) {
     this.secretKey = this.config.get<string>('KORAPAY_SECRET_KEY') || '';
+    this.baseUrl =
+      this.config.get<string>('KORAPAY_IDENTITY_BASE_URL') ||
+      'https://api.korapay.com/merchant/api/v1';
   }
 
   isConfigured(): boolean {
@@ -54,46 +58,75 @@ export class KorapayIdentityService {
     }
 
     try {
-      const res = await axios.post(
-        `${this.baseUrl}/identities/ng/bvn`,
-        body,
-        {
-          headers: {
-            Authorization: `Bearer ${this.secretKey}`,
-            'Content-Type': 'application/json',
-          },
-          timeout: 15000,
-        },
-      );
+      // Doc: POST .../identities/ng/bvn. If 404, try .../identity/ng/bvn (some accounts use singular path).
+      const pathsToTry = ['/identities/ng/bvn', '/identity/ng/bvn'];
+      let lastError: string | null = null;
+      let lastStatus: number | null = null;
 
-      const d = res.data as Record<string, unknown>;
-      const status = d?.status === true;
-      const msg = (d?.message as string) || '';
+      for (const path of pathsToTry) {
+        try {
+          const res = await axios.post(
+            `${this.baseUrl}${path}`,
+            body,
+            {
+              headers: {
+                Authorization: `Bearer ${this.secretKey}`,
+                'Content-Type': 'application/json',
+              },
+              timeout: 15000,
+              validateStatus: () => true,
+            },
+          );
 
-      if (!status) {
-        const errMsg = (d?.message ?? d?.error ?? 'BVN verification failed') as string;
-        this.logger.warn(`Korapay BVN failed: ${errMsg}`);
-        return { success: false, message: errMsg };
+          lastStatus = res.status;
+          if (res.status === 404) {
+            lastError = `Endpoint ${path} not found (404).`;
+            continue;
+          }
+
+          const d = res.data as Record<string, unknown>;
+          const status = d?.status === true;
+          const msg = (d?.message as string) || '';
+
+          if (!status) {
+            const errMsg = (d?.message ?? d?.error ?? 'BVN verification failed') as string;
+            this.logger.warn(`Korapay BVN failed: ${errMsg}`);
+            return { success: false, message: errMsg };
+          }
+
+          const data = d?.data as Record<string, unknown> | undefined;
+          if (!data || typeof data !== 'object') {
+            return { success: true, message: msg };
+          }
+
+          const firstName = (data.first_name ?? data.firstName) as string | undefined;
+          const lastName = (data.last_name ?? data.lastName) as string | undefined;
+          const middleName = (data.middle_name ?? data.middleName) as string | undefined;
+          const phoneNumber = (data.phone_number ?? data.phoneNumber) as string | undefined;
+          const dateOfBirth = (data.date_of_birth ?? data.dateOfBirth) as string | undefined;
+
+          return {
+            success: true,
+            firstName: firstName?.trim(),
+            lastName: lastName?.trim(),
+            middleName: middleName?.trim(),
+            phoneNumber: phoneNumber?.trim(),
+            dateOfBirth: dateOfBirth?.trim(),
+          };
+        } catch (err: any) {
+          lastStatus = err.response?.status ?? null;
+          lastError = (err.response?.data?.message ?? err.response?.data?.error ?? err.message) as string;
+          if (err.response?.status === 404) continue;
+          throw err;
+        }
       }
 
-      const data = d?.data as Record<string, unknown> | undefined;
-      if (!data || typeof data !== 'object') {
-        return { success: true, message: msg };
-      }
-
-      const firstName = (data.first_name ?? data.firstName) as string | undefined;
-      const lastName = (data.last_name ?? data.lastName) as string | undefined;
-      const middleName = (data.middle_name ?? data.middleName) as string | undefined;
-      const phoneNumber = (data.phone_number ?? data.phoneNumber) as string | undefined;
-      const dateOfBirth = (data.date_of_birth ?? data.dateOfBirth) as string | undefined;
-
+      this.logger.warn(`Korapay BVN 404 for all paths`, { lastStatus, lastError });
       return {
-        success: true,
-        firstName: firstName?.trim(),
-        lastName: lastName?.trim(),
-        middleName: middleName?.trim(),
-        phoneNumber: phoneNumber?.trim(),
-        dateOfBirth: dateOfBirth?.trim(),
+        success: false,
+        message:
+          lastError ||
+          'Korapay Identity API returned 404. Set KORAPAY_IDENTITY_BASE_URL if your account uses a different base URL, or ensure Identity/BVN is enabled on your Korapay account.',
       };
     } catch (err: any) {
       const status = err.response?.status;
@@ -107,6 +140,13 @@ export class KorapayIdentityService {
       }
       if (status === 403) {
         return { success: false, message: 'Korapay access denied. Ensure Identity/BVN is enabled on your account.' };
+      }
+      if (status === 404) {
+        return {
+          success: false,
+          message:
+            'Korapay Identity/BVN endpoint not found (404). Your account may not have Identity verification enabled. Enable it in the Korapay dashboard or use Prembly for BVN instead.',
+        };
       }
       return { success: false, message: msg };
     }
