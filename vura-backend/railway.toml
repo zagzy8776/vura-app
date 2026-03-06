@@ -26,11 +26,8 @@ fromSecret = "JWT_SECRET"
 [env.ENCRYPTION_KEY]
 fromSecret = "ENCRYPTION_KEY"
 
-[env.QOREID_CLIENT_ID]
-fromSecret = "QOREID_CLIENT_ID"
-
-[env.QOREID_CLIENT_SECRET]
-fromSecret = "QOREID_CLIENT_SECRET"
+[env.PREMBLY_API_KEY]
+fromSecret = "PREMBLY_API_KEY"
 
 [env.PAYSTACK_SECRET_KEY]
 fromSecret = "PAYSTACK_SECRET_KEY"

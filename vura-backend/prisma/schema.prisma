@@ -69,7 +69,8 @@ model User {
   idCardUrl    String?   @map("id_card_url")
   selfieUrl    String?   @map("selfie_url")
   idType       String?   @map("id_type") // 'nin', 'drivers_license', 'voters_card', 'intl_passport'
-  
+  kycRejectionReason String? @map("kyc_rejection_reason") // Shown to user when KYC is rejected
+
   balances      Balance[]
   sentTransactions     Transaction[] @relation("Sender")
   receivedTransactions Transaction[] @relation("Receiver")

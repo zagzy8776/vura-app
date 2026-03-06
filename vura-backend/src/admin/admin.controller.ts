@@ -59,6 +59,7 @@ export class AdminController {
           idCardUrl: true,
           selfieUrl: true,
           idType: true,
+          kycRejectionReason: true,
           createdAt: true,
         },
         orderBy: { createdAt: 'desc' },
@@ -144,12 +145,13 @@ export class AdminController {
   ) {
     const { tier = 3, notes } = body;
 
-    // Update user KYC status
+    // Update user KYC status and clear any previous rejection reason
     const user = await this.prisma.user.update({
       where: { id: userId },
       data: {
         kycTier: tier,
         kycStatus: 'VERIFIED',
+        kycRejectionReason: null,
       },
     });
 
@@ -189,11 +191,12 @@ export class AdminController {
       throw new BadRequestException('Rejection reason is required');
     }
 
-    // Update user KYC status
+    // Update user KYC status and store reason so user can see it
     const user = await this.prisma.user.update({
       where: { id: userId },
       data: {
         kycStatus: 'REJECTED',
+        kycRejectionReason: reason,
       },
     });
 

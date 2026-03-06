@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { Users, Shield, CheckCircle, XCircle, Clock, Search, Loader2, Eye, Check, X } from 'lucide-react';
 
@@ -23,6 +24,7 @@ interface User {
   idCardUrl: string | null;
   selfieUrl: string | null;
   idType: string | null;
+  kycRejectionReason?: string | null;
   createdAt: string;
 }
 
@@ -48,6 +50,10 @@ export default function AdminDashboard() {
   const [search, setSearch] = useState('');
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
+  const [listTab, setListTab] = useState<'pending' | 'all'>('pending');
+  const [rejectReason, setRejectReason] = useState('');
+  const [showRejectModal, setShowRejectModal] = useState(false);
+  const [userToReject, setUserToReject] = useState<User | null>(null);
 
   useEffect(() => {
     fetchUsers();
@@ -110,22 +116,33 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleReject = async (userId: string) => {
+  const handleRejectClick = (user: User) => {
+    setUserToReject(user);
+    setRejectReason('');
+    setShowRejectModal(true);
+  };
+
+  const handleReject = async () => {
+    if (!userToReject) return;
+    const reason = rejectReason.trim() || 'Documents could not be verified. Please upload a valid government-issued ID and a clear selfie.';
     setActionLoading(true);
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL}/admin/users/${userId}/reject-kyc`, {
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/admin/users/${userToReject.id}/reject-kyc`, {
         method: 'POST',
-        headers: { 
+        headers: {
           Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ reason: 'Documents not clear' }),
+        body: JSON.stringify({ reason }),
       });
       if (res.ok) {
-        toast.success('KYC rejected');
+        toast.success('KYC rejected. User will see the reason on their ID upload page.');
         fetchUsers();
         fetchStats();
         setSelectedUser(null);
+        setShowRejectModal(false);
+        setUserToReject(null);
+        setRejectReason('');
       } else {
         throw new Error('Failed to reject');
       }
@@ -136,11 +153,23 @@ export default function AdminDashboard() {
     }
   };
 
-  const pendingUsers = users.filter(u => u.idCardUrl && u.kycStatus === 'PENDING');
-  
-  const filteredUsers = search
-    ? users.filter(u => u.vuraTag.toLowerCase().includes(search.toLowerCase()))
-    : pendingUsers;
+  // Pending = has at least ID or selfie uploaded and status is PENDING (so admin can catch bad uploads)
+  const pendingUsers = users.filter(
+    (u) => (u.idCardUrl || u.selfieUrl) && u.kycStatus === 'PENDING',
+  );
+
+  const filteredUsers =
+    listTab === 'all'
+      ? search
+        ? users.filter((u) =>
+            u.vuraTag.toLowerCase().includes(search.toLowerCase()),
+          )
+        : users
+      : search
+        ? users.filter((u) =>
+            u.vuraTag.toLowerCase().includes(search.toLowerCase()),
+          )
+        : pendingUsers;
 
   if (loading) {
     return (
@@ -204,9 +233,25 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* Search */}
-      <div className="mb-6">
-        <div className="relative">
+      {/* Tabs + Search */}
+      <div className="mb-6 flex flex-col sm:flex-row gap-4 sm:items-center sm:justify-between">
+        <div className="flex rounded-lg border p-1 bg-muted/30">
+          <button
+            type="button"
+            onClick={() => setListTab('pending')}
+            className={`px-4 py-2 rounded-md text-sm font-medium ${listTab === 'pending' ? 'bg-background shadow text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+          >
+            Pending review ({pendingUsers.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setListTab('all')}
+            className={`px-4 py-2 rounded-md text-sm font-medium ${listTab === 'all' ? 'bg-background shadow text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+          >
+            All users
+          </button>
+        </div>
+        <div className="relative w-full sm:w-64">
           <Search className="absolute left-3 top-3 w-4 h-4 text-gray-400" />
           <Input
             placeholder="Search by vura tag..."
@@ -221,11 +266,17 @@ export default function AdminDashboard() {
       <Card>
         <CardHeader>
           <CardTitle>KYC Verification</CardTitle>
-          <CardDescription>Review and verify user identity documents</CardDescription>
+          <CardDescription>
+            Review ID and selfie uploads. Verify documents are valid government-issued ID and a real selfie—reject if invalid (e.g. wrong document or non-human).
+          </CardDescription>
         </CardHeader>
         <CardContent>
           {filteredUsers.length === 0 ? (
-            <p className="text-center text-gray-500 py-8">No pending KYC verifications</p>
+            <p className="text-center text-gray-500 py-8">
+              {listTab === 'pending'
+                ? 'No pending KYC verifications. Users who upload ID or selfie will appear here.'
+                : 'No users match your search.'}
+            </p>
           ) : (
             <div className="space-y-4">
               {filteredUsers.map((user) => (
@@ -243,8 +294,10 @@ export default function AdminDashboard() {
                     <Badge variant={user.kycStatus === 'VERIFIED' ? 'default' : 'secondary'}>
                       {user.kycStatus || 'PENDING'}
                     </Badge>
-                    {user.idCardUrl && (
-                      <Badge variant="outline">ID Uploaded</Badge>
+                    {(user.idCardUrl || user.selfieUrl) && (
+                      <Badge variant="outline">
+                        {user.idCardUrl && user.selfieUrl ? 'ID + Selfie' : user.idCardUrl ? 'ID only' : 'Selfie only'}
+                      </Badge>
                     )}
                     <Button variant="outline" size="sm" onClick={() => setSelectedUser(user)}>
                       <Eye className="w-4 h-4 mr-1" /> Review
@@ -266,6 +319,12 @@ export default function AdminDashboard() {
               <CardDescription>User ID: {selectedUser.id}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
+              <div className="p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg">
+                <p className="text-sm font-medium text-amber-800 dark:text-amber-200">Review checklist</p>
+                <p className="text-xs text-amber-700 dark:text-amber-300 mt-1">
+                  Confirm the ID is a valid government-issued document (NIN, driver’s licence, voter’s card, or passport) and the selfie matches the person. Reject if uploads are invalid, unclear, or not a real ID/selfie (e.g. picture of an animal or wrong document).
+                </p>
+              </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="col-span-2">
                   <p className="text-sm font-medium">Legal Name</p>
@@ -304,6 +363,12 @@ export default function AdminDashboard() {
                   <p className="text-sm font-medium">ID Type</p>
                   <p>{selectedUser.idType || 'Not provided'}</p>
                 </div>
+                {selectedUser.kycRejectionReason && (
+                  <div className="col-span-2">
+                    <p className="text-sm font-medium text-red-600">Previous rejection reason</p>
+                    <p className="text-sm text-muted-foreground">{selectedUser.kycRejectionReason}</p>
+                  </div>
+                )}
                 <div className="col-span-2">
                   <p className="text-sm font-medium">Vura Bank Account</p>
                   <p>
@@ -323,25 +388,33 @@ export default function AdminDashboard() {
                 </div>
               </div>
 
-              {selectedUser.idCardUrl && (
+              {selectedUser.idCardUrl ? (
                 <div>
                   <p className="text-sm font-medium mb-2">ID Document</p>
                   <img
                     src={selectedUser.idCardUrl}
-                    alt="ID Card"
-                    className="max-w-full h-48 object-contain border rounded"
+                    alt="ID document"
+                    className="max-w-full max-h-64 object-contain border rounded bg-muted/50"
                   />
+                </div>
+              ) : (
+                <div className="p-4 border border-dashed rounded-lg text-center text-muted-foreground text-sm">
+                  No ID document uploaded yet
                 </div>
               )}
 
-              {selectedUser.selfieUrl && (
+              {selectedUser.selfieUrl ? (
                 <div>
                   <p className="text-sm font-medium mb-2">Selfie</p>
                   <img
                     src={selectedUser.selfieUrl}
                     alt="Selfie"
-                    className="max-w-full h-48 object-contain border rounded"
+                    className="max-w-full max-h-64 object-contain border rounded bg-muted/50"
                   />
+                </div>
+              ) : (
+                <div className="p-4 border border-dashed rounded-lg text-center text-muted-foreground text-sm">
+                  No selfie uploaded yet
                 </div>
               )}
 
@@ -355,14 +428,68 @@ export default function AdminDashboard() {
                   Approve KYC
                 </Button>
                 <Button
-                  className="flex-1 bg-red-600 hover:bg-red-700"
-                  onClick={() => handleReject(selectedUser.id)}
+                  variant="destructive"
+                  className="flex-1"
+                  onClick={() => handleRejectClick(selectedUser)}
                   disabled={actionLoading}
                 >
-                  {actionLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <X className="w-4 h-4 mr-2" />}
+                  <X className="w-4 h-4 mr-2" />
                   Reject KYC
                 </Button>
                 <Button variant="outline" onClick={() => setSelectedUser(null)}>
+                  Cancel
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Reject reason modal */}
+      {showRejectModal && userToReject && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-[60]">
+          <Card className="w-full max-w-md">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-red-600">
+                <X className="h-5 w-5" /> Reject KYC
+              </CardTitle>
+              <CardDescription>
+                This reason will be shown to @{userToReject.vuraTag} on their ID upload page. Be clear so they can fix the issue.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="reject-reason">Reason for rejection</Label>
+                <textarea
+                  id="reject-reason"
+                  value={rejectReason}
+                  onChange={(e) => setRejectReason(e.target.value)}
+                  placeholder="e.g. ID document is unclear; please upload a clear photo of your government-issued ID"
+                  className="w-full min-h-[100px] px-3 py-2 text-sm border rounded-md bg-background"
+                  maxLength={500}
+                />
+                <p className="text-xs text-muted-foreground">
+                  If left blank, a generic message will be used.
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  variant="destructive"
+                  className="flex-1"
+                  onClick={handleReject}
+                  disabled={actionLoading}
+                >
+                  {actionLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                  Confirm reject
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setShowRejectModal(false);
+                    setUserToReject(null);
+                    setRejectReason('');
+                  }}
+                >
                   Cancel
                 </Button>
               </div>

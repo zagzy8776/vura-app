@@ -9,7 +9,7 @@ This guide covers deploying the VURA backend to production using Railway with Ne
 - Railway account (https://railway.app)
 - Neon PostgreSQL account (https://neon.tech)
 - GitHub repository with the VURA backend code
-- API keys for all external services (QoreID, Paystack, Monnify, Busha, Cloudinary)
+- API keys for all external services (Prembly, Paystack, Monnify, Flutterwave, Cloudinary)
 
 ### 1. Database Setup (Neon)
 
@@ -49,9 +49,8 @@ This guide covers deploying the VURA backend to production using Railway with Ne
    JWT_SECRET="your-jwt-secret-32-characters-min"
    ENCRYPTION_KEY="your-encryption-key-32-characters"
    
-   # KYC Services
-   QOREID_CLIENT_ID="your-qoreid-client-id"
-   QOREID_CLIENT_SECRET="your-qoreid-client-secret"
+   # KYC (BVN via Prembly)
+   PREMBLY_API_KEY="your-prembly-api-key"
    
    # Payment Gateways
    PAYSTACK_SECRET_KEY="your-paystack-secret-key"
@@ -83,10 +82,10 @@ This guide covers deploying the VURA backend to production using Railway with Ne
 2. Add webhook URL: `https://your-app.up.railway.app/api/webhooks/paystack`
 3. Copy the webhook secret to `PAYSTACK_WEBHOOK_SECRET`
 
-#### QoreID API Setup
-1. Go to QoreID Dashboard → API Settings
-2. Copy Client ID and Secret to environment variables
-3. Test connection: `GET /api/health/qoreid`
+#### Prembly (BVN) API Setup
+1. Get your API key from Prembly
+2. Set `PREMBLY_API_KEY` in environment variables
+3. BVN verification uses `POST https://api.prembly.com/v1/verify` with `x-api-key` header
 
 #### Busha API Setup
 1. Go to Busha Dashboard → API Keys
@@ -144,11 +143,8 @@ CRYPTO_CONFIRMATIONS_REQUIRED="3"
 ### External Service Keys
 
 ```bash
-# KYC & Identity
-QOREID_CLIENT_ID="your-client-id"
-QOREID_CLIENT_SECRET="your-client-secret"
-QOREID_BASE_URL="https://api.qoreid.com/api/v1"
-QOREID_ENV="sandbox"  # or "production"
+# KYC (BVN via Prembly)
+PREMBLY_API_KEY="your-prembly-api-key"
 
 # Payment Processing
 PAYSTACK_SECRET_KEY="sk_live_your_key"
@@ -182,7 +178,6 @@ curl https://your-app.up.railway.app/api/health
 curl https://your-app.up.railway.app/api/health/db
 
 # External services
-curl https://your-app.up.railway.app/api/health/qoreid
 curl https://your-app.up.railway.app/api/health/paystack
 curl https://your-app.up.railway.app/api/health/busha
 ```
@@ -269,7 +264,7 @@ railway logs --filter="ERROR"
 
 2. **API Keys Not Working:**
    - Verify all external service keys
-   - Check service status (QoreID, Paystack, etc.)
+   - Check service status (Prembly, Paystack, Flutterwave, etc.)
    - Test connections individually
 
 3. **Deployment Failures:**

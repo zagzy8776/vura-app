@@ -97,7 +97,7 @@ export class FlutterwaveService {
 
   /**
    * Create a permanent virtual account using Flutterwave v4 endpoint.
-   * We pass BVN + legal names to satisfy NIBSS name-matching checks.
+   * One account per user; tier is included in tx_ref so we/Flutterwave can track limits.
    */
   async createVirtualAccountV4(input: {
     userId: string;
@@ -105,6 +105,7 @@ export class FlutterwaveService {
     bvn: string;
     firstName: string;
     lastName: string;
+    kycTier?: number;
   }): Promise<
     | {
         success: true;
@@ -129,8 +130,8 @@ export class FlutterwaveService {
           currency: 'NGN',
           // permanent account
           is_permanent: true,
-          // our internal ref
-          tx_ref: `VURA-VA-${input.userId}-${Date.now()}`,
+          // ref includes tier for limits/tracking
+          tx_ref: `VURA-VA-${input.userId}-T${input.kycTier ?? 2}-${Date.now()}`,
         },
         {
           headers: {

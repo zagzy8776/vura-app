@@ -1,6 +1,6 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
-import { QoreIDService } from './qoreid.service';
+import { hashIdNumber } from '../utils/kyc-hash';
 
 export interface NINVerificationResult {
   success: boolean;
@@ -15,102 +15,33 @@ export interface NINVerificationResult {
 
 @Injectable()
 export class NINService {
-  constructor(
-    private prisma: PrismaService,
-    private qoreIdService: QoreIDService,
-  ) {}
+  constructor(private prisma: PrismaService) {}
 
   /**
-   * Verify NIN using QoreID
-   * Returns verified user information with AML screening
+   * Verify NIN. Tier 3 / NIN upgrade is handled by admin.
+   * Use Settings or contact support; admin will verify and set tier.
    */
-  async verifyNIN(userId: string, nin: string): Promise<NINVerificationResult> {
-    // Validate NIN format (11 digits)
+  async verifyNIN(
+    _userId: string,
+    nin: string,
+  ): Promise<NINVerificationResult> {
     if (!/^\d{11}$/.test(nin)) {
       throw new BadRequestException('Invalid NIN format. Must be 11 digits.');
     }
 
-    // Check if NIN already used
-    const ninHash = this.qoreIdService.hashIDNumber(nin);
+    const ninHash = hashIdNumber(nin);
     const existing = await this.prisma.user.findFirst({
       where: { ninHash },
     });
-
-    if (existing && existing.id !== userId) {
+    if (existing && existing.id !== _userId) {
       throw new BadRequestException(
         'NIN already registered to another account',
       );
     }
 
-    // Verify NIN with QoreID
-    const verificationResult = await this.qoreIdService.verifyNIN(nin);
-
-    if (!verificationResult.success) {
-      throw new BadRequestException(
-        'NIN verification failed. Please check and try again.',
-      );
-    }
-
-    // Check if manual review is required based on AML screening
-    const requiresReview = this.qoreIdService.requiresManualReview({
-      aml_status: verificationResult.amlStatus,
-      pep_status: verificationResult.pepStatus,
-      sanction_status: 'clear',
-      adverse_media_status: 'clear',
-      risk_level: verificationResult.riskLevel,
-      risk_reasons: verificationResult.riskReasons,
-    });
-
-    // Determine KYC tier based on risk level
-    // Low risk: Tier 2
-    // Medium/High risk: Tier 1 (manual review required before upgrade)
-    const newKycTier = requiresReview ? 1 : 2;
-
-    // Update user with verified NIN
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: {
-        ninHash,
-        ninVerified: !requiresReview, // Only mark as verified if no manual review needed
-        ninVerifiedAt: !requiresReview ? new Date() : null,
-        kycTier: newKycTier,
-        fraudScore: verificationResult.riskLevel === 'high' ? 75 : 10,
-      },
-    });
-
-    // Log the verification
-    await this.prisma.auditLog.create({
-      data: {
-        action: 'NIN_VERIFICATION_ATTEMPTED',
-        userId,
-        actorType: 'user',
-        metadata: {
-          kycTier: newKycTier,
-          verified: !requiresReview,
-          riskLevel: verificationResult.riskLevel,
-          amlStatus: verificationResult.amlStatus,
-          requiresManualReview: requiresReview,
-          verificationTime: new Date().toISOString(),
-          last4: nin.slice(-4),
-        },
-      },
-    });
-
-    if (requiresReview) {
-      throw new BadRequestException(
-        `NIN verification flagged for manual review. Risk level: ${verificationResult.riskLevel}. Our team will contact you within 24 hours.`,
-      );
-    }
-
-    return {
-      success: true,
-      firstName: verificationResult.firstName,
-      lastName: verificationResult.lastName,
-      middleName: verificationResult.middleName,
-      dateOfBirth: verificationResult.dateOfBirth,
-      gender: verificationResult.gender,
-      phoneNumber: verificationResult.phoneNumber,
-    };
+    throw new BadRequestException(
+      'NIN verification is handled by admin. Complete BVN first for Tier 2, then contact support or use admin review for Tier 3.',
+    );
   }
 
   /**

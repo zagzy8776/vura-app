@@ -1,11 +1,11 @@
 import { motion } from "framer-motion";
 import { 
-  User, Shield, Bell, ChevronRight, LogOut, Lock, 
+  Shield, Bell, ChevronRight, LogOut, Lock, 
   Smartphone, Moon, Globe, FileText, HelpCircle, 
-  Star, Camera, Check, Fingerprint,
+  Star, Fingerprint,
   Eye, EyeOff, ToggleLeft, ToggleRight, CreditCard,
   BadgeCheck, AlertTriangle, ShieldCheck,
-  MessageSquare, Mail
+  Mail, Loader2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
@@ -37,17 +37,13 @@ const SettingsPage = () => {
   const [bvn, setBvn] = useState("");
   const [bvnFirstName, setBvnFirstName] = useState("");
   const [bvnLastName, setBvnLastName] = useState("");
-  const [bvnStatus, setBvnStatus] = useState<{ verified: boolean; tier?: number } | null>(null);
+  const [bvnStatus, setBvnStatus] = useState<{ verified: boolean; tier?: number; verifiedAt?: string | null } | null>(null);
   const [currentPin, setCurrentPin] = useState("");
   const [newPin, setNewPin] = useState("");
   const [confirmPin, setConfirmPin] = useState("");
   const [otp, setOtp] = useState("");
   const [otpSent, setOtpSent] = useState(false);
   const [loading, setLoading] = useState(false);
-  
-  const [editName, setEditName] = useState("");
-  const [editEmail, setEditEmail] = useState("");
-  const [editPhone, setEditPhone] = useState("");
   
   const [settings, setSettings] = useState({
     hideBalance: false,
@@ -59,22 +55,49 @@ const SettingsPage = () => {
     marketingEmails: false,
   });
 
+  const [paymentPrefs, setPaymentPrefs] = useState({
+    defaultMethod: "balance" as "balance" | "bank",
+    pinRequiredAbove: 1000 as number,
+  });
+
   useEffect(() => {
     const stored = localStorage.getItem("vura_settings");
     if (stored) {
-      setSettings(JSON.parse(stored));
+      try {
+        setSettings(JSON.parse(stored));
+      } catch {
+        // ignore invalid stored settings
+      }
     }
-    if (user) {
-      setEditName(user.vuraTag || "");
-      fetchBvnStatus();
+    const prefs = localStorage.getItem("vura_payment_prefs");
+    if (prefs) {
+      try {
+        setPaymentPrefs(JSON.parse(prefs));
+      } catch {
+        // ignore invalid stored prefs
+      }
     }
+    if (user) fetchBvnStatus();
   }, [user]);
+
+  useEffect(() => {
+    if (activeDialog === "bvn") fetchBvnStatus();
+  }, [activeDialog]);
 
   const updateSetting = (key: keyof typeof settings, value: boolean) => {
     const newSettings = { ...settings, [key]: value };
     setSettings(newSettings);
     localStorage.setItem("vura_settings", JSON.stringify(newSettings));
-    toast({ title: "Setting Saved", description: `${key} updated successfully.` });
+    const labels: Record<string, string> = {
+      hideBalance: "Hide balance",
+      hideTransactionAmounts: "Privacy mode",
+      biometricEnabled: "Biometric login",
+      pushNotifications: "Push notifications",
+      smsNotifications: "SMS notifications",
+      emailNotifications: "Email notifications",
+      marketingEmails: "Marketing emails",
+    };
+    toast({ title: "Saved", description: `${labels[key] ?? key} updated.` });
   };
 
   const handleLogout = async () => {
@@ -91,7 +114,11 @@ const SettingsPage = () => {
         const data = await response.json();
         // backend returns { success: true, data: { verified, verifiedAt, kycTier } }
         if (data?.data) {
-          setBvnStatus({ verified: !!data.data.verified, tier: data.data.kycTier });
+          setBvnStatus({
+            verified: !!data.data.verified,
+            tier: data.data.kycTier,
+            verifiedAt: data.data.verifiedAt ?? null,
+          });
         }
       }
     } catch (error) {
@@ -120,18 +147,22 @@ const SettingsPage = () => {
       });
       const data = await response.json();
       if (response.ok) {
-        // backend now initiates consent and stores reference/url server-side
-        // It may return consent info in future; for now show guidance.
-        toast({
-          title: "Consent required",
-          description: "A secure BVN consent page will open. Please approve, then you’ll be returned to Vura to complete verification.",
-        });
-
-        // If backend returns a consentUrl, open it. Otherwise user will be redirected by backend implementation later.
         const consentUrl = data?.data?.consentUrl || data?.data?.url;
-        if (consentUrl && typeof consentUrl === 'string') {
+        if (consentUrl && typeof consentUrl === "string") {
+          toast({
+            title: "Taking you to secure verification",
+            description: "You'll complete BVN consent on a secure NIBSS page, then return here.",
+          });
           window.location.href = consentUrl;
+          return;
         }
+        // No redirect = instant verification (e.g. Prembly)
+        toast({
+          title: "BVN verified",
+          description: "Your account is now Tier 2. Higher limits are active.",
+        });
+        fetchBvnStatus();
+        setActiveDialog(null);
       } else {
         toast({ title: "Verification Failed", description: data.message, variant: "destructive" });
       }
@@ -180,8 +211,8 @@ const SettingsPage = () => {
         body: JSON.stringify({ vuraTag: user.vuraTag }),
       });
       const data = await response.json();
-      if (response.ok) {
-        toast({ title: "OTP Sent!", description: `Check your phone: ${data.maskedPhone}` });
+        if (response.ok) {
+        toast({ title: "OTP Sent!", description: data.maskedPhone ? `Check your phone: ${data.maskedPhone}` : (data.message || "Check your registered phone for the code.") });
         setOtpSent(true);
       } else {
         toast({ title: "Failed", description: data.message, variant: "destructive" });
@@ -218,22 +249,8 @@ const SettingsPage = () => {
     }
   };
 
-  const handleSaveProfile = () => {
-    toast({ title: "Profile Updated", description: "Your profile has been updated successfully." });
-    setActiveDialog(null);
-  };
-
-  const handleFreezeAccount = async () => {
-    try {
-      const response = await apiFetch("/auth/freeze", { method: "POST" });
-      if (response.ok) {
-        toast({ title: "Account Frozen", description: "Your account has been temporarily frozen.", variant: "destructive" });
-        signOut();
-        navigate("/login");
-      }
-    } catch (error) {
-      toast({ title: "Error", description: "Failed to freeze account", variant: "destructive" });
-    }
+  const openSupportMail = () => {
+    window.location.href = "mailto:support@vura.com?subject=Vura%20Support";
   };
 
   const getKycStatus = () => {
@@ -284,14 +301,9 @@ const SettingsPage = () => {
           {/* Profile Card */}
           <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="bg-card rounded-2xl border border-border p-6 shadow-card mb-6">
             <div className="flex items-center gap-4">
-              <div className="relative">
-                <div className="flex h-16 w-16 items-center justify-center rounded-full gradient-brand text-primary-foreground font-bold text-xl">
+                <div className="flex h-16 w-16 items-center justify-center rounded-full gradient-brand text-primary-foreground font-bold text-xl shrink-0">
                   {user ? getInitials(user.vuraTag) : "??"}
                 </div>
-                <button className="absolute -bottom-1 -right-1 h-6 w-6 bg-primary rounded-full flex items-center justify-center text-primary-foreground">
-                  <Camera className="h-3 w-3" />
-                </button>
-              </div>
               <div className="flex-1">
                 <p className="font-semibold text-foreground text-lg">{user ? `@${user.vuraTag}` : "Loading..."}</p>
                 <div className="flex items-center gap-2 mt-1">
@@ -301,20 +313,20 @@ const SettingsPage = () => {
                   <span className="text-xs text-muted-foreground">Tier {user?.kycTier || 1}</span>
                 </div>
               </div>
-              <Button variant="outline" size="sm" className="rounded-xl" onClick={() => setActiveDialog("profile")}>Edit</Button>
+              <Button variant="outline" size="sm" className="rounded-xl" onClick={() => setActiveDialog("profile")}>View profile</Button>
             </div>
           </motion.div>
 
           {/* Account & Security */}
           <SettingsSection title="Account & Security">
             <SettingsItem icon={Shield} label="BVN Verification" value={bvnStatus?.verified ? "Verified" : "Verify your BVN to upgrade"} onClick={() => setActiveDialog("bvn")} />
-            <SettingsItem icon={Lock} label="Change Transaction PIN" value="Change or reset your PIN" onClick={() => setActiveDialog("pin")} />
+            <SettingsItem icon={Lock} label="Transaction PIN" value="Change or reset your 6-digit PIN" onClick={() => setActiveDialog("pin")} />
             <SettingsItem icon={Fingerprint} label="Biometric Login" value="Use fingerprint or Face ID" toggle toggleValue={settings.biometricEnabled} onToggle={() => updateSetting("biometricEnabled", !settings.biometricEnabled)} />
           </SettingsSection>
 
           {/* Payment Settings */}
           <SettingsSection title="Payment Settings">
-            <SettingsItem icon={CreditCard} label="Default Payment Method" value="Vura Balance" onClick={() => setActiveDialog("payment")} />
+            <SettingsItem icon={CreditCard} label="Default Payment Method" value={paymentPrefs.defaultMethod === "balance" ? "Vura Balance" : "Bank Transfer"} onClick={() => setActiveDialog("payment")} />
             <SettingsItem icon={BadgeCheck} label="Auto-Pay" value="Manage recurring payments" onClick={() => toast({ title: "Coming Soon", description: "Auto-pay feature will be available soon." })} />
           </SettingsSection>
 
@@ -338,38 +350,48 @@ const SettingsPage = () => {
           </SettingsSection>
 
           {/* Support & About */}
-          <SettingsSection title="Support & About">
-            <SettingsItem icon={HelpCircle} label="Help & Support" onClick={() => setActiveDialog("help")} />
-            <SettingsItem icon={FileText} label="Terms of Service" onClick={() => toast({ title: "Terms", description: "Opening Terms of Service..." })} />
-            <SettingsItem icon={Shield} label="Privacy Policy" onClick={() => toast({ title: "Privacy", description: "Opening Privacy Policy..." })} />
-            <SettingsItem icon={Star} label="Rate Vura" onClick={() => toast({ title: "Rate Us", description: "Thank you for your support!" })} />
+          <SettingsSection title="Support & legal">
+            <SettingsItem icon={HelpCircle} label="Help & support" value="Email and FAQs" onClick={() => setActiveDialog("help")} />
+            <SettingsItem icon={FileText} label="Terms of service" value="Usage and rules" onClick={() => window.open("/terms", "_blank")} />
+            <SettingsItem icon={Shield} label="Privacy policy" value="How we use your data" onClick={() => window.open("/privacy", "_blank")} />
+            <SettingsItem icon={Star} label="Rate Vura" value="Share your feedback" onClick={() => toast({ title: "Thanks!", description: "Rate us on the app store when you can." })} />
           </SettingsSection>
 
-          {/* Account Actions */}
-          <SettingsSection title="Account Actions">
-            <SettingsItem icon={AlertTriangle} label="Freeze Account" danger onClick={() => setActiveDialog("freeze")} />
+          {/* Account actions */}
+          <SettingsSection title="Account actions">
+            <SettingsItem icon={AlertTriangle} label="Freeze account" value="Contact support to temporarily disable" danger onClick={() => setActiveDialog("freeze")} />
           </SettingsSection>
 
           {/* Logout */}
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }}>
-            <Button onClick={handleLogout} variant="outline" className="w-full h-12 rounded-xl text-destructive hover:text-destructive border-destructive/20 hover:bg-destructive/5 mb-8">
-              <LogOut className="h-4 w-4 mr-2" /> Log Out
+            <Button onClick={handleLogout} variant="outline" className="w-full h-12 rounded-xl border-border mb-8">
+              <LogOut className="h-4 w-4 mr-2" /> Log out
             </Button>
           </motion.div>
         </div>
 
-        {/* Profile Edit Dialog */}
+        {/* Profile Dialog */}
         <Dialog open={activeDialog === "profile"} onOpenChange={() => setActiveDialog(null)}>
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
-              <DialogTitle>Edit Profile</DialogTitle>
-              <DialogDescription>Update your personal information.</DialogDescription>
+              <DialogTitle>Profile</DialogTitle>
+              <DialogDescription>Your account details. To change your display name or contact info, contact support.</DialogDescription>
             </DialogHeader>
             <div className="space-y-4 py-4">
-              <div className="space-y-2"><Label>Full Name</Label><Input value={editName} onChange={(e) => setEditName(e.target.value)} placeholder="Enter your full name" /></div>
-              <div className="space-y-2"><Label>Email Address</Label><Input type="email" value={editEmail} onChange={(e) => setEditEmail(e.target.value)} placeholder="Enter your email" /></div>
-              <div className="space-y-2"><Label>Phone Number</Label><Input value={editPhone} onChange={(e) => setEditPhone(e.target.value)} placeholder="Enter your phone number" /></div>
-              <Button onClick={handleSaveProfile} className="w-full">Save Changes</Button>
+              <div className="space-y-2">
+                <Label>Display name</Label>
+                <Input value={user ? `@${user.vuraTag}` : ""} readOnly className="bg-muted" />
+              </div>
+              <div className="space-y-2">
+                <Label>KYC tier</Label>
+                <Input value={`Tier ${user?.kycTier ?? 1}`} readOnly className="bg-muted" />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Need to update your name or phone? Email us and we’ll help you securely.
+              </p>
+              <Button variant="outline" className="w-full" onClick={openSupportMail}>
+                <Mail className="h-4 w-4 mr-2" /> Contact support
+              </Button>
             </div>
           </DialogContent>
         </Dialog>
@@ -379,30 +401,80 @@ const SettingsPage = () => {
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
               <DialogTitle>BVN Verification</DialogTitle>
-              <DialogDescription>Verify your BVN to upgrade your account tier and increase limits.</DialogDescription>
+              <DialogDescription>
+                {bvnStatus?.verified
+                  ? "Your identity is verified. You have access to higher limits."
+                  : "Verify once to unlock Tier 2 limits and secure your account. We use a secure NIBSS-backed flow."}
+              </DialogDescription>
             </DialogHeader>
             <div className="space-y-4 py-4">
               {bvnStatus?.verified ? (
-                <div className="p-4 bg-green-50 rounded-lg text-center">
-                  <Check className="h-8 w-8 text-green-500 mx-auto mb-2" />
-                  <p className="text-green-700 font-medium">BVN Verified</p>
-                  <p className="text-sm text-green-600">Your account is on Tier {bvnStatus?.tier || user?.kycTier}</p>
+                <div className="p-6 rounded-xl bg-green-500/10 border border-green-500/20 text-center space-y-3">
+                  <div className="mx-auto w-14 h-14 rounded-full bg-green-500/20 flex items-center justify-center">
+                    <Shield className="h-7 w-7 text-green-600" />
+                  </div>
+                  <p className="font-semibold text-green-800 dark:text-green-200">BVN Verified</p>
+                  <p className="text-sm text-muted-foreground">
+                    Tier {bvnStatus?.tier ?? user?.kycTier ?? 2} &bull; Higher limits enabled
+                  </p>
+                  {bvnStatus?.verifiedAt && (
+                    <p className="text-xs text-muted-foreground">
+                      Verified {new Date(bvnStatus.verifiedAt).toLocaleDateString("en-NG", { dateStyle: "medium" })}
+                    </p>
+                  )}
                 </div>
               ) : (
                 <>
+                  <div className="p-4 rounded-xl bg-muted/80 border border-border space-y-2">
+                    <p className="text-sm text-muted-foreground">
+                      Enter your details exactly as they appear on your BVN. Verification is secure and we never store your full BVN.
+                    </p>
+                    <p className="text-xs text-muted-foreground">You may be taken to a secure NIBSS page to complete consent, or verified instantly depending on our provider.</p>
+                  </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-2">
                       <Label>First name</Label>
-                      <Input value={bvnFirstName} onChange={(e) => setBvnFirstName(e.target.value)} placeholder="First name" />
+                      <Input
+                        value={bvnFirstName}
+                        onChange={(e) => setBvnFirstName(e.target.value)}
+                        placeholder="As on BVN"
+                      />
                     </div>
                     <div className="space-y-2">
                       <Label>Last name</Label>
-                      <Input value={bvnLastName} onChange={(e) => setBvnLastName(e.target.value)} placeholder="Last name" />
+                      <Input
+                        value={bvnLastName}
+                        onChange={(e) => setBvnLastName(e.target.value)}
+                        placeholder="As on BVN"
+                      />
                     </div>
                   </div>
-                  <div className="p-4 bg-amber-50 rounded-lg"><p className="text-amber-700 text-sm">Your BVN is required for regulatory compliance and to unlock higher transaction limits.</p></div>
-                  <div className="space-y-2"><Label>Enter your 11-digit BVN</Label><Input value={bvn} onChange={(e) => setBvn(e.target.value.replace(/\D/g, "").slice(0, 11))} placeholder="12345678901" maxLength={11} /></div>
-                  <Button onClick={handleBvnSubmit} className="w-full" disabled={bvn.length !== 11 || loading}>{loading ? "Verifying..." : "Verify BVN"}</Button>
+                  <div className="space-y-2">
+                    <Label>11-digit BVN</Label>
+                    <Input
+                      type="password"
+                      inputMode="numeric"
+                      value={bvn}
+                      onChange={(e) => setBvn(e.target.value.replace(/\D/g, "").slice(0, 11))}
+                      placeholder="•••••••••••"
+                      maxLength={11}
+                      className="font-mono"
+                    />
+                  </div>
+                  <Button
+                    onClick={handleBvnSubmit}
+                    className="w-full h-11 rounded-xl"
+                    disabled={bvn.length !== 11 || !bvnFirstName.trim() || !bvnLastName.trim() || loading}
+                  >
+                    {loading ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                        Preparing…
+                      </>
+                    ) : (
+                      "Continue to secure verification"
+                    )}
+                  </Button>
                 </>
               )}
             </div>
@@ -412,7 +484,7 @@ const SettingsPage = () => {
         {/* PIN Dialog */}
         <Dialog open={activeDialog === "pin"} onOpenChange={() => { setActiveDialog(null); setOtpSent(false); setOtp(""); setCurrentPin(""); setNewPin(""); setConfirmPin(""); }}>
           <DialogContent className="sm:max-w-md">
-            <DialogHeader><DialogTitle>Change Transaction PIN</DialogTitle><DialogDescription>Secure your account with a new PIN.</DialogDescription></DialogHeader>
+            <DialogHeader><DialogTitle>Transaction PIN</DialogTitle><DialogDescription>Use a 6-digit PIN to confirm transfers. Change it here or reset with an OTP if you forgot it.</DialogDescription></DialogHeader>
             <div className="space-y-4 py-4">
               {!otpSent ? (
                 <>
@@ -438,10 +510,26 @@ const SettingsPage = () => {
         {/* Payment Settings Dialog */}
         <Dialog open={activeDialog === "payment"} onOpenChange={() => setActiveDialog(null)}>
           <DialogContent className="sm:max-w-md">
-            <DialogHeader><DialogTitle>Payment Settings</DialogTitle><DialogDescription>Configure your payment preferences.</DialogDescription></DialogHeader>
+            <DialogHeader>
+              <DialogTitle>Payment preferences</DialogTitle>
+              <DialogDescription>Saved on this device. Applies when you pay or transfer.</DialogDescription>
+            </DialogHeader>
             <div className="space-y-4 py-4">
-              <div className="space-y-2"><Label>Default Payment Method</Label><div className="grid grid-cols-2 gap-2"><Button variant="default" className="w-full">Vura Balance</Button><Button variant="outline" className="w-full">Bank Transfer</Button></div></div>
-              <div className="space-y-2"><Label>PIN Required For</Label><div className="grid grid-cols-3 gap-2"><Button variant="outline" className="w-full text-xs">All</Button><Button variant="default" className="w-full text-xs">Above ₦1k</Button><Button variant="outline" className="w-full text-xs">Above ₦10k</Button></div></div>
+              <div className="space-y-2">
+                <Label>Default payment method</Label>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button variant={paymentPrefs.defaultMethod === "balance" ? "default" : "outline"} className="w-full" onClick={() => { const p = { ...paymentPrefs, defaultMethod: "balance" as const }; setPaymentPrefs(p); localStorage.setItem("vura_payment_prefs", JSON.stringify(p)); toast({ title: "Saved", description: "Vura Balance set as default." }); }}>Vura Balance</Button>
+                  <Button variant={paymentPrefs.defaultMethod === "bank" ? "default" : "outline"} className="w-full" onClick={() => { const p = { ...paymentPrefs, defaultMethod: "bank" as const }; setPaymentPrefs(p); localStorage.setItem("vura_payment_prefs", JSON.stringify(p)); toast({ title: "Saved", description: "Bank Transfer set as default." }); }}>Bank Transfer</Button>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Require PIN for transactions</Label>
+                <div className="grid grid-cols-3 gap-2">
+                  <Button variant={paymentPrefs.pinRequiredAbove === 0 ? "default" : "outline"} className="w-full text-xs" onClick={() => { const p = { ...paymentPrefs, pinRequiredAbove: 0 }; setPaymentPrefs(p); localStorage.setItem("vura_payment_prefs", JSON.stringify(p)); toast({ title: "Saved", description: "PIN required for all." }); }}>All</Button>
+                  <Button variant={paymentPrefs.pinRequiredAbove === 1000 ? "default" : "outline"} className="w-full text-xs" onClick={() => { const p = { ...paymentPrefs, pinRequiredAbove: 1000 }; setPaymentPrefs(p); localStorage.setItem("vura_payment_prefs", JSON.stringify(p)); toast({ title: "Saved", description: "PIN above ₦1,000." }); }}>Above ₦1k</Button>
+                  <Button variant={paymentPrefs.pinRequiredAbove === 10000 ? "default" : "outline"} className="w-full text-xs" onClick={() => { const p = { ...paymentPrefs, pinRequiredAbove: 10000 }; setPaymentPrefs(p); localStorage.setItem("vura_payment_prefs", JSON.stringify(p)); toast({ title: "Saved", description: "PIN above ₦10,000." }); }}>Above ₦10k</Button>
+                </div>
+              </div>
             </div>
           </DialogContent>
         </Dialog>
@@ -449,12 +537,19 @@ const SettingsPage = () => {
         {/* Help Dialog */}
         <Dialog open={activeDialog === "help"} onOpenChange={() => setActiveDialog(null)}>
           <DialogContent className="sm:max-w-md">
-            <DialogHeader><DialogTitle>Help & Support</DialogTitle><DialogDescription>Get help with your account.</DialogDescription></DialogHeader>
-            <div className="space-y-4 py-4">
-              <Button variant="outline" className="w-full justify-start" onClick={() => toast({ title: "FAQ", description: "Opening FAQ..." })}><HelpCircle className="h-4 w-4 mr-2" /> Frequently Asked Questions</Button>
-              <Button variant="outline" className="w-full justify-start" onClick={() => toast({ title: "Support", description: "Contacting support..." })}><MessageSquare className="h-4 w-4 mr-2" /> Chat with Support</Button>
-              <Button variant="outline" className="w-full justify-start" onClick={() => toast({ title: "Email", description: "Opening email..." })}><Mail className="h-4 w-4 mr-2" /> Email Support</Button>
-              <div className="p-3 bg-muted rounded-lg"><p className="text-xs text-muted-foreground">Support Hours: 24/7</p><p className="text-xs text-muted-foreground">Response Time: Usually within 1 hour</p></div>
+            <DialogHeader>
+              <DialogTitle>Help & support</DialogTitle>
+              <DialogDescription>We’re here to help. Reach out and we’ll get back to you quickly.</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3 py-4">
+              <Button variant="outline" className="w-full justify-start" onClick={openSupportMail}>
+                <Mail className="h-4 w-4 mr-2" /> Email support
+              </Button>
+              <div className="p-3 bg-muted rounded-lg space-y-1">
+                <p className="text-xs font-medium text-foreground">Support</p>
+                <p className="text-xs text-muted-foreground">support@vura.com</p>
+                <p className="text-xs text-muted-foreground mt-2">We aim to respond within 1 hour during business hours.</p>
+              </div>
             </div>
           </DialogContent>
         </Dialog>
@@ -462,11 +557,17 @@ const SettingsPage = () => {
         {/* Freeze Account Dialog */}
         <Dialog open={activeDialog === "freeze"} onOpenChange={() => setActiveDialog(null)}>
           <DialogContent className="sm:max-w-md">
-            <DialogHeader><DialogTitle className="text-destructive flex items-center gap-2"><AlertTriangle className="h-5 w-5" /> Freeze Account</DialogTitle><DialogDescription>Temporarily disable your account. You will be logged out and need to contact support to reactivate.</DialogDescription></DialogHeader>
+            <DialogHeader>
+              <DialogTitle className="text-destructive flex items-center gap-2"><AlertTriangle className="h-5 w-5" /> Freeze account</DialogTitle>
+              <DialogDescription>To temporarily disable your account, contact support. We’ll verify your identity and freeze it. You’ll need to contact us again to reactivate.</DialogDescription>
+            </DialogHeader>
             <div className="space-y-4 py-4">
-              <div className="p-4 bg-destructive/10 rounded-lg"><p className="text-sm text-destructive font-medium">Warning</p><p className="text-xs text-destructive/80 mt-1">Freezing your account will prevent all transactions and require contacting support to reactivate.</p></div>
-              <div className="space-y-2"><Label>Enter your PIN to confirm</Label><Input type="password" placeholder="6-digit PIN" maxLength={6} /></div>
-              <Button variant="destructive" className="w-full" onClick={handleFreezeAccount}>Freeze My Account</Button>
+              <div className="p-4 bg-muted rounded-lg">
+                <p className="text-sm text-muted-foreground">Freezing stops all transactions and hides your account until you ask us to turn it back on.</p>
+              </div>
+              <Button variant="outline" className="w-full" onClick={openSupportMail}>
+                <Mail className="h-4 w-4 mr-2" /> Contact support to freeze account
+              </Button>
             </div>
           </DialogContent>
         </Dialog>

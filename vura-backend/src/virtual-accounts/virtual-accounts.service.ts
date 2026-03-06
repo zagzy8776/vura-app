@@ -23,6 +23,7 @@ export class VirtualAccountsService {
         bvnIv: true,
         legalFirstName: true,
         legalLastName: true,
+        kycTier: true,
         reservedAccountNumber: true,
         reservedAccountBankName: true,
         flutterwaveOrderRef: true,
@@ -81,6 +82,7 @@ export class VirtualAccountsService {
       bvn,
       firstName: user.legalFirstName,
       lastName: user.legalLastName,
+      kycTier: user.kycTier ?? 2,
     });
 
     if (!result.success) {

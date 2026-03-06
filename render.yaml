@@ -33,9 +33,7 @@ services:
         sync: false
       - key: MONNIFY_SECRET_KEY
         sync: false
-      - key: QOREID_CLIENT_ID
-        sync: false
-      - key: QOREID_SECRET
+      - key: PREMBLY_API_KEY
         sync: false
       - key: BUSHA_SECRET_KEY
         sync: false

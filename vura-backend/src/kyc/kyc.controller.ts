@@ -90,6 +90,7 @@ export class KYCController {
         kycStatus: true,
         kycTier: true,
         bvnVerified: true,
+        kycRejectionReason: true,
       },
     });
 

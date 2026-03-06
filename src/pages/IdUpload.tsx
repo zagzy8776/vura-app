@@ -12,6 +12,7 @@ interface KYCStatus {
   idCardUrl: string | null;
   selfieUrl: string | null;
   kycStatus: string;
+  kycRejectionReason?: string | null;
 }
 
 export default function IdUpload() {
@@ -25,6 +26,7 @@ export default function IdUpload() {
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [idCardUrl, setIdCardUrl] = useState<string | null>(null);
   const [selfieUrl, setSelfieUrl] = useState<string | null>(null);
+  const [dismissRejectedView, setDismissRejectedView] = useState(false);
 
   useEffect(() => {
     const fetchKycStatus = async () => {
@@ -170,15 +172,28 @@ export default function IdUpload() {
     );
   }
 
-  if (kycStatus?.kycStatus === 'REJECTED') {
+  if (kycStatus?.kycStatus === 'REJECTED' && !dismissRejectedView) {
     return (
       <div className="container mx-auto py-8 max-w-md">
         <Card>
-          <CardContent className="pt-6 text-center">
-            <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
-            <h2 className="text-2xl font-bold text-red-600">KYC Rejected</h2>
-            <p className="text-gray-600 mt-2">Please re-submit your documents.</p>
-            <Button className="mt-4" onClick={() => setKycStatus(null)}>Try Again</Button>
+          <CardContent className="pt-6">
+            <div className="text-center mb-4">
+              <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
+              <h2 className="text-2xl font-bold text-red-600">KYC not approved</h2>
+              <p className="text-gray-600 mt-2">Our team reviewed your documents and could not approve them.</p>
+            </div>
+            {kycStatus.kycRejectionReason && (
+              <div className="p-4 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-lg mb-4 text-left">
+                <p className="text-sm font-medium text-red-800 dark:text-red-200">Reason</p>
+                <p className="text-sm text-red-700 dark:text-red-300 mt-1">{kycStatus.kycRejectionReason}</p>
+              </div>
+            )}
+            <p className="text-sm text-muted-foreground text-center mb-4">
+              Please upload a clear, valid government-issued ID and a clear selfie of yourself. Then submit again for review.
+            </p>
+            <Button className="w-full" onClick={() => { setDismissRejectedView(true); setStep(1); }}>
+              Submit new documents
+            </Button>
           </CardContent>
         </Card>
       </div>

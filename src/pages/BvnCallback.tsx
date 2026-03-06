@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
+import { Shield, Loader2 } from 'lucide-react';
 import { apiFetch } from '@/hooks/useAuth';
 import { toast } from '@/hooks/use-toast';
 
@@ -17,9 +18,8 @@ export default function BvnCallback() {
           searchParams.get('ref');
         if (!reference) {
           toast({
-            title: 'BVN callback missing reference',
-            description:
-              'We could not read the verification reference from the redirect URL.',
+            title: 'Verification link invalid',
+            description: 'Missing reference. Please try again from Settings.',
             variant: 'destructive',
           });
           navigate('/settings');
@@ -37,14 +37,15 @@ export default function BvnCallback() {
 
         const firstName = data?.data?.firstName || '';
         const lastName = data?.data?.lastName || '';
+        const name = `${firstName} ${lastName}`.trim() || 'there';
         toast({
-          title: 'Tier 2 Unlocked',
-          description: `Welcome ${`${firstName} ${lastName}`.trim()}! Your BVN is verified.`,
+          title: 'BVN verified',
+          description: `Welcome back, ${name}! Tier 2 limits are now active.`,
         });
       } catch (e: unknown) {
-        const message = e instanceof Error ? e.message : 'BVN completion failed';
+        const message = e instanceof Error ? e.message : 'Verification could not be completed';
         toast({
-          title: 'BVN verification not completed',
+          title: 'Verification incomplete',
           description: message,
           variant: 'destructive',
         });
@@ -58,11 +59,22 @@ export default function BvnCallback() {
   }, [navigate, searchParams]);
 
   return (
-    <div className="min-h-screen flex items-center justify-center">
-      <div className="text-center space-y-2">
-        <div className="text-lg font-semibold">Completing BVN verification…</div>
-        <div className="text-sm text-muted-foreground">
-          {loading ? 'Please wait' : 'Redirecting…'}
+    <div className="min-h-screen flex items-center justify-center bg-background px-4">
+      <div className="text-center space-y-6 max-w-sm">
+        <div className="mx-auto w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center">
+          {loading ? (
+            <Loader2 className="h-8 w-8 text-primary animate-spin" />
+          ) : (
+            <Shield className="h-8 w-8 text-primary" />
+          )}
+        </div>
+        <div>
+          <h1 className="text-xl font-semibold text-foreground">
+            {loading ? 'Completing verification…' : 'Taking you back'}
+          </h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            {loading ? 'Please wait a moment.' : 'Redirecting to Settings…'}
+          </p>
         </div>
       </div>
     </div>
