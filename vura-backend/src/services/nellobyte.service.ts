@@ -485,8 +485,17 @@ export class NellobyteService {
       const data = await this.get<any>('APIBettingCompaniesV2.asp', {});
       if (data && typeof data === 'object') {
         const arr: { id: string; name: string }[] = [];
-        for (const [code, name] of Object.entries(data)) {
-          if (code && name) arr.push({ id: String(code), name: String(name) });
+        if (Array.isArray(data)) {
+          for (const item of data) {
+            const id = item?.id ?? item?.code ?? item?.biller_id ?? '';
+            const name = item?.name ?? item?.description ?? item?.biller_name ?? '';
+            if (id && name) arr.push({ id: String(id), name: String(name) });
+          }
+        } else {
+          for (const [code, val] of Object.entries(data)) {
+            const name = typeof val === 'string' ? val : (val && typeof val === 'object' ? (val as any).name ?? (val as any).description ?? '' : String(val));
+            if (code && name) arr.push({ id: String(code), name: String(name) });
+          }
         }
         if (arr.length > 0) return arr;
       }
