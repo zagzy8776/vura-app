@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
+import { getApiUrl } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -62,7 +63,7 @@ export default function AdminDashboard() {
 
   const fetchUsers = async () => {
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL}/admin/users?limit=50`, {
+      const res = await fetch(`${getApiUrl()}/admin/users?limit=50`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
@@ -78,7 +79,7 @@ export default function AdminDashboard() {
 
   const fetchStats = async () => {
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL}/admin/stats/kyc`, {
+      const res = await fetch(`${getApiUrl()}/admin/stats/kyc`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
@@ -93,7 +94,7 @@ export default function AdminDashboard() {
   const handleVerify = async (userId: string) => {
     setActionLoading(true);
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL}/admin/users/${userId}/verify-kyc`, {
+      const res = await fetch(`${getApiUrl()}/admin/users/${userId}/verify-kyc`, {
         method: 'POST',
         headers: { 
           Authorization: `Bearer ${token}`,
@@ -127,7 +128,7 @@ export default function AdminDashboard() {
     const reason = rejectReason.trim() || 'Documents could not be verified. Please upload a valid government-issued ID and a clear selfie.';
     setActionLoading(true);
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL}/admin/users/${userToReject.id}/reject-kyc`, {
+      const res = await fetch(`${getApiUrl()}/admin/users/${userToReject.id}/reject-kyc`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,

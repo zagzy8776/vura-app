@@ -5,7 +5,8 @@ services:
     buildCommand: npm run build
     publishDir: dist
     envVars:
-      # Must be your BACKEND URL (not this frontend). If backend is a separate Render service, use its URL (e.g. https://vura-backend-xxxx.onrender.com/api). Wrong URL causes "Unexpected token 'export'" and 400.
+      # Must be your BACKEND service URL (not the frontend). Wrong value causes "Unexpected token 'export'" and failed login.
+      # Backend API base URL (same Render service or separate).
       - key: VITE_API_URL
         value: https://vura-app.onrender.com/api
     healthCheckPath: /
@@ -48,6 +49,7 @@ services:
         sync: false
       - key: FRONTEND_URL
         value: https://vura-app.vercel.app
+      # Not used at runtime; backend does not call itself. Kept for consistency.
       - key: VITE_API_URL
         value: https://vura-app.onrender.com/api
       - key: FLUTTERWAVE_SECRET_HASH

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
+import { getApiUrl } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
@@ -31,7 +32,7 @@ export default function IdUpload() {
   useEffect(() => {
     const fetchKycStatus = async () => {
       try {
-        const res = await fetch(`${import.meta.env.VITE_API_URL}/kyc/status`, {
+        const res = await fetch(`${getApiUrl()}/kyc/status`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (res.ok) {
@@ -65,7 +66,7 @@ export default function IdUpload() {
       formData.append('file', idFile);
       formData.append('idType', idType);
 
-      const res = await fetch(`${import.meta.env.VITE_API_URL}/kyc/upload-id`, {
+      const res = await fetch(`${getApiUrl()}/kyc/upload-id`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
         body: formData,
@@ -99,7 +100,7 @@ export default function IdUpload() {
       const formData = new FormData();
       formData.append('file', selfieFile);
 
-      const res = await fetch(`${import.meta.env.VITE_API_URL}/kyc/upload-selfie`, {
+      const res = await fetch(`${getApiUrl()}/kyc/upload-selfie`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
         body: formData,
@@ -130,7 +131,7 @@ export default function IdUpload() {
 
     setLoading(true);
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL}/kyc/submit-kyc`, {
+      const res = await fetch(`${getApiUrl()}/kyc/submit-kyc`, {
         method: 'POST',
         headers: { 
           Authorization: `Bearer ${token}`,

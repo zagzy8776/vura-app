@@ -34,7 +34,7 @@ async function bootstrap() {
           'https://vura-app.vercel.app',
           'https://www.vura-app.vercel.app',
           // Render backend URL (if needed for webhooks)
-          'https://vura-backend.onrender.com',
+          'https://vura-app.onrender.com',
           'https://*.onrender.com',
           // Custom domain
           'https://www.vura-bank.com.ng',

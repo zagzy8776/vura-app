@@ -1,7 +1,8 @@
 import { Bank, TransferLimits, TransferResult } from '../types/transfer';
 import { supabase } from '../../integrations/supabase/client';
+import { getApiUrl } from '../api';
 
-const API_URL = import.meta.env.VITE_API_URL || 'https://vura-backend-production.up.railway.app';
+const API_URL = getApiUrl();
 
 // Fee constants - should come from backend in production
 const TAG_TRANSFER_FEE = 0.005; // 0.5%

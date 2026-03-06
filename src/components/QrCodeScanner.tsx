@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Camera, X, Scan, Loader2 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
+import { getApiUrl } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
 
 interface QrCodeScannerProps {
@@ -57,7 +58,7 @@ export const QrCodeScanner: React.FC<QrCodeScannerProps> = ({
       // Validate QR code with backend
       const { data: session } = await supabase.auth.getSession();
       const response = await fetch(
-        `${import.meta.env.VITE_API_URL}/qr-codes/validate`,
+        `${getApiUrl()}/qr-codes/validate`,
         {
           method: 'POST',
           headers: {

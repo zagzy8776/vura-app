@@ -29,6 +29,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
+import { getApiUrl } from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
 import { QrCodeScanner } from '@/components/QrCodeScanner';
 import { SecurityCountdownModal } from '@/components/SecurityCountdownModal';
@@ -81,7 +82,7 @@ export const MerchantDashboard: React.FC = () => {
     try {
       const { data: session } = await supabase.auth.getSession();
       const response = await fetch(
-        `${import.meta.env.VITE_API_URL}/transactions?type=receive&limit=100`,
+        `${getApiUrl()}/transactions?type=receive&limit=100`,
         {
           headers: {
             Authorization: `Bearer ${session.session?.access_token}`,
@@ -104,7 +105,7 @@ export const MerchantDashboard: React.FC = () => {
     try {
       const { data: session } = await supabase.auth.getSession();
       const response = await fetch(
-        `${import.meta.env.VITE_API_URL}/qr-codes/history`,
+        `${getApiUrl()}/qr-codes/history`,
         {
           headers: {
             Authorization: `Bearer ${session.session?.access_token}`,
@@ -125,7 +126,7 @@ export const MerchantDashboard: React.FC = () => {
     try {
       const { data: session } = await supabase.auth.getSession();
       const response = await fetch(
-        `${import.meta.env.VITE_API_URL}/qr-codes/generate`,
+        `${getApiUrl()}/qr-codes/generate`,
         {
           method: 'POST',
           headers: {
