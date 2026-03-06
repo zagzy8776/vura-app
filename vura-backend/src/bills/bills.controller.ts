@@ -18,8 +18,8 @@ export class BillsController {
   // ── Airtime ─────────────────────────────────────────────────────────
 
   @Get('airtime/networks')
-  getAirtimeNetworks() {
-    const networks = this.billsService.getAirtimeNetworks();
+  async getAirtimeNetworks() {
+    const networks = await this.billsService.getAirtimeNetworks();
     return { success: true, data: networks };
   }
 
@@ -38,8 +38,8 @@ export class BillsController {
   // ── Data ────────────────────────────────────────────────────────────
 
   @Get('data/networks')
-  getDataNetworks() {
-    const networks = this.billsService.getDataNetworks();
+  async getDataNetworks() {
+    const networks = await this.billsService.getDataNetworks();
     return { success: true, data: networks };
   }
 
@@ -64,8 +64,8 @@ export class BillsController {
   // ── Electricity ──────────────────────────────────────────────────────
 
   @Get('electricity/discos')
-  getElectricityDiscos() {
-    const discos = this.billsService.getElectricityDiscos();
+  async getElectricityDiscos() {
+    const discos = await this.billsService.getElectricityDiscos();
     return { success: true, data: discos };
   }
 

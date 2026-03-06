@@ -227,7 +227,7 @@ const Bills = () => {
       const res = await apiFetch("/bills/airtime/networks");
       if (!res.ok) return;
       const json = await res.json();
-      setAirtimeNetworks(json.data ?? []);
+      setAirtimeNetworks(Array.isArray(json.data) ? json.data : []);
     } catch {
       // silent
     } finally {
@@ -241,7 +241,7 @@ const Bills = () => {
       const res = await apiFetch("/bills/data/networks");
       if (!res.ok) return;
       const json = await res.json();
-      setDataNetworks(json.data ?? []);
+      setDataNetworks(Array.isArray(json.data) ? json.data : []);
     } catch {
       // silent
     } finally {
@@ -255,7 +255,7 @@ const Bills = () => {
       const res = await apiFetch("/bills/electricity/discos");
       if (!res.ok) return;
       const json = await res.json();
-      setDiscos(json.data ?? []);
+      setDiscos(Array.isArray(json.data) ? json.data : []);
     } catch {
       // silent
     } finally {
@@ -311,7 +311,7 @@ const Bills = () => {
         const res = await apiFetch(`/bills/data/plans?network=${selectedNetwork}`);
         if (!res.ok || cancelled) return;
         const json = await res.json();
-        setDataPlans(json.data ?? []);
+        setDataPlans(Array.isArray(json.data) ? json.data : []);
       } catch {
         setDataPlans([]);
       } finally {
@@ -337,7 +337,7 @@ const Bills = () => {
         const res = await apiFetch(`/bills/electricity/items?disco=${selectedDisco}`);
         if (!res.ok || cancelled) return;
         const json = await res.json();
-        setElectricityItems(json.data ?? []);
+        setElectricityItems(Array.isArray(json.data) ? json.data : []);
       } catch {
         setElectricityItems([]);
       } finally {
@@ -582,7 +582,8 @@ const Bills = () => {
     tab === "airtime" ? airtimeNetworksLoading : tab === "data" ? dataNetworksLoading : discosLoading;
 
   const selectedNetworkName = useMemo(() => {
-    const nets = tab === "airtime" ? airtimeNetworks : tab === "data" ? dataNetworks : discos;
+    const raw = tab === "airtime" ? airtimeNetworks : tab === "data" ? dataNetworks : discos;
+    const nets = Array.isArray(raw) ? raw : [];
     const found = nets.find((n) => (n.id ?? n.identifier) === (tab === "electricity" ? selectedDisco : selectedNetwork));
     return found?.name || (tab === "electricity" ? selectedDisco : selectedNetwork);
   }, [tab, selectedNetwork, selectedDisco, airtimeNetworks, dataNetworks, discos]);
