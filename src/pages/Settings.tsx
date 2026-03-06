@@ -145,8 +145,20 @@ const SettingsPage = () => {
         method: "POST",
         body: JSON.stringify({ bvn, firstName: bvnFirstName.trim(), lastName: bvnLastName.trim() }),
       });
-      const data = await response.json();
+      let data: { success?: boolean; message?: string; data?: { success?: boolean; consentUrl?: string; url?: string } };
+      try {
+        data = await response.json();
+      } catch {
+        toast({ title: "Verification Failed", description: "Invalid response from server. Please try again.", variant: "destructive" });
+        return;
+      }
       if (response.ok) {
+        // Backend can return 200 with data.data.success === false (e.g. Prembly not configured correctly)
+        if (data?.data && (data.data as { success?: boolean }).success === false) {
+          const msg = (data.data as { message?: string }).message || data.message || "Verification could not be completed.";
+          toast({ title: "Verification Failed", description: msg, variant: "destructive" });
+          return;
+        }
         const consentUrl = data?.data?.consentUrl || data?.data?.url;
         if (consentUrl && typeof consentUrl === "string") {
           toast({
@@ -164,10 +176,10 @@ const SettingsPage = () => {
         fetchBvnStatus();
         setActiveDialog(null);
       } else {
-        toast({ title: "Verification Failed", description: data.message, variant: "destructive" });
+        toast({ title: "Verification Failed", description: data?.message ?? "BVN verification failed. Please try again or contact support.", variant: "destructive" });
       }
     } catch (error) {
-      toast({ title: "Error", description: "Failed to verify BVN", variant: "destructive" });
+      toast({ title: "Error", description: "Failed to verify BVN. Please try again or contact support.", variant: "destructive" });
     } finally {
       setLoading(false);
     }

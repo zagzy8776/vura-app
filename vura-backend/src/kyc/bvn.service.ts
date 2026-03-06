@@ -58,11 +58,10 @@ export class BVNService {
 
     // 1) Try Prembly first (instant, no redirect) when API key is set
     if (this.premblyService.isConfigured()) {
-      const premblyResult = await this.premblyService.verifyBvn(
-        bvn,
-      );
+      const premblyResult = await this.premblyService.verifyBvn(bvn);
       if (premblyResult.success) {
-        const fName = premblyResult.firstName?.trim() || firstName?.trim() || '';
+        const fName =
+          premblyResult.firstName?.trim() || firstName?.trim() || '';
         const lName = premblyResult.lastName?.trim() || lastName?.trim() || '';
         if (fName || lName) {
           await this.persistVerifiedBvn(
@@ -84,6 +83,12 @@ export class BVNService {
             kycTier: 2,
           };
         }
+      } else {
+        // Prembly failed (e.g. API key not approved for BVN) — return clear error instead of falling through
+        throw new BadRequestException(
+          premblyResult.message ||
+            'BVN verification is not available at the moment. Please try again later or contact support.',
+        );
       }
     }
 
@@ -106,7 +111,13 @@ export class BVNService {
       redirectUrl,
     });
     if (!initiation.success) {
-      throw new BadRequestException(initiation.error || 'BVN consent failed');
+      const errMsg = initiation.error || 'BVN consent failed';
+      // User-friendly message when provider says "not approved" (e.g. product not enabled on their account)
+      const friendlyMsg =
+        /not approved|not enabled|unauthorized|restricted/i.test(errMsg)
+          ? 'BVN verification is not available for this account. Please contact support to enable it.'
+          : errMsg;
+      throw new BadRequestException(friendlyMsg);
     }
 
     // Persist pending consent details so user can resume later
