@@ -108,4 +108,65 @@ export class BillsController {
       itemCode: body.itemCode,
     });
   }
+
+  // ── Cable TV ───────────────────────────────────────────────────────────
+
+  @Get('cable/providers')
+  async getCableProviders() {
+    const providers = await this.billsService.getCableProviders();
+    return { success: true, data: providers };
+  }
+
+  @Get('cable/packages')
+  async getCablePackages(@Query('provider') provider: string) {
+    const packages = await this.billsService.getCablePackages(provider);
+    return { success: true, data: packages };
+  }
+
+  @Post('cable/validate')
+  async validateCableSmartcard(
+    @Body() body: { cableTv: string; smartCardNo: string },
+  ) {
+    return this.billsService.validateCableSmartcard(body.cableTv, body.smartCardNo);
+  }
+
+  @Post('cable')
+  async buyCableTV(
+    @Body() body: { cableTv: string; packageCode: string; smartCardNo: string; phoneNumber?: string },
+    @Request() req: any,
+  ) {
+    return this.billsService.buyCableTV(req.user.userId, {
+      cableTv: body.cableTv,
+      packageCode: body.packageCode,
+      smartCardNo: body.smartCardNo,
+      phoneNumber: body.phoneNumber || '08000000000',
+    });
+  }
+
+  // ── Betting ───────────────────────────────────────────────────────────
+
+  @Get('betting/companies')
+  async getBettingCompanies() {
+    const companies = await this.billsService.getBettingCompanies();
+    return { success: true, data: companies };
+  }
+
+  @Post('betting/validate')
+  async validateBettingCustomer(
+    @Body() body: { company: string; customerId: string },
+  ) {
+    return this.billsService.validateBettingCustomer(body.company, body.customerId);
+  }
+
+  @Post('betting')
+  async buyBetting(
+    @Body() body: { company: string; customerId: string; amount: number },
+    @Request() req: any,
+  ) {
+    return this.billsService.buyBetting(req.user.userId, {
+      company: body.company,
+      customerId: body.customerId,
+      amount: body.amount,
+    });
+  }
 }

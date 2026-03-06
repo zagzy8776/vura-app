@@ -8,6 +8,8 @@ import {
   Wallet,
   Loader2,
   Zap,
+  Tv,
+  Trophy,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { apiFetch } from "@/hooks/useAuth";
@@ -147,7 +149,7 @@ const detectNetwork = (phone: string): { airtimeId?: string; dataId?: string } =
 
 // ── Component ─────────────────────────────────────────────────────────
 
-type BillTab = "airtime" | "data" | "electricity";
+type BillTab = "airtime" | "data" | "electricity" | "cable" | "betting";
 
 const Bills = () => {
   const [searchParams] = useSearchParams();
@@ -157,7 +159,11 @@ const Bills = () => {
       ? "data"
       : tabParam === "electricity"
         ? "electricity"
-        : "airtime";
+        : tabParam === "cable"
+          ? "cable"
+          : tabParam === "betting"
+            ? "betting"
+            : "airtime";
 
   const [tab, setTab] = useState<BillTab>(initialTab);
   const [step, setStep] = useState<"form" | "confirm" | "success" | "error">("form");
@@ -193,6 +199,27 @@ const Bills = () => {
   const [electricityAmount, setElectricityAmount] = useState("");
   const [validatingMeter, setValidatingMeter] = useState(false);
   const [lastValidated, setLastValidated] = useState<{ meter: string; item: string } | null>(null);
+
+  // Cable TV
+  const [cableProviders, setCableProviders] = useState<Network[]>([]);
+  const [cablePackages, setCablePackages] = useState<DataPlan[]>([]);
+  const [cableProvidersLoading, setCableProvidersLoading] = useState(false);
+  const [cablePackagesLoading, setCablePackagesLoading] = useState(false);
+  const [selectedCableProvider, setSelectedCableProvider] = useState<string>("");
+  const [selectedCablePackage, setSelectedCablePackage] = useState<DataPlan | null>(null);
+  const [smartCardNo, setSmartCardNo] = useState("");
+  const [smartCardValidated, setSmartCardValidated] = useState(false);
+  const [cablePhoneNumber, setCablePhoneNumber] = useState("");
+  const [validatingSmartcard, setValidatingSmartcard] = useState(false);
+
+  // Betting
+  const [bettingCompanies, setBettingCompanies] = useState<Network[]>([]);
+  const [bettingCompaniesLoading, setBettingCompaniesLoading] = useState(false);
+  const [selectedBettingCompany, setSelectedBettingCompany] = useState<string>("");
+  const [bettingCustomerId, setBettingCustomerId] = useState("");
+  const [bettingCustomerValidated, setBettingCustomerValidated] = useState(false);
+  const [bettingAmount, setBettingAmount] = useState("");
+  const [validatingBettingCustomer, setValidatingBettingCustomer] = useState(false);
 
   // Balance
   const [balance, setBalance] = useState<string | null>(null);
@@ -263,6 +290,34 @@ const Bills = () => {
     }
   }, []);
 
+  const fetchCableProviders = useCallback(async () => {
+    setCableProvidersLoading(true);
+    try {
+      const res = await apiFetch("/bills/cable/providers");
+      if (!res.ok) return;
+      const json = await res.json();
+      setCableProviders(Array.isArray(json.data) ? json.data : []);
+    } catch {
+      setCableProviders([]);
+    } finally {
+      setCableProvidersLoading(false);
+    }
+  }, []);
+
+  const fetchBettingCompanies = useCallback(async () => {
+    setBettingCompaniesLoading(true);
+    try {
+      const res = await apiFetch("/bills/betting/companies");
+      if (!res.ok) return;
+      const json = await res.json();
+      setBettingCompanies(Array.isArray(json.data) ? json.data : []);
+    } catch {
+      setBettingCompanies([]);
+    } finally {
+      setBettingCompaniesLoading(false);
+    }
+  }, []);
+
   const fetchBalance = useCallback(async () => {
     try {
       const res = await apiFetch("/transactions/balance");
@@ -281,6 +336,8 @@ const Bills = () => {
     fetchAirtimeNetworks();
     fetchDataNetworks();
     fetchElectricityDiscos();
+    fetchCableProviders();
+    fetchBettingCompanies();
     fetchBalance();
     setRecentAirtime(loadRecents<RecentAirtime>(STORAGE_KEYS.airtime));
     setRecentData(loadRecents<RecentData>(STORAGE_KEYS.data));
@@ -291,7 +348,7 @@ const Bills = () => {
     setHistory(loadList<LocalHistoryItem>(STORAGE_KEYS.history, HISTORY_LIMIT));
     const lrRaw = loadList<LastRequest>(STORAGE_KEYS.lastRequest, 1);
     if (lrRaw.length > 0) setLastRequest(lrRaw[0]);
-  }, [fetchAirtimeNetworks, fetchDataNetworks, fetchElectricityDiscos, fetchBalance]);
+  }, [fetchAirtimeNetworks, fetchDataNetworks, fetchElectricityDiscos, fetchCableProviders, fetchBettingCompanies, fetchBalance]);
 
   // ── Fetch data plans when network changes ───────────────────────────
 
@@ -347,6 +404,31 @@ const Bills = () => {
     return () => { cancelled = true; };
   }, [tab, selectedDisco]);
 
+  // ── Fetch cable packages when provider changes ──────────────────────
+  useEffect(() => {
+    if (tab !== "cable" || !selectedCableProvider) {
+      setCablePackages([]);
+      setSelectedCablePackage(null);
+      return;
+    }
+    let cancelled = false;
+    setCablePackagesLoading(true);
+    setSelectedCablePackage(null);
+    (async () => {
+      try {
+        const res = await apiFetch(`/bills/cable/packages?provider=${selectedCableProvider}`);
+        if (!res.ok || cancelled) return;
+        const json = await res.json();
+        setCablePackages(Array.isArray(json.data) ? json.data : []);
+      } catch {
+        setCablePackages([]);
+      } finally {
+        if (!cancelled) setCablePackagesLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [tab, selectedCableProvider]);
+
   // ── Handlers ────────────────────────────────────────────────────────
 
   const resetForm = () => {
@@ -362,6 +444,15 @@ const Bills = () => {
     setMeterValidated(false);
     setMeterCustomerName("");
     setElectricityAmount("");
+    setSelectedCableProvider("");
+    setSelectedCablePackage(null);
+    setSmartCardNo("");
+    setSmartCardValidated(false);
+    setCablePhoneNumber("");
+    setSelectedBettingCompany("");
+    setBettingCustomerId("");
+    setBettingCustomerValidated(false);
+    setBettingAmount("");
   };
 
   const switchTab = (newTab: BillTab) => {
@@ -386,15 +477,78 @@ const Bills = () => {
     parseFloat(electricityAmount) >= 500 &&
     parseFloat(electricityAmount) <= 500000;
 
+  const canConfirmCable =
+    selectedCableProvider &&
+    selectedCablePackage &&
+    smartCardNo.length >= 6 &&
+    smartCardValidated &&
+    PHONE_REGEX.test(cablePhoneNumber);
+
+  const canConfirmBetting =
+    selectedBettingCompany &&
+    bettingCustomerId.trim().length >= 3 &&
+    bettingCustomerValidated &&
+    parseFloat(bettingAmount) >= 100;
+
   const currentAmount =
     tab === "airtime"
       ? parseFloat(airtimeAmount) || 0
       : tab === "data"
         ? selectedPlan?.price ?? 0
-        : parseFloat(electricityAmount) || 0;
+        : tab === "cable"
+          ? selectedCablePackage?.price ?? 0
+          : tab === "betting"
+            ? parseFloat(bettingAmount) || 0
+            : parseFloat(electricityAmount) || 0;
 
   const electricityFee = selectedElectricityItem?.fee ?? 100;
   const electricityTotal = tab === "electricity" ? currentAmount + electricityFee : 0;
+
+  const handleValidateSmartcard = async () => {
+    if (!selectedCableProvider || !smartCardNo.trim()) {
+      toast({ title: "Error", description: "Select provider and enter smartcard/IUC number", variant: "destructive" });
+      return;
+    }
+    setValidatingSmartcard(true);
+    try {
+      const res = await apiFetch("/bills/cable/validate", {
+        method: "POST",
+        body: JSON.stringify({ cableTv: selectedCableProvider, smartCardNo: smartCardNo.trim() }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.message || "Validation failed");
+      setSmartCardValidated(true);
+      toast({ title: "Smartcard verified", description: "You can proceed to pay." });
+    } catch (err) {
+      toast({ title: "Error", description: err instanceof Error ? err.message : "Invalid smartcard", variant: "destructive" });
+      setSmartCardValidated(false);
+    } finally {
+      setValidatingSmartcard(false);
+    }
+  };
+
+  const handleValidateBettingCustomer = async () => {
+    if (!selectedBettingCompany || !bettingCustomerId.trim()) {
+      toast({ title: "Error", description: "Select company and enter customer ID", variant: "destructive" });
+      return;
+    }
+    setValidatingBettingCustomer(true);
+    try {
+      const res = await apiFetch("/bills/betting/validate", {
+        method: "POST",
+        body: JSON.stringify({ company: selectedBettingCompany, customerId: bettingCustomerId.trim() }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.message || "Validation failed");
+      setBettingCustomerValidated(true);
+      toast({ title: "Customer verified", description: "You can proceed to fund." });
+    } catch (err) {
+      toast({ title: "Error", description: err instanceof Error ? err.message : "Invalid customer ID", variant: "destructive" });
+      setBettingCustomerValidated(false);
+    } finally {
+      setValidatingBettingCustomer(false);
+    }
+  };
 
   const handleValidateMeter = async () => {
     if (!selectedElectricityItem || !meterNumber.trim()) {
@@ -437,8 +591,12 @@ const Bills = () => {
     const parsedAirtime = parseFloat(airtimeAmount);
     const parsedElectricity = parseFloat(electricityAmount);
 
-    if (tab !== "electricity" && !PHONE_REGEX.test(phoneNumber)) {
+    if (tab === "airtime" && !PHONE_REGEX.test(phoneNumber)) {
       toast({ title: "Invalid phone", description: "Enter a valid Nigerian number (e.g. 08012345678)", variant: "destructive" });
+      return;
+    }
+    if (tab === "data" && !PHONE_REGEX.test(phoneNumber)) {
+      toast({ title: "Invalid phone", description: "Enter a valid Nigerian number", variant: "destructive" });
       return;
     }
 
@@ -449,6 +607,10 @@ const Bills = () => {
 
     if (tab === "electricity" && (parsedElectricity < 500 || parsedElectricity > 500000)) {
       toast({ title: "Amount out of range", description: "Electricity must be between ₦500 and ₦500,000", variant: "destructive" });
+      return;
+    }
+    if (tab === "betting" && (parseFloat(bettingAmount) < 100)) {
+      toast({ title: "Amount out of range", description: "Minimum betting amount is ₦100", variant: "destructive" });
       return;
     }
 
@@ -462,6 +624,21 @@ const Bills = () => {
       } else if (tab === "data") {
         endpoint = "/bills/data";
         body = { network: selectedNetwork, planCode: selectedPlan!.plan_code, phoneNumber };
+      } else if (tab === "cable") {
+        endpoint = "/bills/cable";
+        body = {
+          cableTv: selectedCableProvider,
+          packageCode: selectedCablePackage!.plan_code,
+          smartCardNo: smartCardNo.trim(),
+          phoneNumber: cablePhoneNumber || phoneNumber,
+        };
+      } else if (tab === "betting") {
+        endpoint = "/bills/betting";
+        body = {
+          company: selectedBettingCompany,
+          customerId: bettingCustomerId.trim(),
+          amount: parseFloat(bettingAmount),
+        };
       } else {
         endpoint = "/bills/electricity";
         const meterType = selectedElectricityItem!.name.toLowerCase().includes("prepaid") ? "prepaid" : "postpaid";
@@ -503,6 +680,10 @@ const Bills = () => {
         const next = [entry, ...recentData.filter((r) => !(r.phoneNumber === phoneNumber && r.planCode === selectedPlan.plan_code))].slice(0, RECENT_LIMIT);
         setRecentData(next);
         saveRecents(STORAGE_KEYS.data, next);
+      } else if (tab === "cable" && selectedCablePackage) {
+        // no recent for cable yet
+      } else if (tab === "betting") {
+        // no recent for betting yet
       } else if (tab === "electricity" && selectedElectricityItem) {
         const entry: RecentElectricity = {
           meterNumber,
@@ -519,14 +700,18 @@ const Bills = () => {
       }
 
       const historyEntry: LocalHistoryItem = {
-        kind: tab,
+        kind: tab as "airtime" | "data" | "electricity",
         title:
           tab === "airtime"
             ? `Airtime to ${phoneNumber}`
             : tab === "data"
               ? `${selectedPlan?.name ?? "Data"} for ${phoneNumber}`
-              : `Electricity for ${meterNumber}`,
-        amount: tab === "electricity" ? currentAmount : (tab === "data" ? selectedPlan?.price ?? currentAmount : currentAmount),
+              : tab === "cable"
+                ? `Cable TV ${selectedCablePackage?.name ?? selectedCableProvider} for ${smartCardNo}`
+                : tab === "betting"
+                  ? `Betting ₦${bettingAmount} to ${selectedBettingCompany}`
+                  : `Electricity for ${meterNumber}`,
+        amount: tab === "electricity" ? currentAmount : (tab === "data" || tab === "cable" ? (selectedPlan ?? selectedCablePackage)?.price ?? currentAmount : currentAmount),
         total: tab === "electricity" ? electricityTotal : currentAmount,
         ref: json.data?.reference ?? json.reference,
         at: now,
@@ -577,16 +762,25 @@ const Bills = () => {
   // ── Render ──────────────────────────────────────────────────────────
 
   const networksToShow =
-    tab === "airtime" ? airtimeNetworks : tab === "data" ? dataNetworks : discos;
+    tab === "airtime" ? airtimeNetworks
+    : tab === "data" ? dataNetworks
+    : tab === "cable" ? cableProviders
+    : tab === "betting" ? bettingCompanies
+    : discos;
   const networksLoading =
-    tab === "airtime" ? airtimeNetworksLoading : tab === "data" ? dataNetworksLoading : discosLoading;
+    tab === "airtime" ? airtimeNetworksLoading
+    : tab === "data" ? dataNetworksLoading
+    : tab === "cable" ? cableProvidersLoading
+    : tab === "betting" ? bettingCompaniesLoading
+    : discosLoading;
 
   const selectedNetworkName = useMemo(() => {
-    const raw = tab === "airtime" ? airtimeNetworks : tab === "data" ? dataNetworks : discos;
+    const raw = tab === "airtime" ? airtimeNetworks : tab === "data" ? dataNetworks : tab === "cable" ? cableProviders : tab === "betting" ? bettingCompanies : discos;
     const nets = Array.isArray(raw) ? raw : [];
-    const found = nets.find((n) => (n.id ?? n.identifier) === (tab === "electricity" ? selectedDisco : selectedNetwork));
-    return found?.name || (tab === "electricity" ? selectedDisco : selectedNetwork);
-  }, [tab, selectedNetwork, selectedDisco, airtimeNetworks, dataNetworks, discos]);
+    const sel = tab === "electricity" ? selectedDisco : tab === "cable" ? selectedCableProvider : tab === "betting" ? selectedBettingCompany : selectedNetwork;
+    const found = nets.find((n) => (n.id ?? n.identifier) === sel);
+    return found?.name || sel;
+  }, [tab, selectedNetwork, selectedDisco, selectedCableProvider, selectedBettingCompany, airtimeNetworks, dataNetworks, discos, cableProviders, bettingCompanies]);
 
   // Auto-detect network from phone number for airtime/data
   useEffect(() => {
@@ -862,12 +1056,16 @@ const Bills = () => {
           </button>
           <div>
             <h1 className="text-lg font-semibold">
-              {tab === "airtime" ? "Buy Airtime" : tab === "data" ? "Buy Data" : "Buy Electricity"}
+              {tab === "airtime" ? "Buy Airtime" : tab === "data" ? "Buy Data" : tab === "cable" ? "Cable TV" : tab === "betting" ? "Fund Betting" : "Buy Electricity"}
             </h1>
             <p className="text-xs text-muted-foreground">
               {tab === "electricity"
                 ? "Prepaid & postpaid meter payments"
-                : "Instant top-up to any Nigerian number"}
+                : tab === "cable"
+                  ? "DStv, GOtv, StarTimes, Showmax"
+                  : tab === "betting"
+                    ? "Fund your betting wallet"
+                    : "Instant top-up to any Nigerian number"}
             </p>
           </div>
         </div>
@@ -875,39 +1073,26 @@ const Bills = () => {
 
       <div className="max-w-2xl mx-auto p-4 space-y-6 pb-24">
         {/* Tab switcher */}
-        <div className="flex rounded-xl bg-muted p-1">
-          <button
-            onClick={() => switchTab("airtime")}
-            className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-sm font-medium transition-all ${
-              tab === "airtime"
-                ? "bg-background shadow-sm text-foreground"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
+        <div className="flex flex-wrap gap-1 rounded-xl bg-muted p-1">
+          <button onClick={() => switchTab("airtime")} className={`flex-1 min-w-[70px] flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-sm font-medium transition-all ${tab === "airtime" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}>
             <Smartphone className="h-4 w-4 shrink-0" />
             Airtime
           </button>
-          <button
-            onClick={() => switchTab("data")}
-            className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-sm font-medium transition-all ${
-              tab === "data"
-                ? "bg-background shadow-sm text-foreground"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
+          <button onClick={() => switchTab("data")} className={`flex-1 min-w-[70px] flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-sm font-medium transition-all ${tab === "data" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}>
             <Wifi className="h-4 w-4 shrink-0" />
             Data
           </button>
-          <button
-            onClick={() => switchTab("electricity")}
-            className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-sm font-medium transition-all ${
-              tab === "electricity"
-                ? "bg-background shadow-sm text-foreground"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
+          <button onClick={() => switchTab("electricity")} className={`flex-1 min-w-[70px] flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-sm font-medium transition-all ${tab === "electricity" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}>
             <Zap className="h-4 w-4 shrink-0" />
             Electricity
+          </button>
+          <button onClick={() => switchTab("cable")} className={`flex-1 min-w-[70px] flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-sm font-medium transition-all ${tab === "cable" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}>
+            <Tv className="h-4 w-4 shrink-0" />
+            Cable
+          </button>
+          <button onClick={() => switchTab("betting")} className={`flex-1 min-w-[70px] flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-sm font-medium transition-all ${tab === "betting" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}>
+            <Trophy className="h-4 w-4 shrink-0" />
+            Betting
           </button>
         </div>
 
@@ -931,13 +1116,13 @@ const Bills = () => {
             animate={{ opacity: 1, y: 0 }}
             className="space-y-6"
           >
-            {/* Network / Disco selection */}
+            {/* Network / Disco / Provider / Company selection */}
             <div>
               <label className="text-sm font-medium mb-3 block">
-                {tab === "electricity" ? "Select Disco" : "Select Network"}
+                {tab === "electricity" ? "Select Disco" : tab === "cable" ? "Select Provider" : tab === "betting" ? "Select Company" : "Select Network"}
               </label>
-              {renderRecents()}
-              {renderFavorites()}
+              {(tab === "airtime" || tab === "data" || tab === "electricity") && renderRecents()}
+              {(tab === "airtime" || tab === "data" || tab === "electricity") && renderFavorites()}
               <div className="flex items-center gap-2 mb-2">
                 <input
                   id="save-fav"
@@ -958,6 +1143,9 @@ const Bills = () => {
                   />
                 )}
               </div>
+              {(tab === "cable" || tab === "betting") && networksToShow.length === 0 && !networksLoading && (
+                <p className="text-sm text-muted-foreground py-4">Cable TV and Betting require Nellobyte (ClubKonnect). Set NELLOBYTE_USERID and NELLOBYTE_API_KEY in your backend.</p>
+              )}
               {networksLoading ? (
                 <div className="flex justify-center py-8">
                   <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -968,13 +1156,19 @@ const Bills = () => {
                     const netId = net.id ?? net.identifier ?? net.network_id;
                     const netName = net.name || netId;
                     const isSelected =
-                      tab === "electricity" ? selectedDisco === netId : selectedNetwork === netId;
+                      tab === "electricity" ? selectedDisco === netId
+                      : tab === "cable" ? selectedCableProvider === netId
+                      : tab === "betting" ? selectedBettingCompany === netId
+                      : selectedNetwork === netId;
                     return (
                       <button
                         key={netId}
-                        onClick={() =>
-                          tab === "electricity" ? setSelectedDisco(netId) : setSelectedNetwork(netId)
-                        }
+                        onClick={() => {
+                          if (tab === "electricity") setSelectedDisco(netId);
+                          else if (tab === "cable") { setSelectedCableProvider(netId); setSmartCardValidated(false); }
+                          else if (tab === "betting") { setSelectedBettingCompany(netId); setBettingCustomerValidated(false); }
+                          else setSelectedNetwork(netId);
+                        }}
                         className={`flex items-center gap-3 p-4 rounded-xl border-2 transition-all ${
                           isSelected
                             ? getNetworkStyle(netName)
@@ -1039,6 +1233,72 @@ const Bills = () => {
                     })}
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* Cable TV: package selection */}
+            {tab === "cable" && selectedCableProvider && (
+              <div>
+                <label className="text-sm font-medium mb-2 block">Select Package</label>
+                {cablePackagesLoading ? (
+                  <div className="flex justify-center py-6"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+                ) : cablePackages.length === 0 ? (
+                  <p className="text-sm text-muted-foreground py-4">No packages available</p>
+                ) : (
+                  <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                    {cablePackages.map((p) => {
+                      const code = p.plan_code;
+                      const isSelected = selectedCablePackage?.plan_code === code;
+                      return (
+                        <button key={code} onClick={() => setSelectedCablePackage(p)} className={`w-full flex items-center justify-between p-3.5 rounded-xl border-2 text-left transition-all ${isSelected ? "border-primary bg-primary/5" : "border-border hover:border-primary/50"}`}>
+                          <p className="font-medium text-sm">{p.name}</p>
+                          <span className="font-bold text-sm">₦{(p.price ?? 0).toLocaleString()}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Cable TV: smartcard + phone */}
+            {tab === "cable" && selectedCableProvider && (
+              <div className="space-y-4">
+                <div>
+                  <label className="text-sm font-medium mb-2 block">Smartcard / IUC Number</label>
+                  <div className="flex gap-2">
+                    <input type="text" value={smartCardNo} onChange={(e) => { setSmartCardNo(e.target.value.replace(/\D/g, "")); setSmartCardValidated(false); }} placeholder="e.g. 1234567890" className="flex-1 bg-background rounded-xl border border-border px-4 py-3 text-base font-mono outline-none focus:ring-2 focus:ring-primary/30" />
+                    <Button type="button" variant={smartCardValidated ? "secondary" : "outline"} onClick={handleValidateSmartcard} disabled={validatingSmartcard || smartCardNo.length < 6} className="shrink-0 rounded-xl">
+                      {validatingSmartcard ? <Loader2 className="h-4 w-4 animate-spin" /> : smartCardValidated ? "Verified" : "Verify"}
+                    </Button>
+                  </div>
+                  {smartCardValidated && <p className="text-xs text-green-600 mt-1">✓ Smartcard verified</p>}
+                </div>
+                <div>
+                  <label className="text-sm font-medium mb-2 block">Phone Number</label>
+                  <input type="tel" value={cablePhoneNumber} onChange={(e) => setCablePhoneNumber(e.target.value.replace(/\D/g, "").slice(0, 11))} placeholder="08012345678" className="w-full bg-background rounded-xl border border-border px-4 py-3 text-base font-mono outline-none focus:ring-2 focus:ring-primary/30" />
+                </div>
+              </div>
+            )}
+
+            {/* Betting: customer ID + amount */}
+            {tab === "betting" && selectedBettingCompany && (
+              <div className="space-y-4">
+                <div>
+                  <label className="text-sm font-medium mb-2 block">Customer ID</label>
+                  <div className="flex gap-2">
+                    <input type="text" value={bettingCustomerId} onChange={(e) => { setBettingCustomerId(e.target.value.trim()); setBettingCustomerValidated(false); }} placeholder="Your betting account ID" className="flex-1 bg-background rounded-xl border border-border px-4 py-3 text-base font-mono outline-none focus:ring-2 focus:ring-primary/30" />
+                    <Button type="button" variant={bettingCustomerValidated ? "secondary" : "outline"} onClick={handleValidateBettingCustomer} disabled={validatingBettingCustomer || bettingCustomerId.trim().length < 3} className="shrink-0 rounded-xl">
+                      {validatingBettingCustomer ? <Loader2 className="h-4 w-4 animate-spin" /> : bettingCustomerValidated ? "Verified" : "Verify"}
+                    </Button>
+                  </div>
+                  {bettingCustomerValidated && <p className="text-xs text-green-600 mt-1">✓ Customer verified</p>}
+                </div>
+                <div>
+                  <label className="text-sm font-medium mb-2 block">Amount (₦)</label>
+                  <input type="number" value={bettingAmount} onChange={(e) => setBettingAmount(e.target.value)} placeholder="e.g. 1000" min="100" className="w-full bg-background rounded-xl border border-border px-4 py-3 text-base outline-none focus:ring-2 focus:ring-primary/30" />
+                  <p className="text-[11px] text-muted-foreground mt-1">Min: ₦100</p>
+                </div>
               </div>
             )}
 
@@ -1206,7 +1466,11 @@ const Bills = () => {
                   ? !canConfirmAirtime
                   : tab === "data"
                     ? !canConfirmData
-                    : !canConfirmElectricity
+                    : tab === "cable"
+                      ? !canConfirmCable
+                      : tab === "betting"
+                        ? !canConfirmBetting
+                        : !canConfirmElectricity
               }
               className="w-full h-14 rounded-xl gradient-brand text-primary-foreground font-semibold text-lg"
             >

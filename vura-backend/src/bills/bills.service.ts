@@ -1,6 +1,7 @@
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
 import { PeyflexService } from '../services/peyflex.service';
+import { NellobyteService } from '../services/nellobyte.service';
 import Decimal from 'decimal.js';
 import { v4 as uuid } from 'uuid';
 
@@ -13,11 +14,21 @@ export class BillsService {
   constructor(
     private prisma: PrismaService,
     private peyflex: PeyflexService,
+    private nellobyte: NellobyteService,
   ) {}
+
+  private getProvider(): 'nellobyte' | 'peyflex' {
+    return this.nellobyte.isEnabled() ? 'nellobyte' : 'peyflex';
+  }
 
   // ── Airtime ───────────────────────────────────────────────────────────
 
   async getAirtimeNetworks() {
+    const provider = this.getProvider();
+    if (provider === 'nellobyte') {
+      const networks = await this.nellobyte.getAirtimeNetworks();
+      if (networks.length > 0) return networks;
+    }
     const networks = await this.peyflex.getAirtimeNetworks();
     if (networks.length > 0) return networks;
     return [
@@ -75,7 +86,7 @@ export class BillsService {
             billType: 'airtime',
             network: data.network,
             phoneNumber: data.phoneNumber,
-            provider: 'peyflex',
+            provider: this.getProvider(),
           },
         },
       });
@@ -83,11 +94,19 @@ export class BillsService {
       return { transaction, afterBalance };
     });
 
-    const result = await this.peyflex.buyAirtime({
-      network: data.network,
-      phoneNumber: data.phoneNumber,
-      amount: data.amount,
-    });
+    const provider = this.getProvider();
+    const result =
+      provider === 'nellobyte'
+        ? await this.nellobyte.buyAirtime({
+            network: data.network,
+            phoneNumber: data.phoneNumber,
+            amount: data.amount,
+          })
+        : await this.peyflex.buyAirtime({
+            network: data.network,
+            phoneNumber: data.phoneNumber,
+            amount: data.amount,
+          });
 
     if (!result.success) {
       await this.refundTransaction(userId, tx.transaction.id, amount, reference);
@@ -102,7 +121,7 @@ export class BillsService {
           billType: 'airtime',
           network: data.network,
           phoneNumber: data.phoneNumber,
-          provider: 'peyflex',
+          provider,
           providerResponse: result.data,
         },
       },
@@ -113,11 +132,11 @@ export class BillsService {
         action: 'AIRTIME_PURCHASE',
         userId,
         actorType: 'user',
-        metadata: { reference, network: data.network, phoneNumber: data.phoneNumber, amount: data.amount, provider: 'peyflex' },
+        metadata: { reference, network: data.network, phoneNumber: data.phoneNumber, amount: data.amount, provider },
       },
     });
 
-    this.logger.log(`Airtime: ₦${data.amount} → ${data.phoneNumber} (${data.network}) by ${userId} via Peyflex`);
+    this.logger.log(`Airtime: ₦${data.amount} → ${data.phoneNumber} (${data.network}) by ${userId} via ${provider}`);
 
     return {
       success: true,
@@ -135,6 +154,11 @@ export class BillsService {
   // ── Data ──────────────────────────────────────────────────────────────
 
   async getDataNetworks() {
+    const provider = this.getProvider();
+    if (provider === 'nellobyte') {
+      const networks = await this.nellobyte.getDataNetworks();
+      if (networks.length > 0) return networks;
+    }
     const networks = await this.peyflex.getDataNetworks();
     if (networks.length > 0) return networks;
     return [
@@ -146,7 +170,11 @@ export class BillsService {
   }
 
   async getDataPlans(network: string) {
-    const plans = await this.peyflex.getDataPlans(network);
+    const provider = this.getProvider();
+    const plans =
+      provider === 'nellobyte'
+        ? await this.nellobyte.getDataPlans(network)
+        : await this.peyflex.getDataPlans(network);
     return plans.map((item: any) => ({
       plan_code: item.plan_code ?? item.id ?? item.name,
       name: item.name ?? item.plan_name ?? item.description,
@@ -211,7 +239,7 @@ export class BillsService {
             planCode: data.planCode,
             planName: plan.name,
             planPrice: planPrice.toString(),
-            provider: 'peyflex',
+            provider: this.getProvider(),
           },
         },
       });
@@ -219,11 +247,19 @@ export class BillsService {
       return { transaction, afterBalance };
     });
 
-    const result = await this.peyflex.buyData({
-      network: data.network,
-      phoneNumber: data.phoneNumber,
-      planCode: data.planCode,
-    });
+    const provider = this.getProvider();
+    const result =
+      provider === 'nellobyte'
+        ? await this.nellobyte.buyData({
+            network: data.network,
+            phoneNumber: data.phoneNumber,
+            planCode: data.planCode,
+          })
+        : await this.peyflex.buyData({
+            network: data.network,
+            phoneNumber: data.phoneNumber,
+            planCode: data.planCode,
+          });
 
     if (!result.success) {
       await this.refundTransaction(userId, tx.transaction.id, planPrice, reference);
@@ -241,7 +277,7 @@ export class BillsService {
           planCode: data.planCode,
           planName: plan.name,
           planPrice: planPrice.toString(),
-          provider: 'peyflex',
+          provider,
           providerResponse: result.data,
         },
       },
@@ -258,12 +294,12 @@ export class BillsService {
           phoneNumber: data.phoneNumber,
           planCode: data.planCode,
           amount: planPrice.toString(),
-          provider: 'peyflex',
+          provider,
         },
       },
     });
 
-    this.logger.log(`Data: ${data.planCode} (₦${planPrice}) → ${data.phoneNumber} (${data.network}) by ${userId} via Peyflex`);
+    this.logger.log(`Data: ${data.planCode} (₦${planPrice}) → ${data.phoneNumber} (${data.network}) by ${userId} via ${provider}`);
 
     return {
       success: true,
@@ -283,6 +319,11 @@ export class BillsService {
   // ── Electricity ────────────────────────────────────────────────────────
 
   async getElectricityDiscos() {
+    const provider = this.getProvider();
+    if (provider === 'nellobyte') {
+      const discos = await this.nellobyte.getElectricityDiscos();
+      if (discos.length > 0) return discos;
+    }
     const plans = await this.peyflex.getElectricityPlans();
     if (plans.length > 0) return plans;
     return [
@@ -311,11 +352,19 @@ export class BillsService {
     billerCode: string;
   }) {
     const type = input.itemCode.includes('prepaid') ? 'prepaid' : 'postpaid';
-    const result = await this.peyflex.verifyMeter({
-      meterNumber: input.meterNumber,
-      plan: input.billerCode,
-      type,
-    });
+    const provider = this.getProvider();
+    const result =
+      provider === 'nellobyte'
+        ? await this.nellobyte.verifyMeter({
+            meterNumber: input.meterNumber,
+            plan: input.billerCode,
+            type,
+          })
+        : await this.peyflex.verifyMeter({
+            meterNumber: input.meterNumber,
+            plan: input.billerCode,
+            type,
+          });
 
     if (!result.success) {
       return { success: false, message: result.message || 'Meter validation failed' };
@@ -397,7 +446,7 @@ export class BillsService {
             meterNumber: data.meterNumber,
             amount: data.amount,
             fee: fee.toNumber(),
-            provider: 'peyflex',
+            provider: this.getProvider(),
           },
         },
       });
@@ -405,13 +454,23 @@ export class BillsService {
       return { transaction, afterBalance };
     });
 
-    const result = await this.peyflex.buyElectricity({
-      meterNumber: data.meterNumber,
-      plan: data.disco,
-      amount: data.amount,
-      type: data.type,
-      phoneNumber: data.phoneNumber || '08000000000',
-    });
+    const provider = this.getProvider();
+    const result =
+      provider === 'nellobyte'
+        ? await this.nellobyte.buyElectricity({
+            meterNumber: data.meterNumber,
+            plan: data.disco,
+            amount: data.amount,
+            type: data.type,
+            phoneNumber: data.phoneNumber || '08000000000',
+          })
+        : await this.peyflex.buyElectricity({
+            meterNumber: data.meterNumber,
+            plan: data.disco,
+            amount: data.amount,
+            type: data.type,
+            phoneNumber: data.phoneNumber || '08000000000',
+          });
 
     if (!result.success) {
       await this.refundTransaction(userId, tx.transaction.id, totalDebit, reference);
@@ -420,7 +479,8 @@ export class BillsService {
       );
     }
 
-    const token: string | null = result.data?.token ?? result.data?.Token ?? null;
+    const token: string | null =
+      result.data?.token ?? result.data?.Token ?? result.data?.metertoken ?? null;
 
     await this.prisma.transaction.update({
       where: { id: tx.transaction.id },
@@ -434,7 +494,7 @@ export class BillsService {
           amount: data.amount,
           fee: fee.toNumber(),
           token,
-          provider: 'peyflex',
+          provider,
           providerResponse: result.data,
         },
       },
@@ -452,12 +512,12 @@ export class BillsService {
           meterNumber: data.meterNumber,
           amount: data.amount,
           fee: fee.toNumber(),
-          provider: 'peyflex',
+          provider,
         },
       },
     });
 
-    this.logger.log(`Electricity: ₦${data.amount} → ${data.meterNumber} (${data.disco} ${data.type}) by ${userId} via Peyflex`);
+    this.logger.log(`Electricity: ₦${data.amount} → ${data.meterNumber} (${data.disco} ${data.type}) by ${userId} via ${provider}`);
 
     return {
       success: true,
@@ -474,6 +534,205 @@ export class BillsService {
       message: token
         ? `Electricity token: ${token}`
         : `₦${data.amount} electricity payment processed`,
+    };
+  }
+
+  // ── Cable TV (Nellobyte only) ─────────────────────────────────────────
+
+  async getCableProviders() {
+    if (!this.nellobyte.isEnabled()) return [];
+    return this.nellobyte.getCableProviders();
+  }
+
+  async getCablePackages(provider: string) {
+    if (!this.nellobyte.isEnabled()) return [];
+    const plans = await this.nellobyte.getCablePackages(provider);
+    return plans.map((p: any) => ({ plan_code: p.package_code, name: p.name, price: p.price }));
+  }
+
+  async validateCableSmartcard(cableTv: string, smartCardNo: string) {
+    if (!this.nellobyte.isEnabled()) {
+      return { success: false, message: 'Cable TV requires Nellobyte (ClubKonnect). Set NELLOBYTE_USERID and NELLOBYTE_API_KEY.' };
+    }
+    return this.nellobyte.verifyCableSmartcard(cableTv, smartCardNo);
+  }
+
+  async buyCableTV(
+    userId: string,
+    data: { cableTv: string; packageCode: string; smartCardNo: string; phoneNumber: string },
+  ) {
+    if (!this.nellobyte.isEnabled()) {
+      throw new BadRequestException('Cable TV requires Nellobyte. Set NELLOBYTE_USERID and NELLOBYTE_API_KEY.');
+    }
+    const plans = await this.nellobyte.getCablePackages(data.cableTv);
+    const plan = plans.find((p: any) => p.package_code === data.packageCode);
+    if (!plan) {
+      throw new BadRequestException('Invalid package selected');
+    }
+    const amount = new Decimal(plan.price ?? 0);
+    const reference = `CABLETV-${uuid()}`;
+
+    const tx = await this.prisma.$transaction(async (prisma) => {
+      const balance = await prisma.balance.findUnique({
+        where: { userId_currency: { userId, currency: 'NGN' } },
+      });
+      const currentBalance = new Decimal(balance?.amount?.toString() ?? '0');
+      if (currentBalance.lessThan(amount)) {
+        throw new BadRequestException('Insufficient balance');
+      }
+      const afterBalance = currentBalance.sub(amount);
+      await prisma.balance.update({
+        where: { userId_currency: { userId, currency: 'NGN' } },
+        data: { amount: afterBalance.toNumber(), lastUpdatedBy: 'bills_service' },
+      });
+      const transaction = await prisma.transaction.create({
+        data: {
+          senderId: userId,
+          amount: amount.toNumber(),
+          currency: 'NGN',
+          type: 'bill_payment',
+          status: 'PENDING',
+          idempotencyKey: reference,
+          reference,
+          beforeBalance: currentBalance.toNumber(),
+          afterBalance: afterBalance.toNumber(),
+          metadata: {
+            billType: 'cable',
+            cableTv: data.cableTv,
+            packageCode: data.packageCode,
+            smartCardNo: data.smartCardNo,
+            provider: 'nellobyte',
+          },
+        },
+      });
+      return { transaction, afterBalance };
+    });
+
+    const result = await this.nellobyte.buyCableTV({
+      cableTv: data.cableTv,
+      packageCode: data.packageCode,
+      smartCardNo: data.smartCardNo,
+      phoneNumber: data.phoneNumber || '08000000000',
+    });
+
+    if (!result.success) {
+      await this.refundTransaction(userId, tx.transaction.id, amount, reference);
+      throw new BadRequestException(result.message || 'Cable TV purchase failed. You have been refunded.');
+    }
+
+    await this.prisma.transaction.update({
+      where: { id: tx.transaction.id },
+      data: { status: 'SUCCESS', metadata: { ...(tx.transaction.metadata as object), providerResponse: result.data } },
+    });
+
+    await this.prisma.auditLog.create({
+      data: {
+        action: 'CABLETV_PURCHASE',
+        userId,
+        actorType: 'user',
+        metadata: { reference, cableTv: data.cableTv, packageCode: data.packageCode, amount: amount.toString(), provider: 'nellobyte' },
+      },
+    });
+
+    this.logger.log(`Cable TV: ${data.cableTv} ${data.packageCode} → ${data.smartCardNo} by ${userId} via nellobyte`);
+
+    return {
+      success: true,
+      data: { reference, cableTv: data.cableTv, packageCode: data.packageCode, amount: amount.toNumber(), balanceAfter: tx.afterBalance.toFixed(2) },
+      message: `Cable TV subscription successful for ${data.smartCardNo}`,
+    };
+  }
+
+  // ── Betting (Nellobyte only) ──────────────────────────────────────────
+
+  async getBettingCompanies() {
+    if (!this.nellobyte.isEnabled()) return [];
+    return this.nellobyte.getBettingCompanies();
+  }
+
+  async validateBettingCustomer(company: string, customerId: string) {
+    if (!this.nellobyte.isEnabled()) {
+      return { success: false, message: 'Betting requires Nellobyte. Set NELLOBYTE_USERID and NELLOBYTE_API_KEY.' };
+    }
+    return this.nellobyte.verifyBettingCustomer(company, customerId);
+  }
+
+  async buyBetting(userId: string, data: { company: string; customerId: string; amount: number }) {
+    if (!this.nellobyte.isEnabled()) {
+      throw new BadRequestException('Betting requires Nellobyte. Set NELLOBYTE_USERID and NELLOBYTE_API_KEY.');
+    }
+    if (data.amount < 100) {
+      throw new BadRequestException('Minimum betting amount is ₦100');
+    }
+    const amount = new Decimal(data.amount);
+    const reference = `BET-${uuid()}`;
+
+    const tx = await this.prisma.$transaction(async (prisma) => {
+      const balance = await prisma.balance.findUnique({
+        where: { userId_currency: { userId, currency: 'NGN' } },
+      });
+      const currentBalance = new Decimal(balance?.amount?.toString() ?? '0');
+      if (currentBalance.lessThan(amount)) {
+        throw new BadRequestException('Insufficient balance');
+      }
+      const afterBalance = currentBalance.sub(amount);
+      await prisma.balance.update({
+        where: { userId_currency: { userId, currency: 'NGN' } },
+        data: { amount: afterBalance.toNumber(), lastUpdatedBy: 'bills_service' },
+      });
+      const transaction = await prisma.transaction.create({
+        data: {
+          senderId: userId,
+          amount: amount.toNumber(),
+          currency: 'NGN',
+          type: 'bill_payment',
+          status: 'PENDING',
+          idempotencyKey: reference,
+          reference,
+          beforeBalance: currentBalance.toNumber(),
+          afterBalance: afterBalance.toNumber(),
+          metadata: {
+            billType: 'betting',
+            company: data.company,
+            customerId: data.customerId,
+            provider: 'nellobyte',
+          },
+        },
+      });
+      return { transaction, afterBalance };
+    });
+
+    const result = await this.nellobyte.buyBetting({
+      company: data.company,
+      customerId: data.customerId,
+      amount: data.amount,
+    });
+
+    if (!result.success) {
+      await this.refundTransaction(userId, tx.transaction.id, amount, reference);
+      throw new BadRequestException(result.message || 'Betting funding failed. You have been refunded.');
+    }
+
+    await this.prisma.transaction.update({
+      where: { id: tx.transaction.id },
+      data: { status: 'SUCCESS', metadata: { ...(tx.transaction.metadata as object), providerResponse: result.data } },
+    });
+
+    await this.prisma.auditLog.create({
+      data: {
+        action: 'BETTING_PURCHASE',
+        userId,
+        actorType: 'user',
+        metadata: { reference, company: data.company, customerId: data.customerId, amount: data.amount, provider: 'nellobyte' },
+      },
+    });
+
+    this.logger.log(`Betting: ₦${data.amount} → ${data.company} ${data.customerId} by ${userId} via nellobyte`);
+
+    return {
+      success: true,
+      data: { reference, company: data.company, amount: data.amount, balanceAfter: tx.afterBalance.toFixed(2) },
+      message: `₦${data.amount} funded to ${data.company} account`,
     };
   }
 

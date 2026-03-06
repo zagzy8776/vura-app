@@ -39,9 +39,10 @@ export class PeyflexService {
     amount: number;
   }): Promise<{ success: boolean; data?: any; message?: string }> {
     try {
+      const network = PeyflexService.toCanonicalNetworkId(input.network) || input.network;
       const res = await this.api.post('/airtime/subscribe/', {
         identifier: 'airtime',
-        network: input.network,
+        network,
         phone: input.phoneNumber,
         amount: String(input.amount),
       });
@@ -75,6 +76,18 @@ export class PeyflexService {
     const s = (id || '').trim().toLowerCase();
     if (s === '9mobile' || s === '9mobile') return '9mobile';
     return s;
+  }
+
+  /** Map provider/biller codes to canonical network id for API and filtering. */
+  private static toCanonicalNetworkId(network: string): string {
+    const n = PeyflexService.normalizeNetworkId(network);
+    const map: Record<string, string> = {
+      bil108: 'mtn',
+      bil109: 'glo',
+      bil110: 'airtel',
+      bil111: '9mobile',
+    };
+    return map[n] ?? n;
   }
 
   /** Extract plan_code, name, price from various API shapes. */
@@ -137,15 +150,28 @@ export class PeyflexService {
 
   async getDataPlans(network: string): Promise<any[]> {
     const normalizedNet = PeyflexService.normalizeNetworkId(network);
+    const canonicalNet = PeyflexService.toCanonicalNetworkId(network);
     try {
-      // Try with 'network' param (common)
+      // Try with 'network' param (common) - use canonical name so API recognizes (mtn, glo, etc.)
       let res = await this.api.get('/data/plans/', {
-        params: { identifier: 'data', network: network.trim() },
+        params: { identifier: 'data', network: canonicalNet || network.trim() },
       });
       let raw = res.data?.data ?? res.data ?? [];
       let arr = Array.isArray(raw) ? raw : [];
 
-      // If empty, try with 'biller' or fetch all and filter
+      // If empty, try with original network param
+      if (arr.length === 0 && canonicalNet !== network.trim()) {
+        try {
+          res = await this.api.get('/data/plans/', {
+            params: { identifier: 'data', network: network.trim() },
+          });
+          raw = res.data?.data ?? res.data ?? [];
+          arr = Array.isArray(raw) ? raw : [];
+        } catch {
+          // ignore
+        }
+      }
+
       if (arr.length === 0) {
         try {
           res = await this.api.get('/data/plans/', {
@@ -159,14 +185,16 @@ export class PeyflexService {
       }
 
       if (arr.length === 0) {
-        // Fetch all plans and filter by network
+        // Fetch all plans and filter by canonical network so we match MTN/mtn/BIL108 etc.
         res = await this.api.get('/data/plans/', { params: { identifier: 'data' } });
         raw = res.data?.data ?? res.data ?? [];
         const all = Array.isArray(raw) ? raw : [];
-        arr = all.filter(
-          (p: any) =>
-            normalizedNet === PeyflexService.normalizeNetworkId(p?.network ?? p?.biller_code ?? p?.biller ?? ''),
-        );
+        arr = all.filter((p: any) => {
+          const pNet = p?.network ?? p?.biller_code ?? p?.biller ?? '';
+          const pCanon = PeyflexService.toCanonicalNetworkId(pNet);
+          const pNorm = PeyflexService.normalizeNetworkId(pNet);
+          return canonicalNet === pCanon || normalizedNet === pNorm || canonicalNet === pNorm;
+        });
       }
 
       return arr.map((item: any) => PeyflexService.normalizePlan(item));
@@ -182,9 +210,10 @@ export class PeyflexService {
     planCode: string;
   }): Promise<{ success: boolean; data?: any; message?: string }> {
     try {
+      const network = PeyflexService.toCanonicalNetworkId(input.network) || input.network;
       const res = await this.api.post('/data/subscribe/', {
         identifier: 'data',
-        network: input.network,
+        network,
         phone: input.phoneNumber,
         plan: input.planCode,
       });
