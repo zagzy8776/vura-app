@@ -5,18 +5,12 @@ import { BVNService } from './bvn.service';
 import { NINService } from './nin.service';
 import { PrismaService } from '../prisma.service';
 import { PremblyService } from '../services/prembly.service';
-import { VirtualAccountsService } from '../virtual-accounts/virtual-accounts.service';
+import { VirtualAccountsModule } from '../virtual-accounts/virtual-accounts.module';
 
 @Module({
-  imports: [ConfigModule],
+  imports: [ConfigModule, VirtualAccountsModule],
   controllers: [KYCController],
-  providers: [
-    BVNService,
-    NINService,
-    PrismaService,
-    PremblyService,
-    VirtualAccountsService,
-  ],
+  providers: [BVNService, NINService, PrismaService, PremblyService],
   exports: [BVNService, NINService],
 })
 export class KYCModule {}
