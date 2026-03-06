@@ -161,7 +161,6 @@ export class BVNService {
         bvnVerified: true,
         bvnVerifiedAt: new Date(),
         kycTier: 2,
-        // @ts-expect-error - optional columns on User
         bvnConsentStatus: 'COMPLETED',
       },
     });
