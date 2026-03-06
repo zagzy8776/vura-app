@@ -56,6 +56,8 @@ function getNetworkStyle(nameOrId: string): string {
   return "border-border bg-card text-foreground";
 }
 
+const PHONE_REGEX = /^0[789]\d{9}$/;
+
 // ── Component ─────────────────────────────────────────────────────────
 
 type BillTab = "airtime" | "data" | "electricity";
@@ -248,17 +250,21 @@ const Bills = () => {
   };
 
   const canConfirmAirtime =
-    selectedNetwork && phoneNumber.length >= 11 && parseFloat(airtimeAmount) >= 50;
+    selectedNetwork &&
+    PHONE_REGEX.test(phoneNumber) &&
+    parseFloat(airtimeAmount) >= 50 &&
+    parseFloat(airtimeAmount) <= 50000;
 
   const canConfirmData =
-    selectedNetwork && phoneNumber.length >= 11 && selectedPlan;
+    selectedNetwork && PHONE_REGEX.test(phoneNumber) && selectedPlan;
 
   const canConfirmElectricity =
     selectedDisco &&
     selectedElectricityItem &&
     meterNumber.length >= 6 &&
     meterValidated &&
-    parseFloat(electricityAmount) >= 500;
+    parseFloat(electricityAmount) >= 500 &&
+    parseFloat(electricityAmount) <= 500000;
 
   const currentAmount =
     tab === "airtime"
@@ -267,7 +273,8 @@ const Bills = () => {
         ? selectedPlan?.price ?? 0
         : parseFloat(electricityAmount) || 0;
 
-  const electricityTotal = tab === "electricity" ? currentAmount + 100 : 0; // ₦100 fee
+  const electricityFee = selectedElectricityItem?.fee ?? 100;
+  const electricityTotal = tab === "electricity" ? currentAmount + electricityFee : 0;
 
   const handleValidateMeter = async () => {
     if (!selectedElectricityItem || !meterNumber.trim()) {
@@ -301,6 +308,24 @@ const Bills = () => {
   };
 
   const handleConfirm = async () => {
+    const parsedAirtime = parseFloat(airtimeAmount);
+    const parsedElectricity = parseFloat(electricityAmount);
+
+    if (tab !== "electricity" && !PHONE_REGEX.test(phoneNumber)) {
+      toast({ title: "Invalid phone", description: "Enter a valid Nigerian number (e.g. 08012345678)", variant: "destructive" });
+      return;
+    }
+
+    if (tab === "airtime" && (parsedAirtime < 50 || parsedAirtime > 50000)) {
+      toast({ title: "Amount out of range", description: "Airtime must be between ₦50 and ₦50,000", variant: "destructive" });
+      return;
+    }
+
+    if (tab === "electricity" && (parsedElectricity < 500 || parsedElectricity > 500000)) {
+      toast({ title: "Amount out of range", description: "Electricity must be between ₦500 and ₦500,000", variant: "destructive" });
+      return;
+    }
+
     setLoading(true);
     try {
       let endpoint: string;
@@ -321,6 +346,7 @@ const Bills = () => {
           type: meterType,
           itemName: selectedElectricityItem!.name,
           itemCode: selectedElectricityItem!.item_code,
+          fee: electricityFee,
         };
       }
 
@@ -754,7 +780,7 @@ const Bills = () => {
                 </div>
                 {tab === "electricity" && (
                   <div className="flex justify-between text-xs text-muted-foreground">
-                    <span>Amount + ₦100 fee</span>
+                    <span>Amount + ₦{electricityFee} fee</span>
                   </div>
                 )}
                 {balance !== null && (
@@ -841,9 +867,9 @@ const Bills = () => {
                 ) : (
                   <>
                     <span className="font-semibold text-foreground">
-                      ₦{currentAmount.toLocaleString()}
+                      ₦{electricityTotal.toLocaleString()}
                     </span>{" "}
-                    electricity paid for meter{" "}
+                    electricity (incl. fee) paid for meter{" "}
                     <span className="font-semibold text-foreground font-mono">
                       {meterNumber}
                     </span>

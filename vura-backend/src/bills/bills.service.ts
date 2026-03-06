@@ -165,7 +165,6 @@ export class BillsService {
       throw new BadRequestException('Enter a valid Nigerian phone number');
     }
 
-    // planCode is the Flutterwave item name (used as `type` in the bill request)
     const plans = await this.getDataPlans(data.network);
     const plan = plans.find((p: any) => p.plan_code === data.planCode);
 
@@ -222,11 +221,11 @@ export class BillsService {
       return { transaction, afterBalance };
     });
 
-    // Flutterwave: `type` = the plan name from bill-categories
     const result = await this.flutterwave.createBillPayment({
       country: 'NG',
       customer: data.phoneNumber,
       amount: planPrice.toNumber(),
+      // Use the Flutterwave item_code (planCode) as type to avoid mis-billing
       type: data.planCode,
       reference,
     });
@@ -302,7 +301,8 @@ export class BillsService {
     const dataItems = items.filter((i: any) => i.is_airtime === false);
 
     return dataItems.map((item: any) => ({
-      plan_code: item.name,
+      // plan_code should be the Flutterwave item_code so purchases use the right product
+      plan_code: item.item_code,
       name: item.short_name ?? item.name,
       price: item.amount,
       item_code: item.item_code,
@@ -363,6 +363,7 @@ export class BillsService {
       type: string;
       itemName: string;
       itemCode: string;
+      fee?: number;
     },
   ) {
     if (data.amount < 500) {
@@ -377,7 +378,7 @@ export class BillsService {
     }
 
     const amount = new Decimal(data.amount);
-    const fee = new Decimal(ELECTRICITY_FEE);
+    const fee = new Decimal(data.fee ?? ELECTRICITY_FEE);
     const totalDebit = amount.add(fee);
     const reference = `ELEC-${uuid()}`;
 
@@ -389,7 +390,7 @@ export class BillsService {
       const currentBalance = new Decimal(balance?.amount?.toString() ?? '0');
       if (currentBalance.lessThan(totalDebit)) {
         throw new BadRequestException(
-          `Insufficient balance. You need ₦${totalDebit.toFixed(0)} (₦${data.amount} + ₦${ELECTRICITY_FEE} fee)`,
+          `Insufficient balance. You need ₦${totalDebit.toFixed(0)} (₦${data.amount} + ₦${fee.toFixed(0)} fee)`,
         );
       }
 
@@ -417,7 +418,7 @@ export class BillsService {
             meterType: data.type,
             meterNumber: data.meterNumber,
             amount: data.amount,
-            fee: ELECTRICITY_FEE,
+            fee: fee.toNumber(),
           },
         },
       });
@@ -429,7 +430,8 @@ export class BillsService {
       country: 'NG',
       customer: data.meterNumber,
       amount: data.amount,
-      type: data.itemName,
+      // Flutterwave expects the bill item code (not display name)
+      type: data.itemCode,
       reference,
     });
 
@@ -462,7 +464,7 @@ export class BillsService {
           meterType: data.type,
           meterNumber: data.meterNumber,
           amount: data.amount,
-          fee: ELECTRICITY_FEE,
+          fee: fee.toNumber(),
           token,
           providerResponse: result.data,
         },
@@ -480,7 +482,7 @@ export class BillsService {
           meterType: data.type,
           meterNumber: data.meterNumber,
           amount: data.amount,
-          fee: ELECTRICITY_FEE,
+          fee: fee.toNumber(),
         },
       },
     });
