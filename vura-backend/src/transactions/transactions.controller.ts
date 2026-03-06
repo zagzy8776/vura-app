@@ -12,6 +12,8 @@ import { TransactionsService } from './transactions.service';
 import { AuthGuard } from '../auth/auth.guard';
 import { BankCodesService } from '../services/bank-codes.service';
 import { PaystackService } from '../services/paystack.service';
+import { PrismaService } from '../prisma.service';
+import Decimal from 'decimal.js';
 
 @Controller('transactions')
 export class TransactionsController {
@@ -19,6 +21,7 @@ export class TransactionsController {
     private transactionsService: TransactionsService,
     private bankCodesService: BankCodesService,
     private paystackService: PaystackService,
+    private prisma: PrismaService,
   ) {}
 
   @UseGuards(AuthGuard)
@@ -56,9 +59,12 @@ export class TransactionsController {
       pin?: string;
     },
   ) {
+    const userId = req.user.userId;
     const { accountNumber, bankCode, accountName, amount, description } = body;
 
-    const reference = `BANK-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    if (!amount || amount < 100) {
+      throw new BadRequestException('Minimum transfer is ₦100');
+    }
 
     const verificationResult = await this.paystackService.verifyAccount(
       accountNumber,
@@ -66,26 +72,100 @@ export class TransactionsController {
     );
 
     const fee = amount <= 5000 ? 10 : amount <= 50000 ? 25 : 50;
+    const totalDeduction = amount + fee;
+    const reference = `BANK-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
-    const transferResult = await this.paystackService.initiateTransfer(
-      accountNumber,
-      bankCode,
-      accountName || verificationResult.accountName,
-      amount,
-      reference,
-      description,
-    );
+    const tx = await this.prisma.$transaction(async (prisma) => {
+      const balance = await prisma.balance.findUnique({
+        where: { userId_currency: { userId, currency: 'NGN' } },
+      });
 
-    return {
-      success: true,
-      reference: transferResult.reference,
-      status: transferResult.status,
-      accountName: verificationResult.accountName,
-      amount,
-      fee,
-      totalDeduction: amount + fee,
-      provider: 'paystack',
-    };
+      const current = new Decimal(balance?.amount?.toString() ?? '0');
+      if (current.lessThan(totalDeduction)) {
+        throw new BadRequestException(
+          `Insufficient balance. You need ₦${totalDeduction.toFixed(0)} (amount + ₦${fee} fee).`,
+        );
+      }
+
+      const after = current.sub(totalDeduction);
+
+      await prisma.balance.update({
+        where: { userId_currency: { userId, currency: 'NGN' } },
+        data: { amount: after.toNumber(), lastUpdatedBy: 'send_to_bank' },
+      });
+
+      const transaction = await prisma.transaction.create({
+        data: {
+          senderId: userId,
+          amount: totalDeduction,
+          currency: 'NGN',
+          type: 'external_transfer',
+          status: 'PENDING',
+          idempotencyKey: reference,
+          reference,
+          beforeBalance: current.toNumber(),
+          afterBalance: after.toNumber(),
+          metadata: {
+            accountNumber,
+            bankCode,
+            accountName: accountName || verificationResult.accountName,
+            transferAmount: amount,
+            fee,
+            provider: 'paystack',
+          },
+        },
+      });
+
+      return { transaction, after };
+    });
+
+    try {
+      const transferResult = await this.paystackService.initiateTransfer(
+        accountNumber,
+        bankCode,
+        accountName || verificationResult.accountName,
+        amount,
+        reference,
+        description,
+      );
+
+      await this.prisma.transaction.update({
+        where: { id: tx.transaction.id },
+        data: { providerTxId: transferResult.reference },
+      });
+
+      return {
+        success: true,
+        reference: transferResult.reference,
+        status: transferResult.status,
+        accountName: verificationResult.accountName,
+        amount,
+        fee,
+        totalDeduction,
+        provider: 'paystack',
+      };
+    } catch (err: any) {
+      await this.prisma.$transaction(async (prisma) => {
+        const balance = await prisma.balance.findUnique({
+          where: { userId_currency: { userId, currency: 'NGN' } },
+        });
+        const current = new Decimal(balance?.amount?.toString() ?? '0');
+        const refunded = current.add(totalDeduction);
+        await prisma.balance.update({
+          where: { userId_currency: { userId, currency: 'NGN' } },
+          data: { amount: refunded.toNumber(), lastUpdatedBy: 'send_to_bank_refund' },
+        });
+        await prisma.transaction.update({
+          where: { id: tx.transaction.id },
+          data: { status: 'FAILED' },
+        });
+      });
+      const message =
+        (err as { response?: { data?: { message?: string } }; message?: string })?.response?.data?.message ||
+        (err as Error).message ||
+        'Transfer failed. Your balance has been refunded.';
+      throw new BadRequestException(message);
+    }
   }
 
   @UseGuards(AuthGuard)

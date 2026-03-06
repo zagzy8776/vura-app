@@ -26,7 +26,11 @@ export class WebhookController {
     private prisma: PrismaService,
   ) {
     this.monnifySecret = this.config.get('MONNIFY_WEBHOOK_SECRET') || '';
-    this.paystackSecret = this.config.get('PAYSTACK_WEBHOOK_SECRET') || '';
+    // Paystack signs webhooks with the secret key; no separate webhook secret is issued
+    this.paystackSecret =
+      this.config.get('PAYSTACK_WEBHOOK_SECRET') ||
+      this.config.get('PAYSTACK_SECRET_KEY') ||
+      '';
   }
 
   // ============================================
@@ -541,7 +545,7 @@ export class WebhookController {
    */
   private verifyPaystackSignature(payload: string, signature: string): boolean {
     if (!this.paystackSecret) {
-      this.logger.error('PAYSTACK_WEBHOOK_SECRET not configured!');
+      this.logger.error('PAYSTACK_SECRET_KEY (or PAYSTACK_WEBHOOK_SECRET) not configured!');
       return false;
     }
 

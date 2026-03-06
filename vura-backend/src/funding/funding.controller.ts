@@ -49,7 +49,7 @@ export class FundingController {
 
     const reference = `FUND-${uuid()}`;
     const email = user.emailEncrypted || `${user.vuraTag}@vura.app`;
-    const frontendUrl = this.config.get('FRONTEND_URL', 'https://vura-app.onrender.com');
+    const frontendUrl = this.config.get('FRONTEND_URL', 'https://vura-app.vercel.app');
     const callbackUrl = `${frontendUrl}/fund-wallet?ref=${reference}`;
 
     const fee = amount <= 2500 ? amount * 0.015 : Math.min(amount * 0.015, 2000);

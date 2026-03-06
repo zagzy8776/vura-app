@@ -11,8 +11,9 @@ services:
         value: https://vura-app.onrender.com/api
     healthCheckPath: /
     
+  # Backend URL will be https://vura-app.onrender.com
   - type: web
-    name: vura-backend
+    name: vura-app
     runtime: node
     buildCommand: cd vura-backend && npm ci && npx prisma generate --schema=prisma/schema.prisma && npx prisma migrate deploy && npm run build
     startCommand: cd vura-backend && npm run start:prod
