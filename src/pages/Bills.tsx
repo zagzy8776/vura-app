@@ -58,6 +58,52 @@ function getNetworkStyle(nameOrId: string): string {
 
 const PHONE_REGEX = /^0[789]\d{9}$/;
 
+type RecentAirtime = { phoneNumber: string; network: string; amount: number; label?: string; savedAt: number };
+type RecentData = { phoneNumber: string; network: string; planCode: string; planName: string; label?: string; savedAt: number };
+type RecentElectricity = { meterNumber: string; disco: string; itemName: string; itemCode: string; amount: number; fee: number; savedAt: number };
+
+const RECENT_LIMIT = 6;
+
+const STORAGE_KEYS = {
+  airtime: "vura_recent_airtime",
+  data: "vura_recent_data",
+  electricity: "vura_recent_electricity"
+};
+
+const loadRecents = <T,>(key: string): T[] => {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+};
+
+const saveRecents = <T,>(key: string, items: T[]) => {
+  try {
+    localStorage.setItem(key, JSON.stringify(items.slice(0, RECENT_LIMIT)));
+  } catch {
+    /* ignore quota errors */
+  }
+};
+
+const detectNetwork = (phone: string): { airtimeId?: string; dataId?: string } => {
+  // Basic NG prefixes mapping to carrier
+  const prefix = phone.slice(0, 4);
+  const mtn = ["0803", "0806", "0703", "0706", "0813", "0816", "0810", "0814", "0903", "0906", "0913", "0916"];
+  const glo = ["0805", "0807", "0705", "0811", "0815", "0905", "0915"];
+  const airtel = ["0802", "0808", "0708", "0812", "0701", "0902", "0901", "0907", "0912"];
+  const nineMobile = ["0809", "0817", "0818", "0909", "0908"];
+
+  if (mtn.includes(prefix)) return { airtimeId: "mtn", dataId: "BIL108" };
+  if (glo.includes(prefix)) return { airtimeId: "glo", dataId: "BIL109" };
+  if (airtel.includes(prefix)) return { airtimeId: "airtel", dataId: "BIL110" };
+  if (nineMobile.includes(prefix)) return { airtimeId: "9mobile", dataId: "BIL111" };
+  return {};
+};
+
 // ── Component ─────────────────────────────────────────────────────────
 
 type BillTab = "airtime" | "data" | "electricity";
@@ -108,6 +154,11 @@ const Bills = () => {
 
   // Balance
   const [balance, setBalance] = useState<string | null>(null);
+
+  // Recents
+  const [recentAirtime, setRecentAirtime] = useState<RecentAirtime[]>([]);
+  const [recentData, setRecentData] = useState<RecentData[]>([]);
+  const [recentElectricity, setRecentElectricity] = useState<RecentElectricity[]>([]);
 
   const navigate = useNavigate();
 
@@ -171,6 +222,9 @@ const Bills = () => {
     fetchDataNetworks();
     fetchElectricityDiscos();
     fetchBalance();
+    setRecentAirtime(loadRecents<RecentAirtime>(STORAGE_KEYS.airtime));
+    setRecentData(loadRecents<RecentData>(STORAGE_KEYS.data));
+    setRecentElectricity(loadRecents<RecentElectricity>(STORAGE_KEYS.electricity));
   }, [fetchAirtimeNetworks, fetchDataNetworks, fetchElectricityDiscos, fetchBalance]);
 
   // ── Fetch data plans when network changes ───────────────────────────
@@ -362,6 +416,32 @@ const Bills = () => {
       }
 
       setPurchaseResult(json.data ?? json);
+      const now = Date.now();
+      if (tab === "airtime") {
+        const entry: RecentAirtime = { phoneNumber, network: selectedNetwork, amount: parseFloat(airtimeAmount), savedAt: now };
+        const next = [entry, ...recentAirtime.filter((r) => r.phoneNumber !== phoneNumber)].slice(0, RECENT_LIMIT);
+        setRecentAirtime(next);
+        saveRecents(STORAGE_KEYS.airtime, next);
+      } else if (tab === "data" && selectedPlan) {
+        const entry: RecentData = { phoneNumber, network: selectedNetwork, planCode: selectedPlan.plan_code, planName: selectedPlan.name, savedAt: now };
+        const next = [entry, ...recentData.filter((r) => !(r.phoneNumber === phoneNumber && r.planCode === selectedPlan.plan_code))].slice(0, RECENT_LIMIT);
+        setRecentData(next);
+        saveRecents(STORAGE_KEYS.data, next);
+      } else if (tab === "electricity" && selectedElectricityItem) {
+        const entry: RecentElectricity = {
+          meterNumber,
+          disco: selectedDisco,
+          itemName: selectedElectricityItem.name,
+          itemCode: selectedElectricityItem.item_code,
+          amount: parseFloat(electricityAmount),
+          fee: electricityFee,
+          savedAt: now,
+        };
+        const next = [entry, ...recentElectricity.filter((r) => r.meterNumber !== meterNumber)].slice(0, RECENT_LIMIT);
+        setRecentElectricity(next);
+        saveRecents(STORAGE_KEYS.electricity, next);
+      }
+
       setStep("success");
       fetchBalance();
     } catch (err: unknown) {
@@ -385,6 +465,98 @@ const Bills = () => {
     const found = nets.find((n) => (n.id ?? n.identifier) === (tab === "electricity" ? selectedDisco : selectedNetwork));
     return found?.name || (tab === "electricity" ? selectedDisco : selectedNetwork);
   }, [tab, selectedNetwork, selectedDisco, airtimeNetworks, dataNetworks, discos]);
+
+  // Auto-detect network from phone number for airtime/data
+  useEffect(() => {
+    if (tab === "airtime" || tab === "data") {
+      const { airtimeId, dataId } = detectNetwork(phoneNumber);
+      if (tab === "airtime" && airtimeId && !selectedNetwork) {
+        setSelectedNetwork(airtimeId);
+      }
+      if (tab === "data" && dataId && !selectedNetwork) {
+        setSelectedNetwork(dataId);
+      }
+    }
+  }, [phoneNumber, tab, selectedNetwork]);
+
+  const renderRecents = () => {
+    if (tab === "airtime" && recentAirtime.length > 0) {
+      return (
+        <div className="space-y-2">
+          <p className="text-xs text-muted-foreground">Recent numbers</p>
+          <div className="flex flex-wrap gap-2">
+            {recentAirtime.map((r) => (
+              <button
+                key={`${r.phoneNumber}-${r.network}`}
+                onClick={() => {
+                  setPhoneNumber(r.phoneNumber);
+                  setSelectedNetwork(r.network);
+                  setAirtimeAmount(r.amount.toString());
+                }}
+                className="px-3 py-2 rounded-lg border text-xs hover:border-primary transition-colors"
+              >
+                {r.phoneNumber} · {r.network.toUpperCase()}
+              </button>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    if (tab === "data" && recentData.length > 0) {
+      return (
+        <div className="space-y-2">
+          <p className="text-xs text-muted-foreground">Recent data purchases</p>
+          <div className="flex flex-wrap gap-2">
+            {recentData.map((r) => (
+              <button
+                key={`${r.phoneNumber}-${r.planCode}`}
+                onClick={() => {
+                  setPhoneNumber(r.phoneNumber);
+                  setSelectedNetwork(r.network);
+                  const found = dataPlans.find((p) => p.plan_code === r.planCode);
+                  if (found) setSelectedPlan(found);
+                }}
+                className="px-3 py-2 rounded-lg border text-xs hover:border-primary transition-colors"
+              >
+                {r.phoneNumber} · {r.planName}
+              </button>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    if (tab === "electricity" && recentElectricity.length > 0) {
+      return (
+        <div className="space-y-2">
+          <p className="text-xs text-muted-foreground">Recent meters</p>
+          <div className="flex flex-wrap gap-2">
+            {recentElectricity.map((r) => (
+              <button
+                key={`${r.meterNumber}-${r.itemCode}`}
+                onClick={() => {
+                  setSelectedDisco(r.disco);
+                  setMeterNumber(r.meterNumber);
+                  const item = electricityItems.find((i) => i.item_code === r.itemCode);
+                  if (item) {
+                    setSelectedElectricityItem(item);
+                    setMeterValidated(false);
+                  }
+                  setElectricityAmount(r.amount.toString());
+                }}
+                className="px-3 py-2 rounded-lg border text-xs hover:border-primary transition-colors"
+              >
+                {r.meterNumber} · {r.itemName}
+              </button>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    return null;
+  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -473,6 +645,7 @@ const Bills = () => {
               <label className="text-sm font-medium mb-3 block">
                 {tab === "electricity" ? "Select Disco" : "Select Network"}
               </label>
+              {renderRecents()}
               {networksLoading ? (
                 <div className="flex justify-center py-8">
                   <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -880,7 +1053,23 @@ const Bills = () => {
                 <div className="rounded-lg bg-muted p-3 text-center">
                   <p className="text-xs text-muted-foreground mb-1">Prepaid token</p>
                   <p className="font-mono font-bold text-base break-all">{purchaseResult.token}</p>
-                  <p className="text-[11px] text-muted-foreground mt-1">Enter this on your meter</p>
+                  <div className="flex justify-center mt-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        navigator.clipboard?.writeText(String(purchaseResult.token)).then(() => {
+                          toast({ title: "Token copied", description: "Paste into your meter" });
+                        }).catch(() => {
+                          toast({ title: "Copy failed", description: "Unable to copy token", variant: "destructive" });
+                        });
+                      }}
+                      className="rounded-lg"
+                    >
+                      Copy token
+                    </Button>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground mt-2">Enter this on your meter</p>
                 </div>
               )}
               {purchaseResult?.balanceAfter && (
