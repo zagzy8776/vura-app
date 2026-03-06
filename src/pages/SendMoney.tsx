@@ -148,13 +148,13 @@ const SendMoney = () => {
   useEffect(() => {
     const loadBanks = async () => {
       try {
-        const res = await apiFetch('/bank-codes/flutterwave');
+        // Use Paystack bank list so codes match verify-account and send-to-bank APIs
+        const res = await apiFetch('/bank-codes/paystack');
         if (!res.ok) return;
         const data = await res.json();
         if (data?.success && Array.isArray(data.banks)) {
-          // Flutterwave returns { id, code, name } objects
           const mapped: BankOption[] = data.banks
-            .filter((b: FlutterwaveBank) => b?.code && b?.name)
+            .filter((b: FlutterwaveBank) => b?.code != null && b?.name)
             .map((b: FlutterwaveBank) => ({ code: String(b.code), name: String(b.name) }));
           if (mapped.length > 0) setBanks(mapped);
         }

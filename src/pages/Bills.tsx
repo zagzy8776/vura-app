@@ -265,10 +265,13 @@ const Bills = () => {
 
   const fetchBalance = useCallback(async () => {
     try {
-      const res = await apiFetch("/user/balance");
+      const res = await apiFetch("/transactions/balance");
       if (!res.ok) return;
       const json = await res.json();
-      setBalance(json.data?.NGN ?? json.data?.ngn ?? null);
+      const ngn = Array.isArray(json)
+        ? json.find((b: { currency: string }) => b.currency === "NGN")?.amount
+        : json.data?.NGN ?? json.data?.ngn;
+      setBalance(ngn != null ? String(ngn) : null);
     } catch {
       // silent
     }
