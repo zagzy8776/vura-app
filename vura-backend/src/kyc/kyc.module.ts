@@ -4,7 +4,6 @@ import { KYCController } from './kyc.controller';
 import { BVNService } from './bvn.service';
 import { NINService } from './nin.service';
 import { PrismaService } from '../prisma.service';
-import { FlutterwaveService } from '../services/flutterwave.service';
 import { PremblyService } from '../services/prembly.service';
 import { VirtualAccountsService } from '../virtual-accounts/virtual-accounts.service';
 
@@ -15,10 +14,9 @@ import { VirtualAccountsService } from '../virtual-accounts/virtual-accounts.ser
     BVNService,
     NINService,
     PrismaService,
-    FlutterwaveService,
     PremblyService,
     VirtualAccountsService,
   ],
-  exports: [BVNService, NINService, FlutterwaveService],
+  exports: [BVNService, NINService],
 })
 export class KYCModule {}

@@ -3,10 +3,8 @@ import {
   BadRequestException,
   ConflictException,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma.service';
 import { hashIdNumber } from '../utils/kyc-hash';
-import { FlutterwaveService } from '../services/flutterwave.service';
 import { PremblyService } from '../services/prembly.service';
 import { encryptToColumns } from '../utils/field-encryption';
 import { VirtualAccountsService } from '../virtual-accounts/virtual-accounts.service';
@@ -15,32 +13,24 @@ import { VirtualAccountsService } from '../virtual-accounts/virtual-accounts.ser
 export class BVNService {
   constructor(
     private prisma: PrismaService,
-    private flutterwaveService: FlutterwaveService,
     private premblyService: PremblyService,
     private virtualAccountsService: VirtualAccountsService,
-    private config: ConfigService,
   ) {}
 
   /**
-   * Verify BVN: Prembly (instant) or Flutterwave consent flow.
-   * On success, user moves to Tier 2 and gets a Flutterwave virtual account.
+   * Verify BVN using Prembly only. On success, user moves to Tier 2 and gets a Paystack virtual account.
    */
   async verifyBVN(
     userId: string,
     bvn: string,
     firstName?: string,
     lastName?: string,
-  ): Promise<
-    | { success: boolean; firstName: string; lastName: string; kycTier: number }
-    | {
-        success: boolean;
-        consentUrl: string;
-        reference: string;
-        firstName: string;
-        lastName: string;
-        kycTier: number;
-      }
-  > {
+  ): Promise<{
+    success: boolean;
+    firstName: string;
+    lastName: string;
+    kycTier: number;
+  }> {
     // Validate BVN format (11 digits)
     if (!/^\d{11}$/.test(bvn)) {
       throw new BadRequestException('Invalid BVN format. Must be 11 digits.');
@@ -56,98 +46,45 @@ export class BVNService {
       throw new ConflictException('BVN already registered to another account');
     }
 
-    // 1) Try Prembly first (instant, no redirect) when API key is set
-    if (this.premblyService.isConfigured()) {
-      const premblyResult = await this.premblyService.verifyBvn(bvn);
-      if (premblyResult.success) {
-        const fName =
-          premblyResult.firstName?.trim() || firstName?.trim() || '';
-        const lName = premblyResult.lastName?.trim() || lastName?.trim() || '';
-        if (fName || lName) {
-          await this.persistVerifiedBvn(
-            userId,
-            bvn,
-            fName || 'N/A',
-            lName || 'N/A',
-            'prembly',
-          );
-          try {
-            await this.virtualAccountsService.createOrGet(userId);
-          } catch {
-            // Non-fatal
-          }
-          return {
-            success: true,
-            firstName: fName || premblyResult.firstName || '',
-            lastName: lName || premblyResult.lastName || '',
-            kycTier: 2,
-          };
-        }
-      } else {
-        // Prembly failed (e.g. API key not approved for BVN) — return clear error instead of falling through
-        throw new BadRequestException(
-          premblyResult.message ||
-            'BVN verification is not available at the moment. Please try again later or contact support.',
-        );
-      }
-    }
-
-    // 2) Fallback: Flutterwave consent flow (redirect to NIBSS page)
-    if (!firstName?.trim() || !lastName?.trim()) {
+    if (!this.premblyService.isConfigured()) {
       throw new BadRequestException(
-        'First name and last name are required for verification.',
+        'BVN verification is not configured. Set PREMBLY_API_KEY (and PREMBLY_APP_ID for fallback) in your backend environment.',
       );
     }
 
-    const frontendUrl =
-      this.config.get<string>('FRONTEND_URL') ||
-      this.config.get<string>('APP_URL') ||
-      'https://vura-app.vercel.app';
-    const redirectUrl = `${frontendUrl.replace(/\/$/, '')}/kyc/bvn-callback`;
-    const initiation = await this.flutterwaveService.initiateBvnConsent({
-      bvn,
-      firstName,
-      lastName,
-      redirectUrl,
-    });
-    if (!initiation.success) {
-      const errMsg = initiation.error || 'BVN consent failed';
-      // User-friendly message when provider says "not approved" (e.g. product not enabled on their account)
-      const friendlyMsg =
-        /not approved|not enabled|unauthorized|restricted/i.test(errMsg)
-          ? 'BVN verification is not available for this account. Please contact support to enable it.'
-          : errMsg;
-      throw new BadRequestException(friendlyMsg);
+    const premblyResult = await this.premblyService.verifyBvn(bvn);
+    if (!premblyResult.success) {
+      throw new BadRequestException(
+        premblyResult.message ||
+          'BVN verification failed. Check that your BVN and name are correct, or try again later.',
+      );
     }
 
-    // Persist pending consent details so user can resume later
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: {
-        // Prisma client is generated already, but TS language server may lag; keep this explicit.
-        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-        // @ts-ignore
-        bvnConsentReference: initiation.reference,
-        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-        // @ts-ignore
-        bvnConsentUrl: initiation.url,
-        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-        // @ts-ignore
-        bvnConsentStatus: 'PENDING_CONSENT',
-        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-        // @ts-ignore
-        bvnConsentInitiatedAt: new Date(),
-      },
-    });
+    const fName = premblyResult.firstName?.trim() || firstName?.trim() || '';
+    const lName = premblyResult.lastName?.trim() || lastName?.trim() || '';
+    if (!fName && !lName) {
+      throw new BadRequestException(
+        'Could not verify your name from BVN. Please enter your first and last name as they appear on your BVN and try again.',
+      );
+    }
 
-    // Return consent URL so frontend can redirect user to Flutterwave/NIBSS consent page
+    await this.persistVerifiedBvn(
+      userId,
+      bvn,
+      fName || 'N/A',
+      lName || 'N/A',
+      'prembly',
+    );
+    try {
+      await this.virtualAccountsService.createOrGet(userId);
+    } catch {
+      // Non-fatal: user is still Tier 2; they can generate VA from Receive later
+    }
     return {
       success: true,
-      consentUrl: initiation.url,
-      reference: initiation.reference,
-      firstName,
-      lastName,
-      kycTier: 1,
+      firstName: fName || premblyResult.firstName || '',
+      lastName: lName || premblyResult.lastName || '',
+      kycTier: 2,
     };
   }
 
@@ -191,88 +128,14 @@ export class BVNService {
   }
 
   /**
-   * Complete BVN verification after user consent.
+   * Complete BVN verification after redirect (legacy). BVN is now verified via Prembly only in verifyBVN.
    */
-  async completeBvnConsent(userId: string, reference: string) {
-    if (!reference) {
-      throw new BadRequestException('Reference is required');
-    }
-
-    const info = await this.flutterwaveService.retrieveBvnInformation({
-      reference,
-    });
-    if (!info.success) {
-      throw new BadRequestException(
-        info.error || 'Failed to retrieve BVN info',
-      );
-    }
-
-    if (String(info.status).toUpperCase() !== 'COMPLETED') {
-      throw new BadRequestException(
-        `BVN consent not completed yet (status: ${info.status})`,
-      );
-    }
-    if (!info.bvn || !info.firstName || !info.lastName) {
-      throw new BadRequestException('Incomplete BVN details returned');
-    }
-
-    // Check if BVN already used
-    const bvnHash = hashIdNumber(info.bvn);
-    const existing = await this.prisma.user.findFirst({
-      where: { bvnHash },
-    });
-    if (existing && existing.id !== userId) {
-      throw new ConflictException('BVN already registered to another account');
-    }
-
-    const encrypted = encryptToColumns(info.bvn);
-
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: {
-        bvnHash,
-        bvnEncrypted: encrypted.ciphertext,
-        bvnIv: encrypted.iv,
-        legalFirstName: info.firstName,
-        legalLastName: info.lastName,
-        bvnVerified: true,
-        bvnVerifiedAt: new Date(),
-        kycTier: 2,
-        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-        // @ts-ignore
-        bvnConsentReference: reference,
-        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-        // @ts-ignore
-        bvnConsentStatus: 'COMPLETED',
-      },
-    });
-
-    try {
-      await this.virtualAccountsService.createOrGet(userId);
-    } catch {
-      // Non-fatal
-    }
-
-    await this.prisma.auditLog.create({
-      data: {
-        action: 'BVN_VERIFIED',
-        userId,
-        actorType: 'user',
-        metadata: {
-          kycTier: 2,
-          provider: 'flutterwave',
-          reference,
-          last4: info.bvn.slice(-4),
-        },
-      },
-    });
-
-    return {
-      success: true,
-      firstName: info.firstName,
-      lastName: info.lastName,
-      kycTier: 2,
-    };
+  completeBvnConsent(userId: string, reference: string): never {
+    void userId;
+    void reference;
+    throw new BadRequestException(
+      'BVN verification now uses instant verification. Please go to Settings → BVN Verification and enter your BVN with first and last name.',
+    );
   }
 
   /**

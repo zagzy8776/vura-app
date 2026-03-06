@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
 import {
   Controller,
   Post,
@@ -213,7 +215,7 @@ export class WebhookController {
     return { status: 'success', amount: amount.toString() };
   }
 
-  private async handleMonnifyFailedPayment(payload: any) {
+  private handleMonnifyFailedPayment(payload: any) {
     const reference = payload.reference;
 
     this.logger.warn('Monnify payment failed', { reference });
@@ -296,61 +298,142 @@ export class WebhookController {
     const reference = data.reference;
     const amountKobo = data.amount;
     const amount = new Decimal(amountKobo).div(100);
+    const auth = data.authorization || {};
 
+    // 1) Funding flow: transaction created when user initiated Paystack payment (card/bank)
     const transaction = await this.prisma.transaction.findUnique({
       where: { reference },
     });
 
-    if (!transaction) {
-      this.logger.warn('Paystack charge: Transaction not found', { reference });
-      return { status: 'transaction_not_found' };
-    }
-
-    if (transaction.status === 'SUCCESS') {
-      return { status: 'already_processed' };
-    }
-
-    const userId = transaction.senderId ?? transaction.receiverId;
-    if (!userId) {
-      this.logger.error('Paystack charge: No userId on transaction', { reference });
-      return { status: 'no_user' };
-    }
-
-    await this.prisma.$transaction(async (tx) => {
-      const balance = await tx.balance.findUnique({
-        where: { userId_currency: { userId, currency: 'NGN' } },
+    if (transaction) {
+      if (transaction.status === 'SUCCESS') {
+        return { status: 'already_processed' };
+      }
+      const userId = transaction.senderId ?? transaction.receiverId;
+      if (!userId) {
+        this.logger.error('Paystack charge: No userId on transaction', {
+          reference,
+        });
+        return { status: 'no_user' };
+      }
+      await this.prisma.$transaction(async (tx) => {
+        const balance = await tx.balance.findUnique({
+          where: { userId_currency: { userId, currency: 'NGN' } },
+        });
+        const before = new Decimal(balance?.amount?.toString() ?? '0');
+        const after = before.add(amount);
+        await tx.balance.upsert({
+          where: { userId_currency: { userId, currency: 'NGN' } },
+          create: {
+            userId,
+            currency: 'NGN',
+            amount: after.toNumber(),
+            lastUpdatedBy: 'paystack_charge',
+          },
+          update: {
+            amount: after.toNumber(),
+            lastUpdatedBy: 'paystack_charge',
+          },
+        });
+        await tx.transaction.update({
+          where: { id: transaction.id },
+          data: {
+            status: 'SUCCESS',
+            beforeBalance: before.toNumber(),
+            afterBalance: after.toNumber(),
+          },
+        });
       });
-
-      const before = new Decimal(balance?.amount?.toString() ?? '0');
-      const after = before.add(amount);
-
-      await tx.balance.upsert({
-        where: { userId_currency: { userId, currency: 'NGN' } },
-        create: { userId, currency: 'NGN', amount: after.toNumber(), lastUpdatedBy: 'paystack_charge' },
-        update: { amount: after.toNumber(), lastUpdatedBy: 'paystack_charge' },
-      });
-
-      await tx.transaction.update({
-        where: { id: transaction.id },
+      await this.prisma.auditLog.create({
         data: {
-          status: 'SUCCESS',
-          beforeBalance: before.toNumber(),
-          afterBalance: after.toNumber(),
+          action: 'PAYSTACK_CHARGE_SUCCESS',
+          userId,
+          actorType: 'system',
+          metadata: { reference, amount: amount.toString() },
         },
       });
-    });
+      this.logger.log(
+        `Paystack charge: Credited ₦${amount.toString()} to ${userId}`,
+        { reference },
+      );
+      return { status: 'success' };
+    }
 
-    await this.prisma.auditLog.create({
-      data: {
-        action: 'PAYSTACK_CHARGE_SUCCESS',
-        userId,
-        actorType: 'system',
-        metadata: { reference, amount: amount.toString() },
-      },
-    });
+    // 2) DVA (Dedicated Virtual Account) deposit: bank transfer to user's virtual account
+    if (
+      auth.channel === 'dedicated_nuban' &&
+      auth.receiver_bank_account_number
+    ) {
+      const accountNumber = String(auth.receiver_bank_account_number).trim();
+      const user = await this.prisma.user.findFirst({
+        where: { reservedAccountNumber: accountNumber },
+      });
+      if (!user) {
+        this.logger.warn('Paystack DVA charge: No user for account', {
+          accountNumber,
+          reference,
+        });
+        return { status: 'user_not_found' };
+      }
+      const userId = user.id;
+      await this.prisma.$transaction(async (tx) => {
+        const balance = await tx.balance.findUnique({
+          where: { userId_currency: { userId, currency: 'NGN' } },
+        });
+        const before = new Decimal(balance?.amount?.toString() ?? '0');
+        const after = before.add(amount);
+        await tx.balance.upsert({
+          where: { userId_currency: { userId, currency: 'NGN' } },
+          create: {
+            userId,
+            currency: 'NGN',
+            amount: after.toNumber(),
+            lastUpdatedBy: 'paystack_dva',
+          },
+          update: {
+            amount: after.toNumber(),
+            lastUpdatedBy: 'paystack_dva',
+          },
+        });
+        await tx.transaction.create({
+          data: {
+            senderId: null,
+            receiverId: userId,
+            amount: amount.toNumber(),
+            currency: 'NGN',
+            type: 'deposit',
+            status: 'SUCCESS',
+            reference: `DVA-${reference}`,
+            idempotencyKey: `DVA-${reference}`,
+            beforeBalance: before.toNumber(),
+            afterBalance: after.toNumber(),
+            metadata: {
+              provider: 'paystack',
+              channel: 'dedicated_nuban',
+              paystackReference: reference,
+            },
+          },
+        });
+      });
+      await this.prisma.auditLog.create({
+        data: {
+          action: 'PAYSTACK_DVA_CHARGE_SUCCESS',
+          userId,
+          actorType: 'system',
+          metadata: { reference, amount: amount.toString(), accountNumber },
+        },
+      });
+      this.logger.log(
+        `Paystack DVA: Credited ₦${amount.toString()} to ${userId}`,
+        { reference, accountNumber },
+      );
+      return { status: 'success' };
+    }
 
-    this.logger.log(`Paystack charge: Credited ₦${amount} to ${userId}`, { reference });
-    return { status: 'success' };
+    this.logger.warn('Paystack charge: Transaction not found and not DVA', {
+      reference,
+    });
+    return { status: 'transaction_not_found' };
   }
 
   private async handlePaystackTransferSuccess(data: any, req: Request) {
@@ -545,7 +628,9 @@ export class WebhookController {
    */
   private verifyPaystackSignature(payload: string, signature: string): boolean {
     if (!this.paystackSecret) {
-      this.logger.error('PAYSTACK_SECRET_KEY (or PAYSTACK_WEBHOOK_SECRET) not configured!');
+      this.logger.error(
+        'PAYSTACK_SECRET_KEY (or PAYSTACK_WEBHOOK_SECRET) not configured!',
+      );
       return false;
     }
 
@@ -556,5 +641,4 @@ export class WebhookController {
 
     return signature === expected;
   }
-
 }

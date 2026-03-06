@@ -56,10 +56,12 @@ model User {
   createdAt            DateTime  @default(now()) @map("created_at")
   updatedAt            DateTime  @updatedAt @map("updated_at")
 
-  // Added for Flutterwave/Monnify reserved account functionality
+  // Virtual account (Paystack Dedicated Virtual Account)
   reservedAccountNumber String? @map("reserved_account_number")
-  flutterwaveOrderRef String? @map("flutterwave_order_ref")
   reservedAccountBankName String? @map("reserved_account_bank_name")
+  paystackCustomerCode String? @map("paystack_customer_code")
+  // Legacy Flutterwave fields (no longer used)
+  flutterwaveOrderRef String? @map("flutterwave_order_ref")
   flutterwaveRef String? @map("flutterwave_ref")
 
   // Crypto auto-withdraw: when a deposit confirms, auto-send NGN to primary bank

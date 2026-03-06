@@ -11,7 +11,7 @@ export class VirtualAccountsController {
   ) {}
 
   /**
-   * Create (or fetch existing) Flutterwave permanent virtual account for the user.
+   * Create (or fetch existing) Paystack Dedicated Virtual Account for the user.
    * POST /virtual-accounts/create
    */
   @Post('create')

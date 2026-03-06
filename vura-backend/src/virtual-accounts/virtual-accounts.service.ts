@@ -1,14 +1,13 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
-import { FlutterwaveService } from '../services/flutterwave.service';
-import { decryptFromColumns } from '../utils/field-encryption';
+import { PaystackService } from '../services/paystack.service';
 import { decrypt } from '../utils/encryption';
 
 @Injectable()
 export class VirtualAccountsService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly flutterwaveService: FlutterwaveService,
+    private readonly paystackService: PaystackService,
   ) {}
 
   async createOrGet(userId: string) {
@@ -18,22 +17,18 @@ export class VirtualAccountsService {
         id: true,
         vuraTag: true,
         emailEncrypted: true,
+        phoneEncrypted: true,
         bvnVerified: true,
-        bvnEncrypted: true,
-        bvnIv: true,
         legalFirstName: true,
         legalLastName: true,
-        kycTier: true,
         reservedAccountNumber: true,
         reservedAccountBankName: true,
-        flutterwaveOrderRef: true,
-        flutterwaveRef: true,
+        paystackCustomerCode: true,
       },
     });
 
     if (!user) throw new BadRequestException('User not found');
 
-    // If already created, return it.
     if (user.reservedAccountNumber && user.reservedAccountBankName) {
       return {
         success: true,
@@ -42,7 +37,7 @@ export class VirtualAccountsService {
           bankName: user.reservedAccountBankName,
           accountName:
             `${user.legalFirstName ?? ''} ${user.legalLastName ?? ''}`.trim(),
-          orderRef: user.flutterwaveOrderRef,
+          orderRef: user.paystackCustomerCode ?? undefined,
         },
       };
     }
@@ -53,36 +48,47 @@ export class VirtualAccountsService {
       );
     }
 
-    if (!user.bvnEncrypted || !user.bvnIv) {
-      throw new BadRequestException(
-        'BVN not available. Please verify BVN again.',
-      );
-    }
-
     if (!user.legalFirstName || !user.legalLastName) {
       throw new BadRequestException(
         'Legal name not available. Please verify BVN again.',
       );
     }
 
-    const bvn = decryptFromColumns(user.bvnEncrypted, user.bvnIv);
-
     const email = user.emailEncrypted ? decrypt(user.emailEncrypted) : '';
     if (!email) {
-      // Flutterwave requires email; in your system it can be optional.
-      // We enforce it here so the VA creation is deterministic.
       throw new BadRequestException(
         'Email is required to generate a virtual account',
       );
     }
 
-    const result = await this.flutterwaveService.createVirtualAccountV4({
-      userId: user.id,
-      email,
-      bvn,
-      firstName: user.legalFirstName,
-      lastName: user.legalLastName,
-      kycTier: user.kycTier ?? 2,
+    let customerCode = user.paystackCustomerCode;
+    if (!customerCode) {
+      let phone: string | undefined;
+      try {
+        phone = user.phoneEncrypted ? decrypt(user.phoneEncrypted) : undefined;
+      } catch {
+        phone = undefined;
+      }
+      const customer = await this.paystackService.createCustomer({
+        email,
+        firstName: user.legalFirstName,
+        lastName: user.legalLastName,
+        phone,
+      });
+      if (!customer) {
+        throw new BadRequestException(
+          'Could not create Paystack customer. Please try again or contact support.',
+        );
+      }
+      customerCode = customer.customerCode;
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: { paystackCustomerCode: customerCode },
+      });
+    }
+
+    const result = await this.paystackService.createDedicatedAccount({
+      customerCode,
     });
 
     if (!result.success) {
@@ -91,14 +97,11 @@ export class VirtualAccountsService {
       );
     }
 
-    // Persist to DB
     await this.prisma.user.update({
       where: { id: user.id },
       data: {
         reservedAccountNumber: result.accountNumber,
         reservedAccountBankName: result.bankName,
-        flutterwaveOrderRef: result.orderRef,
-        flutterwaveRef: result.flutterwaveRef,
       },
     });
 
@@ -108,7 +111,7 @@ export class VirtualAccountsService {
         accountNumber: result.accountNumber,
         bankName: result.bankName,
         accountName: `${user.legalFirstName} ${user.legalLastName}`,
-        orderRef: result.orderRef,
+        orderRef: customerCode,
       },
     };
   }

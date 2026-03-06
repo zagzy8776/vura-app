@@ -145,7 +145,7 @@ export class PremblyService {
     return {
       success: false,
       message:
-        'BVN verification could not be completed. If you have an App ID, set PREMBLY_APP_ID for fallback validation.',
+        'BVN verification could not be completed. Set PREMBLY_API_KEY (and PREMBLY_APP_ID for fallback) in your backend environment. Get keys from Prembly and ensure your account is enabled for BVN. You can also use the redirect option below if you entered your name.',
     };
   }
 }
