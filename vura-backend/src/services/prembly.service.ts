@@ -16,28 +16,53 @@ export interface PremblyBvnResult {
 export class PremblyService {
   private readonly logger = new Logger(PremblyService.name);
   private readonly apiKey: string;
+  private readonly appId: string;
   private readonly baseUrl = 'https://api.prembly.com';
 
   constructor(private config: ConfigService) {
     this.apiKey = this.config.get<string>('PREMBLY_API_KEY') || '';
+    this.appId = this.config.get<string>('PREMBLY_APP_ID') || '';
   }
 
   isConfigured(): boolean {
     return !!this.apiKey;
   }
 
+  private parseBvnData(data: Record<string, unknown> | null): Omit<PremblyBvnResult, 'success' | 'message'> {
+    if (!data || typeof data !== 'object') {
+      return {};
+    }
+    const firstName =
+      (data.firstName ?? data.first_name ?? data.firstname) as string | undefined;
+    const lastName =
+      (data.lastName ?? data.last_name ?? data.lastname) as string | undefined;
+    const middleName =
+      (data.middleName ?? data.middle_name ?? data.middlename) as string | undefined;
+    const phoneNumber =
+      (data.phoneNumber ?? data.phone_number ?? data.phone) as string | undefined;
+    const dateOfBirth =
+      (data.dateOfBirth ?? data.date_of_birth ?? data.dob) as string | undefined;
+    return {
+      firstName: firstName?.trim() || undefined,
+      lastName: lastName?.trim() || undefined,
+      middleName: middleName?.trim() || undefined,
+      phoneNumber: phoneNumber?.trim() || undefined,
+      dateOfBirth: dateOfBirth?.trim() || undefined,
+    };
+  }
+
   /**
-   * Verify BVN using Prembly Quick Start endpoint.
-   * POST /v1/verify with body { type: "bvn", number: "..." }
-   * Falls back to /verification/bvn_validation if v1 returns no name data.
+   * Verify BVN using Prembly.
+   * 1) Quick Start: POST /v1/verify with body { type: "bvn", number: "..." }, header x-api-key.
+   * 2) If no name data: fallback to BVN Basic POST /verification/bvn_validation (requires app-id + x-api-key).
    */
   async verifyBvn(bvn: string): Promise<PremblyBvnResult> {
     if (!this.apiKey) {
       return { success: false, message: 'Prembly API key not configured' };
     }
 
+    // 1) Quick Start: POST /v1/verify (docs: x-api-key, body type + number)
     try {
-      // Quick Start: POST /v1/verify
       const v1Res = await axios.post(
         `${this.baseUrl}/v1/verify`,
         { type: 'bvn', number: bvn },
@@ -50,48 +75,77 @@ export class PremblyService {
         },
       );
 
-      const d = v1Res.data;
+      const d = v1Res.data as Record<string, unknown>;
       const status = d?.status === true || d?.status === 'success';
-      const code = d?.response_code ?? d?.responseCode ?? '';
+      const code = (d?.response_code ?? d?.responseCode ?? '') as string;
 
       if (!status && code !== '00') {
-        const msg = d?.detail ?? d?.message ?? 'Verification failed';
-        this.logger.warn(`Prembly BVN verify failed: ${msg}`);
+        const msg = (d?.detail ?? d?.message ?? 'Verification failed') as string;
+        this.logger.warn(`Prembly BVN v1/verify failed: ${msg}`);
         return { success: false, message: msg };
       }
 
-      // Extract name from various possible response shapes
-      const data = d?.data ?? d?.verification ?? {};
-      const firstName =
-        data?.firstName ?? data?.first_name ?? data?.firstname ?? '';
-      const lastName =
-        data?.lastName ?? data?.last_name ?? data?.lastname ?? '';
-      const middleName =
-        data?.middleName ?? data?.middle_name ?? data?.middlename;
-
-      return {
-        success: true,
-        firstName: firstName || undefined,
-        lastName: lastName || undefined,
-        middleName: middleName || undefined,
-        phoneNumber: data?.phoneNumber ?? data?.phone_number ?? data?.phone,
-        dateOfBirth: data?.dateOfBirth ?? data?.date_of_birth ?? data?.dob,
-      };
+      const data = (d?.data ?? d?.verification) as Record<string, unknown> | undefined;
+      const parsed = this.parseBvnData(data ?? null);
+      if (parsed.firstName || parsed.lastName) {
+        return { success: true, ...parsed };
+      }
     } catch (err: any) {
       const status = err.response?.status;
       const data = err.response?.data;
       const msg =
-        data?.detail ?? data?.message ?? err.message ?? 'Prembly request failed';
-      this.logger.error(`Prembly BVN verify error: ${msg}`, { status, data });
+        (data?.detail ?? data?.message ?? err.message) as string ?? 'Prembly request failed';
+      this.logger.warn(`Prembly v1/verify error: ${msg}`, { status });
 
       if (status === 401) {
         return { success: false, message: 'Invalid API key' };
       }
       if (status === 400) {
-        return { success: false, message: data?.detail ?? msg };
+        return { success: false, message: (data?.detail as string) ?? msg };
       }
-
-      return { success: false, message: msg };
+      // Fall through to bvn_validation if we have app-id
     }
+
+    // 2) Fallback: BVN Basic POST /verification/bvn_validation (docs: app-id + x-api-key, body number)
+    if (this.appId) {
+      try {
+        const res = await axios.post(
+          `${this.baseUrl}/verification/bvn_validation`,
+          { number: bvn },
+          {
+            headers: {
+              'app-id': this.appId,
+              'x-api-key': this.apiKey,
+              'Content-Type': 'application/json',
+            },
+            timeout: 15000,
+          },
+        );
+
+        const d = res.data as Record<string, unknown>;
+        const status = d?.status === true;
+        const code = (d?.response_code ?? '') as string;
+        if (!status && code !== '00') {
+          const msg = (d?.detail ?? d?.message ?? 'Verification failed') as string;
+          return { success: false, message: msg };
+        }
+
+        const data = d?.data as Record<string, unknown> | undefined;
+        const parsed = this.parseBvnData(data ?? null);
+        return { success: true, ...parsed };
+      } catch (err: any) {
+        const data = err.response?.data;
+        const msg =
+          (data?.detail ?? data?.message ?? err.message) as string ?? 'BVN validation failed';
+        this.logger.warn(`Prembly bvn_validation error: ${msg}`);
+        return { success: false, message: msg };
+      }
+    }
+
+    return {
+      success: false,
+      message:
+        'BVN verification could not be completed. If you have an App ID, set PREMBLY_APP_ID for fallback validation.',
+    };
   }
 }
