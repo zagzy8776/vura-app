@@ -7,18 +7,131 @@ import {
   Query,
   UseGuards,
   BadRequestException,
+  Logger,
+  Headers,
 } from '@nestjs/common';
-import { AuthGuard } from '@nestjs/passport';
 import { PrismaService } from '../prisma.service';
+import { ConfigService } from '@nestjs/config';
+import Decimal from 'decimal.js';
+import { v4 as uuid } from 'uuid';
 
 @Controller('admin')
 export class AdminController {
-  constructor(private prisma: PrismaService) {}
+  private readonly logger = new Logger(AdminController.name);
+  private readonly adminSecret: string;
 
-  // Guard - In production, add proper admin role check
-  private async checkAdmin() {
-    // TODO: Add proper admin role verification
-    return true;
+  constructor(
+    private prisma: PrismaService,
+    private config: ConfigService,
+  ) {
+    this.adminSecret = this.config.get('ADMIN_SECRET', 'change-me-in-production');
+  }
+
+  private checkAdmin(authHeader?: string) {
+    const token = (authHeader || '').replace('Bearer ', '').trim();
+    if (!token || token !== this.adminSecret) {
+      throw new BadRequestException('Unauthorized');
+    }
+  }
+
+  /**
+   * Manually credit a user's wallet (admin only)
+   */
+  @Post('credit')
+  async creditUser(
+    @Headers('authorization') authHeader: string,
+    @Body() body: { userId?: string; vuraTag?: string; amount: number; reason: string; currency?: string },
+  ) {
+    this.checkAdmin(authHeader);
+
+    const { amount, reason, currency = 'NGN' } = body;
+
+    if (!amount || amount <= 0 || amount > 50000000) {
+      throw new BadRequestException('Amount must be between ₦1 and ₦50,000,000');
+    }
+
+    if (!reason) {
+      throw new BadRequestException('Reason is required');
+    }
+
+    let userId = body.userId;
+    if (!userId && body.vuraTag) {
+      const user = await this.prisma.user.findFirst({
+        where: { vuraTag: body.vuraTag },
+        select: { id: true },
+      });
+      if (!user) throw new BadRequestException('User not found with that vuraTag');
+      userId = user.id;
+    }
+
+    if (!userId) {
+      throw new BadRequestException('Provide userId or vuraTag');
+    }
+
+    const reference = `ADMIN-CREDIT-${uuid()}`;
+    const creditAmount = new Decimal(amount);
+
+    const result = await this.prisma.$transaction(async (prisma) => {
+      const balance = await prisma.balance.findUnique({
+        where: { userId_currency: { userId, currency } },
+      });
+
+      const before = new Decimal(balance?.amount?.toString() ?? '0');
+      const after = before.add(creditAmount);
+
+      await prisma.balance.upsert({
+        where: { userId_currency: { userId, currency } },
+        create: { userId, currency, amount: after.toNumber(), lastUpdatedBy: 'admin_credit' },
+        update: { amount: after.toNumber(), lastUpdatedBy: 'admin_credit' },
+      });
+
+      const transaction = await prisma.transaction.create({
+        data: {
+          receiverId: userId,
+          amount: creditAmount.toNumber(),
+          currency,
+          type: 'deposit',
+          status: 'SUCCESS',
+          idempotencyKey: reference,
+          reference,
+          beforeBalance: before.toNumber(),
+          afterBalance: after.toNumber(),
+          metadata: { method: 'admin_credit', reason },
+        },
+      });
+
+      return { transaction, before, after };
+    });
+
+    await this.prisma.auditLog.create({
+      data: {
+        action: 'ADMIN_CREDIT',
+        userId,
+        actorType: 'admin',
+        metadata: {
+          reference,
+          amount: creditAmount.toString(),
+          currency,
+          reason,
+          before: result.before.toString(),
+          after: result.after.toString(),
+        },
+      },
+    });
+
+    this.logger.log(`Admin credited ₦${amount} to ${userId}: ${reason}`);
+
+    return {
+      success: true,
+      message: `₦${amount.toLocaleString()} credited to user`,
+      data: {
+        reference,
+        userId,
+        amount,
+        balanceBefore: result.before.toFixed(2),
+        balanceAfter: result.after.toFixed(2),
+      },
+    };
   }
 
   /**

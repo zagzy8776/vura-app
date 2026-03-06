@@ -25,6 +25,7 @@ import VerifyOtp from "./pages/VerifyOtp";
 import BvnCallback from "@/pages/BvnCallback";
 import IdUpload from "./pages/IdUpload";
 import AdminDashboard from "./pages/AdminDashboard";
+import FundWallet from "./pages/FundWallet";
 
 const queryClient = new QueryClient();
 
@@ -82,6 +83,7 @@ const AppRoutes = () => (
     <Route path="/terms" element={<TermsOfService />} />
     <Route path="/privacy" element={<PrivacyPolicy />} />
     <Route path="/id-upload" element={<ProtectedRoute><IdUpload /></ProtectedRoute>} />
+    <Route path="/fund-wallet" element={<ProtectedRoute><FundWallet /></ProtectedRoute>} />
     <Route path="/admin" element={<ProtectedRoute><AdminDashboard /></ProtectedRoute>} />
     <Route path="*" element={<NotFound />} />
   </Routes>

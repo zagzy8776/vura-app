@@ -89,7 +89,6 @@ export class PaystackService {
     reason?: string,
   ): Promise<{ reference: string; status: string }> {
     try {
-      // First, create a recipient
       const recipientResponse = await axios.post(
         `${this.baseUrl}/transferrecipient`,
         {
@@ -104,12 +103,11 @@ export class PaystackService {
 
       const recipientCode = recipientResponse.data.data.recipient_code;
 
-      // Then initiate the transfer
       const transferResponse = await axios.post<TransferResponse>(
         `${this.baseUrl}/transfer`,
         {
           source: 'balance',
-          amount: Math.round(amount * 100), // Paystack expects amount in kobo
+          amount: Math.round(amount * 100),
           recipient: recipientCode,
           reason: reason || 'Vura Transfer',
           reference: reference,
@@ -132,6 +130,85 @@ export class PaystackService {
         throw new BadRequestException(error.response.data.message);
       }
       throw new BadRequestException('Transfer failed');
+    }
+  }
+
+  async initializeTransaction(input: {
+    email: string;
+    amount: number;
+    reference: string;
+    callbackUrl?: string;
+    metadata?: Record<string, unknown>;
+  }): Promise<{ authorizationUrl: string; accessCode: string; reference: string }> {
+    try {
+      const res = await axios.post(
+        `${this.baseUrl}/transaction/initialize`,
+        {
+          email: input.email,
+          amount: Math.round(input.amount * 100),
+          reference: input.reference,
+          callback_url: input.callbackUrl,
+          metadata: input.metadata,
+        },
+        { headers: this.getHeaders() },
+      );
+
+      if (!res.data.status) {
+        throw new BadRequestException(res.data.message || 'Could not initialize payment');
+      }
+
+      return {
+        authorizationUrl: res.data.data.authorization_url,
+        accessCode: res.data.data.access_code,
+        reference: res.data.data.reference,
+      };
+    } catch (error: any) {
+      if (error.response?.data?.message) {
+        throw new BadRequestException(error.response.data.message);
+      }
+      throw new BadRequestException('Payment initialization failed');
+    }
+  }
+
+  async verifyTransaction(reference: string): Promise<{
+    success: boolean;
+    amount: number;
+    status: string;
+    metadata?: any;
+  }> {
+    try {
+      const res = await axios.get(
+        `${this.baseUrl}/transaction/verify/${encodeURIComponent(reference)}`,
+        { headers: this.getHeaders() },
+      );
+
+      const data = res.data.data;
+      return {
+        success: data.status === 'success',
+        amount: data.amount / 100,
+        status: data.status,
+        metadata: data.metadata,
+      };
+    } catch (error: any) {
+      if (error.response?.data?.message) {
+        throw new BadRequestException(error.response.data.message);
+      }
+      throw new BadRequestException('Could not verify payment');
+    }
+  }
+
+  async listBanks(): Promise<{ code: string; name: string }[]> {
+    try {
+      const res = await axios.get(`${this.baseUrl}/bank`, {
+        headers: this.getHeaders(),
+        params: { country: 'nigeria', perPage: 100 },
+      });
+      return (res.data.data ?? []).map((b: any) => ({
+        code: b.code,
+        name: b.name,
+      }));
+    } catch {
+      return [];
     }
   }
 }

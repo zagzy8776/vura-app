@@ -269,6 +269,10 @@ export class WebhookController {
     });
 
     // 5. Process based on event type
+    if (event === 'charge.success') {
+      return this.handlePaystackChargeSuccess(data);
+    }
+
     if (event === 'transfer.success') {
       return this.handlePaystackTransferSuccess(data, req);
     }
@@ -282,6 +286,67 @@ export class WebhookController {
     }
 
     return { status: 'ignored', reason: 'unknown_event_type' };
+  }
+
+  private async handlePaystackChargeSuccess(data: any) {
+    const reference = data.reference;
+    const amountKobo = data.amount;
+    const amount = new Decimal(amountKobo).div(100);
+
+    const transaction = await this.prisma.transaction.findUnique({
+      where: { reference },
+    });
+
+    if (!transaction) {
+      this.logger.warn('Paystack charge: Transaction not found', { reference });
+      return { status: 'transaction_not_found' };
+    }
+
+    if (transaction.status === 'SUCCESS') {
+      return { status: 'already_processed' };
+    }
+
+    const userId = transaction.senderId ?? transaction.receiverId;
+    if (!userId) {
+      this.logger.error('Paystack charge: No userId on transaction', { reference });
+      return { status: 'no_user' };
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      const balance = await tx.balance.findUnique({
+        where: { userId_currency: { userId, currency: 'NGN' } },
+      });
+
+      const before = new Decimal(balance?.amount?.toString() ?? '0');
+      const after = before.add(amount);
+
+      await tx.balance.upsert({
+        where: { userId_currency: { userId, currency: 'NGN' } },
+        create: { userId, currency: 'NGN', amount: after.toNumber(), lastUpdatedBy: 'paystack_charge' },
+        update: { amount: after.toNumber(), lastUpdatedBy: 'paystack_charge' },
+      });
+
+      await tx.transaction.update({
+        where: { id: transaction.id },
+        data: {
+          status: 'SUCCESS',
+          beforeBalance: before.toNumber(),
+          afterBalance: after.toNumber(),
+        },
+      });
+    });
+
+    await this.prisma.auditLog.create({
+      data: {
+        action: 'PAYSTACK_CHARGE_SUCCESS',
+        userId,
+        actorType: 'system',
+        metadata: { reference, amount: amount.toString() },
+      },
+    });
+
+    this.logger.log(`Paystack charge: Credited ₦${amount} to ${userId}`, { reference });
+    return { status: 'success' };
   }
 
   private async handlePaystackTransferSuccess(data: any, req: Request) {

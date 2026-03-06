@@ -6,12 +6,12 @@ const QuickActions = () => {
   const navigate = useNavigate();
 
   const actions = [
+    { icon: ArrowDownLeft, label: "Fund", color: "bg-green-500/10 text-green-600", onClick: () => navigate("/fund-wallet") },
     { icon: ArrowUpRight, label: "Send", color: "bg-primary/10 text-primary", onClick: () => navigate("/send") },
-    { icon: ArrowDownLeft, label: "Receive", color: "bg-accent/10 text-accent-foreground", onClick: () => navigate("/receive") },
     { icon: Bitcoin, label: "Crypto", color: "bg-orange-500/10 text-orange-500", onClick: () => navigate("/crypto-deposit") },
     { icon: Smartphone, label: "Airtime", color: "bg-destructive/10 text-destructive", onClick: () => navigate("/bills?tab=airtime") },
     { icon: Zap, label: "Electricity", color: "bg-accent/10 text-accent-foreground", onClick: () => navigate("/bills?tab=electricity") },
-    { icon: Wifi, label: "Internet", color: "bg-primary/10 text-primary", onClick: () => navigate("/bills?tab=data") },
+    { icon: Wifi, label: "Data", color: "bg-primary/10 text-primary", onClick: () => navigate("/bills?tab=data") },
   ];
 
   return (

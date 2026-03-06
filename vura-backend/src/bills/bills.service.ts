@@ -1,35 +1,8 @@
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
-import { FlutterwaveService } from '../services/flutterwave.service';
+import { PeyflexService } from '../services/peyflex.service';
 import Decimal from 'decimal.js';
 import { v4 as uuid } from 'uuid';
-
-const AIRTIME_NETWORKS = [
-  { id: 'mtn', name: 'MTN' },
-  { id: 'glo', name: 'GLO' },
-  { id: 'airtel', name: 'Airtel' },
-  { id: '9mobile', name: '9mobile' },
-];
-
-const DATA_NETWORKS = [
-  { id: 'BIL108', name: 'MTN' },
-  { id: 'BIL109', name: 'GLO' },
-  { id: 'BIL110', name: 'Airtel' },
-  { id: 'BIL111', name: '9mobile' },
-];
-
-const ELECTRICITY_DISCOS = [
-  { id: 'BIL112', name: 'Eko Electric', shortName: 'EKEDC' },
-  { id: 'BIL113', name: 'Ikeja Electric', shortName: 'IKEDC' },
-  { id: 'BIL114', name: 'Ibadan Electric', shortName: 'IBEDC' },
-  { id: 'BIL115', name: 'Enugu Electric', shortName: 'EEDC' },
-  { id: 'BIL116', name: 'Port Harcourt Electric', shortName: 'PHED' },
-  { id: 'BIL117', name: 'Benin Electric', shortName: 'BEDC' },
-  { id: 'BIL118', name: 'Yola Electric', shortName: 'YEDC' },
-  { id: 'BIL119', name: 'Kaduna Electric', shortName: 'KEDC' },
-  { id: 'BIL120', name: 'Kano Electric', shortName: 'KEDCO' },
-  { id: 'BIL204', name: 'Abuja Electric', shortName: 'AEDC' },
-];
 
 const ELECTRICITY_FEE = 100;
 
@@ -39,10 +12,21 @@ export class BillsService {
 
   constructor(
     private prisma: PrismaService,
-    private flutterwave: FlutterwaveService,
+    private peyflex: PeyflexService,
   ) {}
 
   // ── Airtime ───────────────────────────────────────────────────────────
+
+  async getAirtimeNetworks() {
+    const networks = await this.peyflex.getAirtimeNetworks();
+    if (networks.length > 0) return networks;
+    return [
+      { id: 'mtn', name: 'MTN' },
+      { id: 'glo', name: 'GLO' },
+      { id: 'airtel', name: 'Airtel' },
+      { id: '9mobile', name: '9mobile' },
+    ];
+  }
 
   async buyAirtime(
     userId: string,
@@ -91,6 +75,7 @@ export class BillsService {
             billType: 'airtime',
             network: data.network,
             phoneNumber: data.phoneNumber,
+            provider: 'peyflex',
           },
         },
       });
@@ -98,13 +83,10 @@ export class BillsService {
       return { transaction, afterBalance };
     });
 
-    // Flutterwave auto-detects network from phone number
-    const result = await this.flutterwave.createBillPayment({
-      country: 'NG',
-      customer: data.phoneNumber,
+    const result = await this.peyflex.buyAirtime({
+      network: data.network,
+      phoneNumber: data.phoneNumber,
       amount: data.amount,
-      type: 'AIRTIME',
-      reference,
     });
 
     if (!result.success) {
@@ -116,11 +98,11 @@ export class BillsService {
       where: { id: tx.transaction.id },
       data: {
         status: 'SUCCESS',
-        providerTxId: result.data?.tx_ref ?? result.data?.reference ?? null,
         metadata: {
           billType: 'airtime',
           network: data.network,
           phoneNumber: data.phoneNumber,
+          provider: 'peyflex',
           providerResponse: result.data,
         },
       },
@@ -131,16 +113,11 @@ export class BillsService {
         action: 'AIRTIME_PURCHASE',
         userId,
         actorType: 'user',
-        metadata: {
-          reference,
-          network: data.network,
-          phoneNumber: data.phoneNumber,
-          amount: data.amount,
-        },
+        metadata: { reference, network: data.network, phoneNumber: data.phoneNumber, amount: data.amount, provider: 'peyflex' },
       },
     });
 
-    this.logger.log(`Airtime: ₦${data.amount} → ${data.phoneNumber} (${data.network}) by ${userId}`);
+    this.logger.log(`Airtime: ₦${data.amount} → ${data.phoneNumber} (${data.network}) by ${userId} via Peyflex`);
 
     return {
       success: true,
@@ -156,6 +133,26 @@ export class BillsService {
   }
 
   // ── Data ──────────────────────────────────────────────────────────────
+
+  async getDataNetworks() {
+    const networks = await this.peyflex.getDataNetworks();
+    if (networks.length > 0) return networks;
+    return [
+      { id: 'mtn', name: 'MTN' },
+      { id: 'glo', name: 'GLO' },
+      { id: 'airtel', name: 'Airtel' },
+      { id: '9mobile', name: '9mobile' },
+    ];
+  }
+
+  async getDataPlans(network: string) {
+    const plans = await this.peyflex.getDataPlans(network);
+    return plans.map((item: any) => ({
+      plan_code: item.plan_code ?? item.id ?? item.name,
+      name: item.name ?? item.plan_name ?? item.description,
+      price: item.price ?? item.amount ?? 0,
+    }));
+  }
 
   async buyData(
     userId: string,
@@ -214,6 +211,7 @@ export class BillsService {
             planCode: data.planCode,
             planName: plan.name,
             planPrice: planPrice.toString(),
+            provider: 'peyflex',
           },
         },
       });
@@ -221,13 +219,10 @@ export class BillsService {
       return { transaction, afterBalance };
     });
 
-    const result = await this.flutterwave.createBillPayment({
-      country: 'NG',
-      customer: data.phoneNumber,
-      amount: planPrice.toNumber(),
-      // Use the Flutterwave item_code (planCode) as type to avoid mis-billing
-      type: data.planCode,
-      reference,
+    const result = await this.peyflex.buyData({
+      network: data.network,
+      phoneNumber: data.phoneNumber,
+      planCode: data.planCode,
     });
 
     if (!result.success) {
@@ -239,7 +234,6 @@ export class BillsService {
       where: { id: tx.transaction.id },
       data: {
         status: 'SUCCESS',
-        providerTxId: result.data?.tx_ref ?? result.data?.reference ?? null,
         metadata: {
           billType: 'data',
           network: data.network,
@@ -247,6 +241,7 @@ export class BillsService {
           planCode: data.planCode,
           planName: plan.name,
           planPrice: planPrice.toString(),
+          provider: 'peyflex',
           providerResponse: result.data,
         },
       },
@@ -263,13 +258,12 @@ export class BillsService {
           phoneNumber: data.phoneNumber,
           planCode: data.planCode,
           amount: planPrice.toString(),
+          provider: 'peyflex',
         },
       },
     });
 
-    this.logger.log(
-      `Data: ${data.planCode} (₦${planPrice}) → ${data.phoneNumber} (${data.network}) by ${userId}`,
-    );
+    this.logger.log(`Data: ${data.planCode} (₦${planPrice}) → ${data.phoneNumber} (${data.network}) by ${userId} via Peyflex`);
 
     return {
       success: true,
@@ -286,46 +280,29 @@ export class BillsService {
     };
   }
 
-  // ── Network / Plan Listings ───────────────────────────────────────────
-
-  getAirtimeNetworks() {
-    return AIRTIME_NETWORKS;
-  }
-
-  getDataNetworks() {
-    return DATA_NETWORKS;
-  }
-
-  async getDataPlans(billerCode: string) {
-    const items = await this.flutterwave.getBillItemsByBiller(billerCode);
-    const dataItems = items.filter((i: any) => i.is_airtime === false);
-
-    return dataItems.map((item: any) => ({
-      // plan_code should be the Flutterwave item_code so purchases use the right product
-      plan_code: item.item_code,
-      name: item.short_name ?? item.name,
-      price: item.amount,
-      item_code: item.item_code,
-      biller_code: item.biller_code,
-    }));
-  }
-
   // ── Electricity ────────────────────────────────────────────────────────
 
-  getElectricityDiscos() {
-    return ELECTRICITY_DISCOS;
+  async getElectricityDiscos() {
+    const plans = await this.peyflex.getElectricityPlans();
+    if (plans.length > 0) return plans;
+    return [
+      { id: 'eko-electric', name: 'Eko Electric (EKEDC)' },
+      { id: 'ikeja-electric', name: 'Ikeja Electric (IKEDC)' },
+      { id: 'ibadan-electric', name: 'Ibadan Electric (IBEDC)' },
+      { id: 'enugu-electric', name: 'Enugu Electric (EEDC)' },
+      { id: 'portharcourt-electric', name: 'Port Harcourt Electric (PHED)' },
+      { id: 'benin-electric', name: 'Benin Electric (BEDC)' },
+      { id: 'kaduna-electric', name: 'Kaduna Electric (KEDC)' },
+      { id: 'kano-electric', name: 'Kano Electric (KEDCO)' },
+      { id: 'abuja-electric', name: 'Abuja Electric (AEDC)' },
+    ];
   }
 
-  async getElectricityItems(billerCode: string) {
-    const items = await this.flutterwave.getBillItemsByBiller(billerCode);
-
-    return items.map((item: any) => ({
-      item_code: item.item_code,
-      biller_code: item.biller_code,
-      name: item.short_name ?? item.name,
-      amount: item.amount,
-      fee: item.fee ?? ELECTRICITY_FEE,
-    }));
+  async getElectricityItems(disco: string) {
+    return [
+      { item_code: `${disco}-prepaid`, biller_code: disco, name: 'Prepaid', amount: 0, fee: ELECTRICITY_FEE },
+      { item_code: `${disco}-postpaid`, biller_code: disco, name: 'Postpaid', amount: 0, fee: ELECTRICITY_FEE },
+    ];
   }
 
   async validateMeter(input: {
@@ -333,11 +310,12 @@ export class BillsService {
     itemCode: string;
     billerCode: string;
   }) {
-    const result = await this.flutterwave.validateBillCustomer(
-      input.itemCode,
-      input.billerCode,
-      input.meterNumber,
-    );
+    const type = input.itemCode.includes('prepaid') ? 'prepaid' : 'postpaid';
+    const result = await this.peyflex.verifyMeter({
+      meterNumber: input.meterNumber,
+      plan: input.billerCode,
+      type,
+    });
 
     if (!result.success) {
       return { success: false, message: result.message || 'Meter validation failed' };
@@ -346,10 +324,9 @@ export class BillsService {
     return {
       success: true,
       data: {
-        customerName: result.data?.name ?? 'Unknown',
-        address: result.data?.address ?? null,
-        meterNumber: result.data?.customer ?? input.meterNumber,
-        minimumAmount: result.data?.minimum ?? 0,
+        customerName: result.data?.Customer_Name ?? result.data?.name ?? 'Verified',
+        address: result.data?.Address ?? result.data?.address ?? null,
+        meterNumber: input.meterNumber,
       },
     };
   }
@@ -364,6 +341,7 @@ export class BillsService {
       itemName: string;
       itemCode: string;
       fee?: number;
+      phoneNumber?: string;
     },
   ) {
     if (data.amount < 500) {
@@ -419,6 +397,7 @@ export class BillsService {
             meterNumber: data.meterNumber,
             amount: data.amount,
             fee: fee.toNumber(),
+            provider: 'peyflex',
           },
         },
       });
@@ -426,13 +405,12 @@ export class BillsService {
       return { transaction, afterBalance };
     });
 
-    const result = await this.flutterwave.createBillPayment({
-      country: 'NG',
-      customer: data.meterNumber,
+    const result = await this.peyflex.buyElectricity({
+      meterNumber: data.meterNumber,
+      plan: data.disco,
       amount: data.amount,
-      // Flutterwave expects the bill item code (not display name)
-      type: data.itemCode,
-      reference,
+      type: data.type,
+      phoneNumber: data.phoneNumber || '08000000000',
     });
 
     if (!result.success) {
@@ -442,22 +420,12 @@ export class BillsService {
       );
     }
 
-    // Poll status to get token (for prepaid)
-    let token: string | null = null;
-    try {
-      const status = await this.flutterwave.getBillStatus(reference);
-      if (status.success && status.data?.extra) {
-        token = status.data.extra;
-      }
-    } catch {
-      // token retrieval is best-effort
-    }
+    const token: string | null = result.data?.token ?? result.data?.Token ?? null;
 
     await this.prisma.transaction.update({
       where: { id: tx.transaction.id },
       data: {
         status: 'SUCCESS',
-        providerTxId: result.data?.tx_ref ?? result.data?.reference ?? null,
         metadata: {
           billType: 'electricity',
           disco: data.disco,
@@ -466,6 +434,7 @@ export class BillsService {
           amount: data.amount,
           fee: fee.toNumber(),
           token,
+          provider: 'peyflex',
           providerResponse: result.data,
         },
       },
@@ -483,13 +452,12 @@ export class BillsService {
           meterNumber: data.meterNumber,
           amount: data.amount,
           fee: fee.toNumber(),
+          provider: 'peyflex',
         },
       },
     });
 
-    this.logger.log(
-      `Electricity: ₦${data.amount} → ${data.meterNumber} (${data.disco} ${data.type}) by ${userId}`,
-    );
+    this.logger.log(`Electricity: ₦${data.amount} → ${data.meterNumber} (${data.disco} ${data.type}) by ${userId} via Peyflex`);
 
     return {
       success: true,
@@ -499,7 +467,7 @@ export class BillsService {
         meterType: data.type,
         meterNumber: data.meterNumber,
         amount: data.amount,
-        fee: ELECTRICITY_FEE,
+        fee: fee.toNumber(),
         token,
         balanceAfter: tx.afterBalance.toFixed(2),
       },

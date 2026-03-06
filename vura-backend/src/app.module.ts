@@ -24,6 +24,7 @@ import { QrCodesModule } from './qr-codes/qr-codes.module';
 import { PaymentRequestsModule } from './payment-requests/payment-requests.module';
 import { BankCodesModule } from './bank-codes/bank-codes.module';
 import { VirtualAccountsModule } from './virtual-accounts/virtual-accounts.module';
+import { FundingModule } from './funding/funding.module';
 import { PaystackService } from './services/paystack.service';
 import { BankCodesService } from './services/bank-codes.service';
 import { FlutterwaveService } from './services/flutterwave.service';
@@ -65,6 +66,7 @@ import { SecurityMiddleware } from './middleware/security.middleware';
     PaymentRequestsModule,
     BankCodesModule,
     VirtualAccountsModule,
+    FundingModule,
   ],
   controllers: [AppController, TransactionsController, WebhookController],
   providers: [

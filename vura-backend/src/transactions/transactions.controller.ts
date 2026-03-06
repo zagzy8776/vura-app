@@ -11,14 +11,14 @@ import {
 import { TransactionsService } from './transactions.service';
 import { AuthGuard } from '../auth/auth.guard';
 import { BankCodesService } from '../services/bank-codes.service';
-import { FlutterwaveService } from '../services/flutterwave.service';
+import { PaystackService } from '../services/paystack.service';
 
 @Controller('transactions')
 export class TransactionsController {
   constructor(
     private transactionsService: TransactionsService,
     private bankCodesService: BankCodesService,
-    private flutterwaveService: FlutterwaveService,
+    private paystackService: PaystackService,
   ) {}
 
   @UseGuards(AuthGuard)
@@ -58,21 +58,16 @@ export class TransactionsController {
   ) {
     const { accountNumber, bankCode, accountName, amount, description } = body;
 
-    // Flutterwave-only: verify and transfer using Flutterwave
     const reference = `BANK-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
-    const verificationResult = await this.flutterwaveService.verifyAccount(
+    const verificationResult = await this.paystackService.verifyAccount(
       accountNumber,
       bankCode,
     );
-    if (!verificationResult.success) {
-      throw new BadRequestException(
-        verificationResult.error ||
-          'We could not verify this account. Please confirm the bank and account number and try again.',
-      );
-    }
 
-    const transferResult = await this.flutterwaveService.initiateTransfer(
+    const fee = amount <= 5000 ? 10 : amount <= 50000 ? 25 : 50;
+
+    const transferResult = await this.paystackService.initiateTransfer(
       accountNumber,
       bankCode,
       accountName || verificationResult.accountName,
@@ -81,23 +76,15 @@ export class TransactionsController {
       description,
     );
 
-    if (!transferResult.success) {
-      throw new BadRequestException(
-        transferResult.error ||
-          'Transfer failed. Please try again in a few minutes.',
-      );
-    }
-
     return {
       success: true,
       reference: transferResult.reference,
       status: transferResult.status,
       accountName: verificationResult.accountName,
       amount,
-      fee: transferResult.fee,
-      stampDuty: transferResult.stampDuty,
-      totalDeduction: transferResult.totalDeduction,
-      provider: 'flutterwave',
+      fee,
+      totalDeduction: amount + fee,
+      provider: 'paystack',
     };
   }
 
@@ -134,40 +121,24 @@ export class TransactionsController {
     @Query('bankCode') bankCode: string,
   ) {
     try {
-      const result = await this.flutterwaveService.verifyAccount(
+      const result = await this.paystackService.verifyAccount(
         accountNumber,
         bankCode,
       );
-      if (!result.success) {
-        throw new BadRequestException(
-          result.error ||
-            'We could not verify this account. Please confirm the bank and account number and try again.',
-        );
-      }
 
       return {
         success: true,
         accountName: result.accountName,
-        provider: 'flutterwave',
+        provider: 'paystack',
       };
     } catch (error: any) {
-      // Do not leak provider details to users.
-      const providerMessage =
-        error.response?.data?.message || error.message || 'Unknown error';
-      // Keep provider message in logs for debugging.
-
-      console.error('verify-account failed', { bankCode, providerMessage });
-
+      console.error('verify-account failed', { bankCode, error: error.message });
       throw new BadRequestException(
         'We could not verify this account. Please confirm the bank and account number and try again.',
       );
     }
   }
 
-  /**
-   * Return Flutterwave fee breakdown for bank transfers
-   * Rules (2026): ₦10 for < ₦10k, ₦25 for ≥ ₦10k + ₦50 stamp duty for ≥ ₦10k
-   */
   @Get('transfer-fee')
   getTransferFee(@Query('amount') amount: string) {
     const parsed = Number(amount);
@@ -175,13 +146,14 @@ export class TransactionsController {
       throw new BadRequestException('Invalid amount');
     }
 
-    const feeInfo = this.flutterwaveService.calculateTransferFee(parsed);
+    const fee = parsed <= 5000 ? 10 : parsed <= 50000 ? 25 : 50;
+
     return {
       success: true,
-      fee: feeInfo.fee,
-      stampDuty: feeInfo.stampDuty,
-      totalFee: feeInfo.total,
-      provider: 'flutterwave',
+      fee,
+      stampDuty: 0,
+      totalFee: fee,
+      provider: 'paystack',
     };
   }
 }
