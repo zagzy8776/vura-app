@@ -421,9 +421,9 @@ const Bills = () => {
         throw new Error(json.message || "Validation failed");
       }
       setMeterValidated(true);
-      setMeterCustomerName(json.data?.customerName ?? "Valid");
+      setMeterCustomerName("Valid");
       setLastValidated({ meter: meterNumber.trim(), item: selectedElectricityItem.item_code });
-      toast({ title: "Meter verified", description: json.data?.customerName ?? "You can proceed." });
+      toast({ title: "Meter verified", description: "You can proceed to pay." });
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Meter validation failed";
       toast({ title: "Error", description: msg, variant: "destructive" });
@@ -1069,8 +1069,8 @@ const Bills = () => {
                     {validatingMeter ? <Loader2 className="h-4 w-4 animate-spin" /> : meterValidated ? "Verified" : "Verify"}
                   </Button>
                 </div>
-                {meterValidated && meterCustomerName && (
-                  <p className="text-xs text-green-600 mt-1">✓ {meterCustomerName}</p>
+                {meterValidated && (
+                  <p className="text-xs text-green-600 mt-1">✓ Meter verified — proceed to pay</p>
                 )}
               </div>
             )}

@@ -55,11 +55,23 @@ export default function AdminDashboard() {
   const [rejectReason, setRejectReason] = useState('');
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [userToReject, setUserToReject] = useState<User | null>(null);
+  const [tier2FirstName, setTier2FirstName] = useState('');
+  const [tier2LastName, setTier2LastName] = useState('');
+  const [tier2Reason, setTier2Reason] = useState('');
+  const [adminSecret, setAdminSecret] = useState('');
+  const [setTier2Loading, setSetTier2Loading] = useState(false);
 
   useEffect(() => {
     fetchUsers();
     fetchStats();
   }, [token]);
+
+  useEffect(() => {
+    if (selectedUser) {
+      setTier2FirstName(selectedUser.legalFirstName || '');
+      setTier2LastName(selectedUser.legalLastName || '');
+    }
+  }, [selectedUser?.id]);
 
   const fetchUsers = async () => {
     try {
@@ -96,7 +108,7 @@ export default function AdminDashboard() {
     try {
       const res = await fetch(`${getApiUrl()}/admin/users/${userId}/verify-kyc`, {
         method: 'POST',
-        headers: { 
+        headers: {
           Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
@@ -114,6 +126,52 @@ export default function AdminDashboard() {
       toast.error('Failed to verify KYC');
     } finally {
       setActionLoading(false);
+    }
+  };
+
+  const handleSetTier2 = async () => {
+    if (!selectedUser) return;
+    const first = tier2FirstName.trim();
+    const last = tier2LastName.trim();
+    if (!first || !last) {
+      toast.error('First name and last name are required');
+      return;
+    }
+    if (!adminSecret.trim()) {
+      toast.error('Admin secret is required for this action');
+      return;
+    }
+    setSetTier2Loading(true);
+    try {
+      const res = await fetch(`${getApiUrl()}/admin/users/${selectedUser.id}/set-tier-2`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${adminSecret.trim()}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          firstName: first,
+          lastName: last,
+          reason: tier2Reason.trim() || undefined,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        toast.success(data.message || 'User set to Tier 2. They can now receive money.');
+        setTier2FirstName('');
+        setTier2LastName('');
+        setTier2Reason('');
+        setAdminSecret('');
+        fetchUsers();
+        fetchStats();
+        setSelectedUser(null);
+      } else {
+        toast.error(data.message || 'Failed to set Tier 2');
+      }
+    } catch (error) {
+      toast.error('Failed to set Tier 2');
+    } finally {
+      setSetTier2Loading(false);
     }
   };
 
@@ -388,6 +446,62 @@ export default function AdminDashboard() {
                   <p>{new Date(selectedUser.createdAt).toLocaleDateString()}</p>
                 </div>
               </div>
+
+              {(selectedUser.kycTier < 2 || !selectedUser.bvnVerified) && (
+                <div className="p-4 border border-dashed border-primary/50 rounded-lg bg-primary/5 space-y-3">
+                  <p className="text-sm font-medium">Set Tier 2 manually (when BVN API fails)</p>
+                  <p className="text-xs text-muted-foreground">
+                    User will get Tier 2 limits and can generate a virtual account to receive money. Use after you have verified their identity (e.g. offline). Requires admin secret.
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <Label className="text-xs">First name</Label>
+                      <Input
+                        placeholder="Legal first name"
+                        value={tier2FirstName}
+                        onChange={(e) => setTier2FirstName(e.target.value)}
+                        className="mt-1"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Last name</Label>
+                      <Input
+                        placeholder="Legal last name"
+                        value={tier2LastName}
+                        onChange={(e) => setTier2LastName(e.target.value)}
+                        className="mt-1"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <Label className="text-xs">Reason (optional)</Label>
+                    <Input
+                      placeholder="e.g. Verified offline"
+                      value={tier2Reason}
+                      onChange={(e) => setTier2Reason(e.target.value)}
+                      className="mt-1"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Admin secret</Label>
+                    <Input
+                      type="password"
+                      placeholder="ADMIN_SECRET from Render"
+                      value={adminSecret}
+                      onChange={(e) => setAdminSecret(e.target.value)}
+                      className="mt-1 font-mono text-sm"
+                    />
+                  </div>
+                  <Button
+                    size="sm"
+                    onClick={handleSetTier2}
+                    disabled={setTier2Loading || !tier2FirstName.trim() || !tier2LastName.trim() || !adminSecret.trim()}
+                  >
+                    {setTier2Loading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+                    Set Tier 2
+                  </Button>
+                </div>
+              )}
 
               {selectedUser.idCardUrl ? (
                 <div>

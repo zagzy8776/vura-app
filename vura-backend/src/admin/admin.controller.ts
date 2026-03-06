@@ -249,6 +249,64 @@ export class AdminController {
   }
 
   /**
+   * Manually set user to Tier 2 (BVN-equivalent) so they can receive money and get higher limits.
+   * Use when BVN API (Korapay/Prembly) is failing but you have verified the user (e.g. offline).
+   * Sets kycTier=2, bvnVerified=true, legalFirstName, legalLastName so virtual account creation works.
+   */
+  @Post('users/:id/set-tier-2')
+  async setTier2(
+    @Headers('authorization') authHeader: string,
+    @Param('id') userId: string,
+    @Body() body: { firstName: string; lastName: string; reason?: string },
+  ) {
+    this.checkAdmin(authHeader);
+
+    const firstName = (body.firstName || '').trim();
+    const lastName = (body.lastName || '').trim();
+    if (!firstName || !lastName) {
+      throw new BadRequestException('firstName and lastName are required (for virtual account name)');
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, vuraTag: true, kycTier: true },
+    });
+    if (!user) throw new BadRequestException('User not found');
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        kycTier: 2,
+        bvnVerified: true,
+        bvnVerifiedAt: new Date(),
+        legalFirstName: firstName,
+        legalLastName: lastName,
+        bvnConsentStatus: 'COMPLETED',
+      },
+    });
+
+    await this.prisma.auditLog.create({
+      data: {
+        action: 'ADMIN_SET_TIER_2',
+        userId,
+        actorType: 'admin',
+        metadata: {
+          reason: body.reason || 'Manual Tier 2 (BVN API unavailable or bypass)',
+          legalFirstName: firstName,
+          legalLastName: lastName,
+          at: new Date().toISOString(),
+        },
+      },
+    });
+
+    return {
+      success: true,
+      message: 'User set to Tier 2. They can now generate a virtual account and receive money.',
+      user: { id: user.id, vuraTag: user.vuraTag, kycTier: 2 },
+    };
+  }
+
+  /**
    * Verify user's KYC (Tier 3)
    */
   @Post('users/:id/verify-kyc')

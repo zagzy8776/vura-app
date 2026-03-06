@@ -321,11 +321,11 @@ export class BillsService {
       return { success: false, message: result.message || 'Meter validation failed' };
     }
 
+    // Do not expose customer name/address before payment (privacy). Only confirm meter is valid.
     return {
       success: true,
       data: {
-        customerName: result.data?.Customer_Name ?? result.data?.name ?? 'Verified',
-        address: result.data?.Address ?? result.data?.address ?? null,
+        valid: true,
         meterNumber: input.meterNumber,
       },
     };
