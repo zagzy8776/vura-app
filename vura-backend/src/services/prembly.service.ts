@@ -20,7 +20,10 @@ export class PremblyService {
   private readonly baseUrl = 'https://api.prembly.com';
 
   constructor(private config: ConfigService) {
-    this.apiKey = this.config.get<string>('PREMBLY_API_KEY') || '';
+    this.apiKey =
+      this.config.get<string>('PREMBLY_API_KEY') ||
+      this.config.get<string>('PREMBLY_API_TOKEN') ||
+      '';
     this.appId = this.config.get<string>('PREMBLY_APP_ID') || '';
   }
 
@@ -58,8 +61,10 @@ export class PremblyService {
    */
   async verifyBvn(bvn: string): Promise<PremblyBvnResult> {
     if (!this.apiKey) {
-      return { success: false, message: 'Prembly API key not configured' };
+      return { success: false, message: 'Prembly API key not configured. Set PREMBLY_API_KEY in Render environment variables.' };
     }
+
+    let lastError: string | null = null;
 
     // 1) Quick Start: POST /v1/verify (docs: x-api-key, body type + number)
     try {
@@ -90,18 +95,23 @@ export class PremblyService {
       if (parsed.firstName || parsed.lastName) {
         return { success: true, ...parsed };
       }
+      lastError = 'Prembly did not return name for this BVN.';
     } catch (err: any) {
       const status = err.response?.status;
       const data = err.response?.data;
       const msg =
         (data?.detail ?? data?.message ?? err.message) as string ?? 'Prembly request failed';
+      lastError = msg;
       this.logger.warn(`Prembly v1/verify error: ${msg}`, { status });
 
       if (status === 401) {
-        return { success: false, message: 'Invalid API key' };
+        return { success: false, message: 'Invalid Prembly API key. Check PREMBLY_API_KEY in Render.' };
       }
       if (status === 400) {
         return { success: false, message: (data?.detail as string) ?? msg };
+      }
+      if (status === 403) {
+        return { success: false, message: 'Prembly access denied. Ensure your Prembly account has BVN verification enabled.' };
       }
       // Fall through to bvn_validation if we have app-id
     }
@@ -145,7 +155,8 @@ export class PremblyService {
     return {
       success: false,
       message:
-        'BVN verification could not be completed. Set PREMBLY_API_KEY (and PREMBLY_APP_ID for fallback) in your backend environment. Get keys from Prembly and ensure your account is enabled for BVN. You can also use the redirect option below if you entered your name.',
+        lastError ||
+        'BVN verification could not be completed. Add PREMBLY_APP_ID in Render (from Prembly dashboard) for fallback validation. Ensure your Prembly account has BVN verification enabled.',
     };
   }
 }
