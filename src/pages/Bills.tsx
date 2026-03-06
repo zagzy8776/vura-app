@@ -62,12 +62,34 @@ type RecentAirtime = { phoneNumber: string; network: string; amount: number; lab
 type RecentData = { phoneNumber: string; network: string; planCode: string; planName: string; label?: string; savedAt: number };
 type RecentElectricity = { meterNumber: string; disco: string; itemName: string; itemCode: string; amount: number; fee: number; savedAt: number };
 
+type FavoriteAirtime = RecentAirtime;
+type FavoriteData = RecentData;
+type FavoriteElectricity = RecentElectricity & { };
+
+type LastRequest = { endpoint: string; body: Record<string, unknown> };
+
+type LocalHistoryItem = {
+  kind: "airtime" | "data" | "electricity";
+  title: string;
+  amount: number;
+  total: number;
+  ref?: string;
+  at: number;
+};
+
 const RECENT_LIMIT = 6;
+const FAVORITE_LIMIT = 6;
+const HISTORY_LIMIT = 10;
 
 const STORAGE_KEYS = {
   airtime: "vura_recent_airtime",
   data: "vura_recent_data",
-  electricity: "vura_recent_electricity"
+  electricity: "vura_recent_electricity",
+  favAirtime: "vura_fav_airtime",
+  favData: "vura_fav_data",
+  favElectricity: "vura_fav_electricity",
+  history: "vura_bills_history",
+  lastRequest: "vura_bills_last_request"
 };
 
 const loadRecents = <T,>(key: string): T[] => {
@@ -84,6 +106,25 @@ const loadRecents = <T,>(key: string): T[] => {
 const saveRecents = <T,>(key: string, items: T[]) => {
   try {
     localStorage.setItem(key, JSON.stringify(items.slice(0, RECENT_LIMIT)));
+  } catch {
+    /* ignore quota errors */
+  }
+};
+
+const loadList = <T,>(key: string, limit: number): T[] => {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.slice(0, limit) : [];
+  } catch {
+    return [];
+  }
+};
+
+const saveList = <T,>(key: string, items: T[], limit: number) => {
+  try {
+    localStorage.setItem(key, JSON.stringify(items.slice(0, limit)));
   } catch {
     /* ignore quota errors */
   }
@@ -151,6 +192,7 @@ const Bills = () => {
   const [meterCustomerName, setMeterCustomerName] = useState<string>("");
   const [electricityAmount, setElectricityAmount] = useState("");
   const [validatingMeter, setValidatingMeter] = useState(false);
+  const [lastValidated, setLastValidated] = useState<{ meter: string; item: string } | null>(null);
 
   // Balance
   const [balance, setBalance] = useState<string | null>(null);
@@ -159,6 +201,21 @@ const Bills = () => {
   const [recentAirtime, setRecentAirtime] = useState<RecentAirtime[]>([]);
   const [recentData, setRecentData] = useState<RecentData[]>([]);
   const [recentElectricity, setRecentElectricity] = useState<RecentElectricity[]>([]);
+
+  // Favorites
+  const [favAirtime, setFavAirtime] = useState<FavoriteAirtime[]>([]);
+  const [favData, setFavData] = useState<FavoriteData[]>([]);
+  const [favElectricity, setFavElectricity] = useState<FavoriteElectricity[]>([]);
+
+  // History (local only for now)
+  const [history, setHistory] = useState<LocalHistoryItem[]>([]);
+
+  // Last request (for retry)
+  const [lastRequest, setLastRequest] = useState<LastRequest | null>(null);
+
+  // Favorite toggles/labels
+  const [saveAsFavorite, setSaveAsFavorite] = useState(false);
+  const [favoriteLabel, setFavoriteLabel] = useState("");
 
   const navigate = useNavigate();
 
@@ -225,6 +282,12 @@ const Bills = () => {
     setRecentAirtime(loadRecents<RecentAirtime>(STORAGE_KEYS.airtime));
     setRecentData(loadRecents<RecentData>(STORAGE_KEYS.data));
     setRecentElectricity(loadRecents<RecentElectricity>(STORAGE_KEYS.electricity));
+    setFavAirtime(loadList<FavoriteAirtime>(STORAGE_KEYS.favAirtime, FAVORITE_LIMIT));
+    setFavData(loadList<FavoriteData>(STORAGE_KEYS.favData, FAVORITE_LIMIT));
+    setFavElectricity(loadList<FavoriteElectricity>(STORAGE_KEYS.favElectricity, FAVORITE_LIMIT));
+    setHistory(loadList<LocalHistoryItem>(STORAGE_KEYS.history, HISTORY_LIMIT));
+    const lrRaw = loadList<LastRequest>(STORAGE_KEYS.lastRequest, 1);
+    if (lrRaw.length > 0) setLastRequest(lrRaw[0]);
   }, [fetchAirtimeNetworks, fetchDataNetworks, fetchElectricityDiscos, fetchBalance]);
 
   // ── Fetch data plans when network changes ───────────────────────────
@@ -335,6 +398,11 @@ const Bills = () => {
       toast({ title: "Error", description: "Select a meter type and enter meter number", variant: "destructive" });
       return;
     }
+
+    // Cached validation: if same meter + item was validated recently, skip revalidate
+    if (lastValidated && lastValidated.meter === meterNumber && lastValidated.item === selectedElectricityItem.item_code) {
+      return;
+    }
     setValidatingMeter(true);
     try {
       const res = await apiFetch("/bills/electricity/validate", {
@@ -351,6 +419,7 @@ const Bills = () => {
       }
       setMeterValidated(true);
       setMeterCustomerName(json.data?.customerName ?? "Valid");
+      setLastValidated({ meter: meterNumber.trim(), item: selectedElectricityItem.item_code });
       toast({ title: "Meter verified", description: json.data?.customerName ?? "You can proceed." });
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Meter validation failed";
@@ -404,6 +473,10 @@ const Bills = () => {
         };
       }
 
+      const requestPayload: LastRequest = { endpoint, body };
+      setLastRequest(requestPayload);
+      saveList(STORAGE_KEYS.lastRequest, [requestPayload], 1);
+
       const res = await apiFetch(endpoint, {
         method: "POST",
         body: JSON.stringify(body),
@@ -442,6 +515,51 @@ const Bills = () => {
         saveRecents(STORAGE_KEYS.electricity, next);
       }
 
+      const historyEntry: LocalHistoryItem = {
+        kind: tab,
+        title:
+          tab === "airtime"
+            ? `Airtime to ${phoneNumber}`
+            : tab === "data"
+              ? `${selectedPlan?.name ?? "Data"} for ${phoneNumber}`
+              : `Electricity for ${meterNumber}`,
+        amount: tab === "electricity" ? currentAmount : (tab === "data" ? selectedPlan?.price ?? currentAmount : currentAmount),
+        total: tab === "electricity" ? electricityTotal : currentAmount,
+        ref: json.data?.reference ?? json.reference,
+        at: now,
+      };
+      const nextHistory = [historyEntry, ...history].slice(0, HISTORY_LIMIT);
+      setHistory(nextHistory);
+      saveList(STORAGE_KEYS.history, nextHistory, HISTORY_LIMIT);
+
+      if (saveAsFavorite) {
+        if (tab === "airtime") {
+          const entry: FavoriteAirtime = { phoneNumber, network: selectedNetwork, amount: parseFloat(airtimeAmount), label: favoriteLabel || undefined, savedAt: now };
+          const next = [entry, ...favAirtime.filter((f) => f.phoneNumber !== phoneNumber)].slice(0, FAVORITE_LIMIT);
+          setFavAirtime(next);
+          saveList(STORAGE_KEYS.favAirtime, next, FAVORITE_LIMIT);
+        } else if (tab === "data" && selectedPlan) {
+          const entry: FavoriteData = { phoneNumber, network: selectedNetwork, planCode: selectedPlan.plan_code, planName: selectedPlan.name, label: favoriteLabel || undefined, savedAt: now };
+          const next = [entry, ...favData.filter((f) => !(f.phoneNumber === phoneNumber && f.planCode === selectedPlan.plan_code))].slice(0, FAVORITE_LIMIT);
+          setFavData(next);
+          saveList(STORAGE_KEYS.favData, next, FAVORITE_LIMIT);
+        } else if (tab === "electricity" && selectedElectricityItem) {
+          const entry: FavoriteElectricity = {
+            meterNumber,
+            disco: selectedDisco,
+            itemName: selectedElectricityItem.name,
+            itemCode: selectedElectricityItem.item_code,
+            amount: parseFloat(electricityAmount),
+            fee: electricityFee,
+            label: favoriteLabel || undefined,
+            savedAt: now,
+          };
+          const next = [entry, ...favElectricity.filter((f) => f.meterNumber !== meterNumber)].slice(0, FAVORITE_LIMIT);
+          setFavElectricity(next);
+          saveList(STORAGE_KEYS.favElectricity, next, FAVORITE_LIMIT);
+        }
+      }
+
       setStep("success");
       fetchBalance();
     } catch (err: unknown) {
@@ -478,6 +596,37 @@ const Bills = () => {
       }
     }
   }, [phoneNumber, tab, selectedNetwork]);
+
+  // Smart defaults: prefill last amount/plan for this number/meter
+  useEffect(() => {
+    if (tab === "airtime" && PHONE_REGEX.test(phoneNumber)) {
+      const match = (favAirtime.find((f) => f.phoneNumber === phoneNumber) || recentAirtime.find((r) => r.phoneNumber === phoneNumber));
+      if (match) {
+        setAirtimeAmount(match.amount.toString());
+        if (match.network) setSelectedNetwork(match.network);
+      }
+    }
+    if (tab === "data" && PHONE_REGEX.test(phoneNumber)) {
+      const match = (favData.find((f) => f.phoneNumber === phoneNumber) || recentData.find((r) => r.phoneNumber === phoneNumber));
+      if (match) {
+        if (match.network) setSelectedNetwork(match.network);
+        const plan = dataPlans.find((p) => p.plan_code === match.planCode);
+        if (plan) setSelectedPlan(plan);
+      }
+    }
+    if (tab === "electricity" && meterNumber.length >= 6) {
+      const match = (favElectricity.find((f) => f.meterNumber === meterNumber) || recentElectricity.find((r) => r.meterNumber === meterNumber));
+      if (match) {
+        setSelectedDisco(match.disco);
+        setElectricityAmount(match.amount.toString());
+        const item = electricityItems.find((i) => i.item_code === match.itemCode);
+        if (item) {
+          setSelectedElectricityItem(item);
+          setMeterValidated(false);
+        }
+      }
+    }
+  }, [tab, phoneNumber, meterNumber, recentAirtime, recentData, recentElectricity, favAirtime, favData, favElectricity, dataPlans, electricityItems]);
 
   const renderRecents = () => {
     if (tab === "airtime" && recentAirtime.length > 0) {
@@ -556,6 +705,144 @@ const Bills = () => {
     }
 
     return null;
+  };
+
+  const renderFavorites = () => {
+    if (tab === "airtime" && favAirtime.length > 0) {
+      return (
+        <div className="space-y-2">
+          <p className="text-xs text-muted-foreground">Favorites</p>
+          <div className="flex flex-wrap gap-2">
+            {favAirtime.map((f) => (
+              <button
+                key={`${f.phoneNumber}-${f.network}`}
+                onClick={() => {
+                  setPhoneNumber(f.phoneNumber);
+                  setSelectedNetwork(f.network);
+                  setAirtimeAmount(f.amount.toString());
+                }}
+                className="px-3 py-2 rounded-lg border text-xs hover:border-primary transition-colors"
+              >
+                {f.label || f.phoneNumber} · {f.network.toUpperCase()}
+              </button>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    if (tab === "data" && favData.length > 0) {
+      return (
+        <div className="space-y-2">
+          <p className="text-xs text-muted-foreground">Favorites</p>
+          <div className="flex flex-wrap gap-2">
+            {favData.map((f) => (
+              <button
+                key={`${f.phoneNumber}-${f.planCode}`}
+                onClick={() => {
+                  setPhoneNumber(f.phoneNumber);
+                  setSelectedNetwork(f.network);
+                  const found = dataPlans.find((p) => p.plan_code === f.planCode);
+                  if (found) setSelectedPlan(found);
+                }}
+                className="px-3 py-2 rounded-lg border text-xs hover:border-primary transition-colors"
+              >
+                {f.label || f.phoneNumber} · {f.planName}
+              </button>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    if (tab === "electricity" && favElectricity.length > 0) {
+      return (
+        <div className="space-y-2">
+          <p className="text-xs text-muted-foreground">Favorites</p>
+          <div className="flex flex-wrap gap-2">
+            {favElectricity.map((f) => (
+              <button
+                key={`${f.meterNumber}-${f.itemCode}`}
+                onClick={() => {
+                  setSelectedDisco(f.disco);
+                  setMeterNumber(f.meterNumber);
+                  const item = electricityItems.find((i) => i.item_code === f.itemCode);
+                  if (item) {
+                    setSelectedElectricityItem(item);
+                    setMeterValidated(false);
+                  }
+                  setElectricityAmount(f.amount.toString());
+                }}
+                className="px-3 py-2 rounded-lg border text-xs hover:border-primary transition-colors"
+              >
+                {f.label || f.meterNumber} · {f.itemName}
+              </button>
+            ))}
+          </div>
+        </div>
+      );
+    }
+    return null;
+  };
+
+  const renderHistory = () => {
+    if (history.length === 0) return null;
+    return (
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <p className="text-sm font-medium text-foreground">Recent bills</p>
+          <button
+            onClick={() => {
+              setHistory([]);
+              saveList(STORAGE_KEYS.history, [], HISTORY_LIMIT);
+            }}
+            className="text-xs text-muted-foreground hover:text-destructive"
+          >
+            Clear
+          </button>
+        </div>
+        <div className="space-y-2">
+          {history.map((h) => (
+            <div key={`${h.kind}-${h.at}-${h.title}`} className="flex items-center justify-between rounded-lg border border-border px-3 py-2 text-sm">
+              <div>
+                <p className="font-medium">{h.title}</p>
+                <p className="text-xs text-muted-foreground">
+                  ₦{h.total.toLocaleString()} · {new Date(h.at).toLocaleString()}
+                  {h.ref ? ` · ${h.ref}` : ""}
+                </p>
+              </div>
+              <span className="text-xs capitalize bg-muted px-2 py-1 rounded">
+                {h.kind}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  const retryLastRequest = async () => {
+    if (!lastRequest) return;
+    try {
+      setLoading(true);
+      const res = await apiFetch(lastRequest.endpoint, {
+        method: "POST",
+        body: JSON.stringify(lastRequest.body),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        throw new Error(json.message || "Retry failed");
+      }
+      toast({ title: "Retried successfully", description: "Bill paid" });
+      setPurchaseResult(json.data ?? json);
+      setStep("success");
+      fetchBalance();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Retry failed";
+      toast({ title: "Error", description: message, variant: "destructive" });
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -646,6 +933,27 @@ const Bills = () => {
                 {tab === "electricity" ? "Select Disco" : "Select Network"}
               </label>
               {renderRecents()}
+              {renderFavorites()}
+              <div className="flex items-center gap-2 mb-2">
+                <input
+                  id="save-fav"
+                  type="checkbox"
+                  checked={saveAsFavorite}
+                  onChange={(e) => setSaveAsFavorite(e.target.checked)}
+                  className="h-4 w-4"
+                />
+                <label htmlFor="save-fav" className="text-xs text-muted-foreground">
+                  Save this as favorite
+                </label>
+                {saveAsFavorite && (
+                  <input
+                    placeholder="Label (optional)"
+                    value={favoriteLabel}
+                    onChange={(e) => setFavoriteLabel(e.target.value)}
+                    className="flex-1 h-8 px-2 rounded border border-border text-xs"
+                  />
+                )}
+              </div>
               {networksLoading ? (
                 <div className="flex justify-center py-8">
                   <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -711,7 +1019,12 @@ const Bills = () => {
                             isSelected ? "border-primary bg-primary/5" : "border-border hover:border-primary/50"
                           }`}
                         >
-                          <span className="font-medium text-sm">{item.name}</span>
+                          <div className="flex flex-col">
+                            <span className="font-medium text-sm">{item.name}</span>
+                            <span className="text-[11px] text-muted-foreground">
+                              Fee ₦{(item.fee ?? 0).toLocaleString()} · Total ₦{(item.amount + (item.fee ?? 0)).toLocaleString()}
+                            </span>
+                          </div>
                           {isSelected && (
                             <div className="h-5 w-5 rounded-full bg-primary flex items-center justify-center">
                               <Check className="h-3 w-3 text-primary-foreground" />
@@ -967,6 +1280,11 @@ const Bills = () => {
                     </span>
                   </div>
                 )}
+                {balance !== null && (tab === "electricity" ? electricityTotal : currentAmount) > parseFloat(balance) && (
+                  <div className="text-xs text-destructive">
+                    Balance too low. Please top up your wallet.
+                  </div>
+                )}
               </div>
             </div>
 
@@ -1113,15 +1431,19 @@ const Bills = () => {
                   Try Again
                 </Button>
                 <Button
-                  onClick={() => navigate("/")}
+                  onClick={retryLastRequest}
+                  disabled={!lastRequest || loading}
                   className="flex-1 rounded-xl"
                 >
-                  Go Home
+                  {loading ? "Retrying..." : "Retry last attempt"}
                 </Button>
               </div>
             </motion.div>
           )}
         </AnimatePresence>
+
+        {/* Local history */}
+        <div className="mt-6">{renderHistory()}</div>
       </div>
     </div>
   );
