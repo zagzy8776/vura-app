@@ -346,19 +346,32 @@ export class NellobyteService {
   }
 
   async getElectricityDiscos(): Promise<{ id: string; name: string }[]> {
-    if (!this.enabled) return [];
+    if (!this.enabled) return this.getStaticElectricityDiscos();
     try {
       const data = await this.get<any>('APIElectricityDiscosV2.asp', {});
       if (data && typeof data === 'object') {
         const arr: { id: string; name: string }[] = [];
-        for (const [code, name] of Object.entries(data)) {
-          if (code && name) arr.push({ id: String(code), name: String(name) });
+        if (Array.isArray(data)) {
+          for (const item of data) {
+            const id = item?.id ?? item?.code ?? item?.biller_id ?? item?.disco_code ?? '';
+            const name = typeof item?.name === 'string' ? item.name : (typeof item?.description === 'string' ? item.description : (typeof item?.biller_name === 'string' ? item.biller_name : ''));
+            if (id && name && !String(name).includes('[object')) arr.push({ id: String(id), name: String(name) });
+          }
+        } else {
+          for (const [code, val] of Object.entries(data)) {
+            const name = typeof val === 'string' ? val : (val && typeof val === 'object' ? (val as any).name ?? (val as any).description ?? (val as any).biller_name ?? '' : String(val));
+            if (code && name && !String(name).includes('[object')) arr.push({ id: String(code), name: String(name) });
+          }
         }
         if (arr.length > 0) return arr;
       }
     } catch {
       /* fallback */
     }
+    return this.getStaticElectricityDiscos();
+  }
+
+  private getStaticElectricityDiscos(): { id: string; name: string }[] {
     return [
       { id: '01', name: 'Eko Electric (EKEDC)' },
       { id: '02', name: 'Ikeja Electric (IKEDC)' },
