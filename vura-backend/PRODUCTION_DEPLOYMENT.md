@@ -9,7 +9,7 @@ This guide covers deploying the VURA backend to production using Railway with Ne
 - Railway account (https://railway.app)
 - Neon PostgreSQL account (https://neon.tech)
 - GitHub repository with the VURA backend code
-- API keys for all external services (Prembly, Paystack, Monnify, Flutterwave, Cloudinary)
+- API keys for all external services (Prembly, Paystack, Monnify, Cloudinary)
 
 ### 1. Database Setup (Neon)
 
@@ -264,7 +264,7 @@ railway logs --filter="ERROR"
 
 2. **API Keys Not Working:**
    - Verify all external service keys
-   - Check service status (Prembly, Paystack, Flutterwave, etc.)
+   - Check service status (Prembly, Paystack, Monnify, etc.)
    - Test connections individually
 
 3. **Deployment Failures:**

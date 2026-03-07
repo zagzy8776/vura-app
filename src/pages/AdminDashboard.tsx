@@ -435,11 +435,6 @@ export default function AdminDashboard() {
                       ? `${selectedUser.reservedAccountNumber} (${selectedUser.reservedAccountBankName || 'Bank'})`
                       : 'Not generated'}
                   </p>
-                  {selectedUser.flutterwaveOrderRef && (
-                    <p className="text-xs text-gray-500">
-                      Order Ref: {selectedUser.flutterwaveOrderRef}
-                    </p>
-                  )}
                 </div>
                 <div>
                   <p className="text-sm font-medium">Member Since</p>

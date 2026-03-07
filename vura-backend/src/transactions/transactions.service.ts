@@ -7,7 +7,7 @@ import {
 import { PrismaService } from '../prisma.service';
 import { LimitsService } from '../limits/limits.service';
 import { HoldsService } from '../holds/holds.service';
-import { FlutterwaveService } from '../services/flutterwave.service';
+import { PaystackService } from '../services/paystack.service';
 import { v4 as uuidv4 } from 'uuid';
 import * as bcrypt from 'bcrypt';
 import Decimal from 'decimal.js';
@@ -18,7 +18,7 @@ export class TransactionsService {
     private prisma: PrismaService,
     private limitsService: LimitsService,
     private holdsService: HoldsService,
-    private flutterwaveService: FlutterwaveService,
+    private paystackService: PaystackService,
   ) {}
 
   async initiatePayment(
@@ -215,14 +215,15 @@ export class TransactionsService {
       throw new BadRequestException('Invalid bank account format');
     }
 
-    const accountVerification = await this.flutterwaveService.verifyAccount(
-      accountNumber,
-      bankCode,
-    );
-    if (!accountVerification.success) {
-      throw new BadRequestException(
-        accountVerification.error || 'Could not verify bank account',
+    let accountName: string;
+    try {
+      const verify = await this.paystackService.verifyAccount(
+        accountNumber,
+        bankCode,
       );
+      accountName = verify.accountName;
+    } catch {
+      throw new BadRequestException('Could not verify bank account');
     }
 
     const senderBalance = await this.prisma.balance.findUnique({
@@ -233,10 +234,8 @@ export class TransactionsService {
       throw new BadRequestException('Insufficient balance');
     }
 
-    // Flutterwave fee rules (2026): ₦10 for < ₦10k, ₦25 for ≥ ₦10k + ₦50 stamp duty
-    const feeInfo = this.flutterwaveService.calculateTransferFee(amount);
-    const fee = feeInfo.fee;
-    const stampDuty = feeInfo.stampDuty;
+    const fee = amount <= 5000 ? 10 : amount <= 50000 ? 25 : 50;
+    const stampDuty = 0;
     const total = amount + fee + stampDuty;
     const idempotencyKey = uuidv4();
     const reference = `TXN-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -258,38 +257,37 @@ export class TransactionsService {
           stampDuty,
           accountNumber,
           bankCode,
-          accountName: accountVerification.accountName,
+          accountName,
         },
       },
     });
 
     try {
-      const flutterwaveResponse =
-        await this.flutterwaveService.initiateTransfer(
-          accountNumber,
-          bankCode,
-          accountVerification.accountName,
-          amount,
-          reference,
-          description,
-        );
+      const transferResult = await this.paystackService.initiateTransfer(
+        accountNumber,
+        bankCode,
+        accountName,
+        amount,
+        reference,
+        description,
+      );
 
       await this.prisma.transaction.update({
         where: { id: transaction.id },
         data: {
-          providerTxId: flutterwaveResponse.reference,
+          providerTxId: transferResult.reference,
           status: 'PENDING',
         },
       });
 
       return {
         success: true,
-        reference: flutterwaveResponse.reference,
+        reference: transferResult.reference,
         amount,
         fee,
         stampDuty,
-        totalDeduction: flutterwaveResponse.totalDeduction,
-        accountName: accountVerification.accountName,
+        totalDeduction: total,
+        accountName,
         transactionId: transaction.id,
       };
     } catch (error) {

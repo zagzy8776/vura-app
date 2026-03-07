@@ -291,7 +291,7 @@ const Receive = () => {
             )}
           </motion.div>
 
-          {/* Your Vura Bank Account (Flutterwave Virtual Account) */}
+          {/* Your Vura Bank Account */}
           <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="rounded-2xl bg-card border border-border p-6 shadow-card space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-semibold text-foreground">Your Vura Bank Account</h3>

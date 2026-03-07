@@ -158,14 +158,21 @@ export class NellobyteService {
         );
       };
 
-      for (const [netName, items] of Object.entries(data)) {
-        if (!matchNet(netName)) continue;
-        const arr = Array.isArray(items) ? items : [];
-        for (const item of arr) {
-          const code = item?.code ?? item?.id ?? item?.plan_code ?? item?.DataPlan ?? String(item ?? '');
-          const name = item?.name ?? item?.description ?? item?.Product ?? String(code);
-          const price = Number(item?.price ?? item?.amount ?? item?.Amount ?? 0);
-          if (code) plans.push({ plan_code: String(code), name: String(name), price });
+      const pushPlan = (item: any) => {
+        if (!item || typeof item !== 'object') return;
+        const code = item?.code ?? item?.id ?? item?.plan_code ?? item?.DataPlan ?? item?.Plan ?? '';
+        const name = typeof item?.name === 'string' ? item.name : (typeof item?.description === 'string' ? item.description : (typeof item?.Product === 'string' ? item.Product : String(code)));
+        const price = Number(item?.price ?? item?.amount ?? item?.Amount ?? 0);
+        if (code && name && !String(name).includes('[object')) plans.push({ plan_code: String(code), name: String(name), price });
+      };
+
+      if (Array.isArray(data)) {
+        for (const item of data) pushPlan(item);
+      } else {
+        for (const [netName, items] of Object.entries(data)) {
+          if (!matchNet(netName)) continue;
+          const arr = Array.isArray(items) ? items : (items && typeof items === 'object' ? Object.values(items) : []);
+          for (const item of arr) pushPlan(item);
         }
       }
 

@@ -53,10 +53,6 @@ services:
       # Not used at runtime; backend does not call itself. Kept for consistency.
       - key: VITE_API_URL
         value: https://vura-app.onrender.com/api
-      - key: FLUTTERWAVE_SECRET_HASH
-        sync: false
-      - key: FLUTTERWAVE_SECRET_KEY
-        sync: false
       - key: RESEND_API_KEY
         sync: false
       - key: FROM_EMAIL

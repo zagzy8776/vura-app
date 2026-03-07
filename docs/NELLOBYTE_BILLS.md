@@ -28,7 +28,7 @@ NELLOBYTE_API_KEY=YOUR_API_KEY
 | Service | Endpoint | Notes |
 |--------|----------|-------|
 | **Airtime** | `APIAirtimeV1.asp` | Min ₦50, max ₦200,000 (Nellobyte) |
-| **Data** | `APIDatabundleV1.asp` | Plans from `APIDatabundlePlansV2.asp` |
+| **Data** | `APIDatabundleV1.asp` | Plans from `APIDatabundlePlansV2.asp`; API returns network-keyed object or array; supports SME, Corporate, Gifting piles per network |
 | **Electricity** | `APIElectricityV1.asp` | Discos from `APIElectricityDiscosV2.asp` |
 | **Cable TV** | `APICableTVV1.asp` | DStv, GOtv, StarTimes, Showmax |
 | **Betting** | `APIBettingV1.asp` | Fund betting wallets (NAIRABET, Bet9ja, etc.) |

@@ -27,11 +27,9 @@ import { VirtualAccountsModule } from './virtual-accounts/virtual-accounts.modul
 import { FundingModule } from './funding/funding.module';
 import { PaystackService } from './services/paystack.service';
 import { BankCodesService } from './services/bank-codes.service';
-import { FlutterwaveService } from './services/flutterwave.service';
 import { CloudinaryService } from './services/cloudinary.service';
 import { EmailService } from './services/email.service';
 import { AccountLockoutService } from './services/account-lockout.service';
-import { FlutterwaveWebhookController } from './webhooks/flutterwave.webhook.controller';
 import { WebhookController } from './webhooks/webhook.controller';
 import { AdminController } from './admin/admin.controller';
 import { KYCUploadController } from './kyc/kyc-upload.controller';
@@ -75,11 +73,9 @@ import { SecurityMiddleware } from './middleware/security.middleware';
     TransactionsService,
     PaystackService,
     BankCodesService,
-    FlutterwaveService,
     CloudinaryService,
     EmailService,
     AccountLockoutService,
-    FlutterwaveWebhookController,
     AdminController,
     KYCUploadController,
     {
