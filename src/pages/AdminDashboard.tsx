@@ -486,7 +486,7 @@ export default function AdminDashboard() {
               {!(selectedUser.idCardUrl || selectedUser.selfieUrl) ? (
                 <div className="p-3 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg">
                   <p className="text-sm font-medium text-blue-800 dark:text-blue-200">Prembly verification</p>
-                  <p className="text-xs text-blue-700 dark:text-blue-300 mt-1">This user verified via Prembly (BVN + NIN + face). We don&apos;t store ID/selfie here. Approve only if satisfied. Reject if anything seems off.</p>
+                  <p className="text-xs text-blue-700 dark:text-blue-300 mt-1">This user verified via Prembly (BVN + NIN + face). If Prembly sent document/selfie images, they appear below. Otherwise approve only if satisfied.</p>
                 </div>
               ) : (
                 <div className="p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg">

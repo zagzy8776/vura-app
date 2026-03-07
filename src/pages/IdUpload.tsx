@@ -312,18 +312,21 @@ export default function IdUpload() {
             </div>
           )}
 
-          {/* Step 3: Submit */}
+          {/* Step 3: Documents uploaded — continue to live verification (Option B) */}
           {step === 3 && (
             <div className="space-y-4">
-              <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-center">
+              <div className="bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800 rounded-lg p-4 text-center">
                 <CheckCircle className="w-8 h-8 text-green-500 mx-auto mb-2" />
-                <p className="text-green-700">All documents uploaded successfully!</p>
-                <p className="text-sm text-green-600 mt-1">Click submit to complete your KYC</p>
+                <p className="text-green-700 dark:text-green-300 font-medium">Documents uploaded</p>
+                <p className="text-sm text-green-600 dark:text-green-400 mt-1">Admins can now review your ID and selfie. Complete live verification (BVN + face) next.</p>
               </div>
 
-              <Button className="w-full" onClick={handleSubmit} disabled={loading}>
+              <Button className="w-full" onClick={() => navigate('/settings/identity-verification')}>
+                Continue to verification
+              </Button>
+              <Button variant="outline" className="w-full" onClick={handleSubmit} disabled={loading}>
                 {loading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-                Submit for Review
+                Submit for review only
               </Button>
             </div>
           )}

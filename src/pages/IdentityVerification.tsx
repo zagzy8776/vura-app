@@ -8,6 +8,8 @@ import {
   Loader2,
   ArrowLeft,
   Check,
+  Upload,
+  CheckCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,6 +36,24 @@ const IdentityVerification = () => {
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [isMobile] = useState(isMobileDevice);
+  const [docsUploaded, setDocsUploaded] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await apiFetch("/kyc/status");
+        if (cancelled) return;
+        if (res.ok) {
+          const data = await res.json().catch(() => ({}));
+          setDocsUploaded(!!(data?.idCardUrl && data?.selfieUrl));
+        }
+      } catch {
+        if (!cancelled) setDocsUploaded(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -110,13 +130,9 @@ const IdentityVerification = () => {
             <h1 className="text-lg font-semibold text-foreground">
               Identity verification
             </h1>
-            <p className="text-xs text-muted-foreground">One flow: BVN + ID + face</p>
+            <p className="text-xs text-muted-foreground">Step 1: Upload docs. Step 2: Live verification.</p>
               </div>
             </div>
-            <p className="text-sm text-muted-foreground mb-6">
-              Verify with BVN, ID and face in one flow. Choose how you’d like to continue.
-            </p>
-
             {loading && (
               <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
                 <Loader2 className="h-8 w-8 animate-spin mb-3" />
@@ -130,12 +146,45 @@ const IdentityVerification = () => {
               </div>
             )}
 
-            {!loading && verificationUrl && (
-              <div className="space-y-4">
-                {/* Primary CTA: same-tab open so widget works on all mobile browsers */}
-                <button
-                  type="button"
-                  onClick={openOnThisDevice}
+            {!loading && (
+              <div className="space-y-6">
+                {/* Option B Step 1: Upload ID and selfie first so admin sees docs */}
+                <div className={`rounded-xl border-2 p-4 ${docsUploaded ? "border-green-500/50 bg-green-500/5" : "border-primary/30 bg-primary/5"}`}>
+                  <div className="flex items-start gap-3">
+                    <div className={`h-10 w-10 rounded-xl flex items-center justify-center shrink-0 ${docsUploaded ? "bg-green-500/20 text-green-600" : "bg-primary/20 text-primary"}`}>
+                      {docsUploaded ? <CheckCircle className="h-5 w-5" /> : <Upload className="h-5 w-5" />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-foreground">Step 1: Upload ID and selfie</p>
+                      <p className="text-sm text-muted-foreground mt-0.5">
+                        {docsUploaded
+                          ? "Done. Your documents are with our team. Now complete Step 2 below."
+                          : "Upload your ID document and a selfie so admins can review them. Then complete live verification in Step 2."}
+                      </p>
+                      {!docsUploaded && (
+                        <Button className="mt-3" onClick={() => navigate("/id-upload")}>
+                          <Upload className="h-4 w-4 mr-2" /> Upload ID and selfie
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Step 2: Live verification (Prembly) - only when verificationUrl is ready */}
+                {verificationUrl && (
+                  <div className="rounded-xl border-2 border-primary/30 bg-primary/5 p-4 space-y-4">
+                    <div className="flex items-center gap-3">
+                      <div className="h-10 w-10 rounded-xl bg-primary/20 flex items-center justify-center shrink-0">
+                        <ShieldCheck className="h-5 w-5 text-primary" />
+                      </div>
+                      <div>
+                        <p className="font-medium text-foreground">Step 2: Complete live verification</p>
+                        <p className="text-sm text-muted-foreground">BVN, ID and face check in one flow.</p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={openOnThisDevice}
                   className="w-full flex items-center gap-4 p-5 rounded-xl border-2 border-primary bg-primary/10 hover:bg-primary/20 active:scale-[0.98] transition-all text-left touch-manipulation min-h-[72px]"
                 >
                   <div className="h-12 w-12 rounded-xl bg-primary/20 flex items-center justify-center shrink-0">
@@ -206,11 +255,9 @@ const IdentityVerification = () => {
                     to open in another browser.
                   </p>
                 )}
+                  </div>
+                )}
               </div>
-            )}
-
-            {!loading && !verificationUrl && !error && (
-              <p className="text-sm text-muted-foreground">No verification session available.</p>
             )}
           </motion.div>
         </div>

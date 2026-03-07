@@ -32,13 +32,15 @@ export class VirtualAccountsService {
     if (!user) throw new BadRequestException('User not found');
 
     if (user.reservedAccountNumber && user.reservedAccountBankName) {
+      const accountName =
+        `${user.legalFirstName ?? ''} ${user.legalLastName ?? ''}`.trim() ||
+        `${user.vuraTag || 'Vura'} Account`;
       return {
         success: true,
         data: {
           accountNumber: user.reservedAccountNumber,
           bankName: user.reservedAccountBankName,
-          accountName:
-            `${user.legalFirstName ?? ''} ${user.legalLastName ?? ''}`.trim(),
+          accountName,
           orderRef: user.paystackCustomerCode ?? undefined,
         },
       };
@@ -53,11 +55,11 @@ export class VirtualAccountsService {
       );
     }
 
-    if (!user.legalFirstName || !user.legalLastName) {
-      throw new BadRequestException(
-        'Legal name is missing on your profile. Complete identity verification in Settings, or contact support.',
-      );
-    }
+    // Use legal name from profile, or fallback so approved users can still get a VA (e.g. admin approved without names)
+    const effectiveFirstName =
+      (user.legalFirstName && user.legalFirstName.trim()) || user.vuraTag || 'Vura';
+    const effectiveLastName =
+      (user.legalLastName && user.legalLastName.trim()) || 'Account';
 
     const email = user.emailEncrypted ? decrypt(user.emailEncrypted) : '';
     if (!email) {
@@ -76,8 +78,8 @@ export class VirtualAccountsService {
       }
       const customer = await this.paystackService.createCustomer({
         email,
-        firstName: user.legalFirstName,
-        lastName: user.legalLastName,
+        firstName: effectiveFirstName,
+        lastName: effectiveLastName,
         phone,
       });
       if (!customer) {
@@ -115,7 +117,7 @@ export class VirtualAccountsService {
       data: {
         accountNumber: result.accountNumber,
         bankName: result.bankName,
-        accountName: `${user.legalFirstName} ${user.legalLastName}`,
+        accountName: `${effectiveFirstName} ${effectiveLastName}`,
         orderRef: customerCode,
       },
     };

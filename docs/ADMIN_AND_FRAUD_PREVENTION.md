@@ -12,7 +12,7 @@ This note is for anyone who uses the **admin dashboard** to approve or reject us
   - **@vuraTag**, tier, KYC status, **Joined** date, **Verification submitted** date (when they completed Prembly or uploads).
   - **Fraud/risk score** when &gt; 0 (shown in list and in the review modal).
   - **Last login** (if available).
-  - **Prembly vs ID/selfie**: Prembly users have no ID/selfie images stored in our app; the modal shows a blue “Prembly verification” note. Users with ID/selfie show the amber “Review checklist (ID/selfie)” and you can view the images.
+  - **Prembly vs ID/selfie**: When a user completes Prembly (BVN + NIN + face), we try to save any document/selfie images Prembly sends in the webhook to the user profile. If that succeeds, you’ll see **ID document** and **Selfie** in the modal like for manual uploads. If Prembly didn’t send images (or our extraction doesn’t match their payload), the modal shows a blue “Prembly verification” note and you approve based on the verification result only. Users can also optionally **upload ID and selfie first** (via “Upload ID and selfie first” on the identity verification page) so you see their docs before they complete Prembly.
 
 ---
 

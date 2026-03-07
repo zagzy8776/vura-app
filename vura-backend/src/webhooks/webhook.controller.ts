@@ -16,6 +16,7 @@ import { ConfigService } from '@nestjs/config';
 import * as crypto from 'crypto';
 import { PrismaService } from '../prisma.service';
 import { LimitsService } from '../limits/limits.service';
+import { CloudinaryService } from '../services/cloudinary.service';
 import Decimal from 'decimal.js';
 
 @Controller('webhooks')
@@ -28,6 +29,7 @@ export class WebhookController {
     private config: ConfigService,
     private prisma: PrismaService,
     private limitsService: LimitsService,
+    private cloudinary: CloudinaryService,
   ) {
     this.monnifySecret = this.config.get('MONNIFY_WEBHOOK_SECRET') || '';
     // Paystack signs webhooks with the secret key; no separate webhook secret is issued
@@ -710,11 +712,104 @@ export class WebhookController {
       },
     });
 
-    this.logger.log('Prembly verification completed: user set to Tier 2 PENDING (awaiting admin)', {
-      userId: userRef,
-    });
+    // If Prembly sent document/selfie images, save to User so admin can review in dashboard
+    await this.savePremblyDocsToUser(userRef, payload);
+
+    this.logger.log(
+      'Prembly verification completed: user set to Tier 2 PENDING (awaiting admin)',
+      { userId: userRef },
+    );
 
     return { status: 'ok', tier: 2 };
+  }
+
+  /**
+   * Extract document and selfie from Prembly webhook (biometric_results) and upload to Cloudinary,
+   * then set User.idCardUrl and User.selfieUrl so admin dashboard can display them.
+   */
+  private async savePremblyDocsToUser(
+    userId: string,
+    payload: any,
+  ): Promise<void> {
+    if (!this.cloudinary.isConfigured) return;
+    const data = payload?.data ?? payload?.verification_response;
+    const biometric =
+      data?.biometric_results ??
+      data?.verification_response?.data?.biometric_results;
+    if (!biometric) return;
+
+    const imagesFromId = Array.isArray(biometric.images_from_id)
+      ? biometric.images_from_id
+      : [];
+    const imagesFromFrontend = Array.isArray(biometric.images_from_frontend)
+      ? biometric.images_from_frontend
+      : [];
+    const idB64 = imagesFromId[0];
+    const selfieB64 = imagesFromFrontend[0];
+    if (!idB64 && !selfieB64) return;
+
+    const updateData: {
+      idCardUrl?: string;
+      selfieUrl?: string;
+      idType?: string;
+    } = {};
+    const prefix = userId.replace(/\W/g, '_');
+
+    try {
+      if (idB64) {
+        const buf = this.decodeBase64Image(idB64);
+        if (buf) {
+          const { url } = await this.cloudinary.uploadImage(
+            buf,
+            `prembly-id-${prefix}-${Date.now()}.jpg`,
+            'kyc/prembly-id',
+            'image/jpeg',
+          );
+          updateData.idCardUrl = url;
+          updateData.idType = 'nin';
+        }
+      }
+      if (selfieB64) {
+        const buf = this.decodeBase64Image(selfieB64);
+        if (buf) {
+          const { url } = await this.cloudinary.uploadImage(
+            buf,
+            `prembly-selfie-${prefix}-${Date.now()}.jpg`,
+            'kyc/prembly-selfie',
+            'image/jpeg',
+          );
+          updateData.selfieUrl = url;
+        }
+      }
+      if (updateData.idCardUrl || updateData.selfieUrl) {
+        await this.prisma.user.update({
+          where: { id: userId },
+          data: updateData,
+        });
+        this.logger.log('Prembly docs saved to user for admin review', {
+          userId,
+          hasId: !!updateData.idCardUrl,
+          hasSelfie: !!updateData.selfieUrl,
+        });
+      }
+    } catch (err) {
+      this.logger.warn('Failed to save Prembly docs to user (non-fatal)', {
+        userId,
+        message: (err as Error).message,
+      });
+    }
+  }
+
+  private decodeBase64Image(value: string): Buffer | null {
+    if (typeof value !== 'string') return null;
+    let b64 = value.trim();
+    const dataUrlMatch = /^data:image\/\w+;base64,(.+)$/.exec(b64);
+    if (dataUrlMatch) b64 = dataUrlMatch[1];
+    try {
+      return Buffer.from(b64, 'base64');
+    } catch {
+      return null;
+    }
   }
 
   // ============================================

@@ -332,22 +332,36 @@ export class AdminController {
   async verifyKYC(
     @Headers('authorization') authHeader: string,
     @Param('id') userId: string,
-    @Body() body: { tier?: number; notes?: string },
+    @Body() body: { tier?: number; notes?: string; firstName?: string; lastName?: string },
   ) {
     this.checkAdmin(authHeader);
-    const { tier = 3, notes } = body;
+    const { tier = 3, notes, firstName, lastName } = body;
+
+    const updateData: {
+      kycTier: number;
+      kycStatus: 'VERIFIED';
+      kycRejectionReason: null;
+      bvnVerified: boolean;
+      bvnVerifiedAt: Date;
+      legalFirstName?: string;
+      legalLastName?: string;
+    } = {
+      kycTier: tier,
+      kycStatus: 'VERIFIED',
+      kycRejectionReason: null,
+      bvnVerified: true,
+      bvnVerifiedAt: new Date(),
+    };
+    const first = (firstName ?? '').trim();
+    const last = (lastName ?? '').trim();
+    if (first) updateData.legalFirstName = first;
+    if (last) updateData.legalLastName = last;
 
     // Update user KYC status and clear any previous rejection reason.
     // Set bvnVerified so they can generate a Vura bank account on the Receive page without being sent to BVN again.
     const user = await this.prisma.user.update({
       where: { id: userId },
-      data: {
-        kycTier: tier,
-        kycStatus: 'VERIFIED',
-        kycRejectionReason: null,
-        bvnVerified: true,
-        bvnVerifiedAt: new Date(),
-      },
+      data: updateData,
     });
 
     // Create audit log
