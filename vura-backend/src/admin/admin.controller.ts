@@ -28,8 +28,9 @@ export class AdminController {
   }
 
   private checkAdmin(authHeader?: string) {
-    const token = (authHeader || '').replace('Bearer ', '').trim();
+    const token = (authHeader || '').replace(/^Bearer\s+/i, '').trim();
     if (!token || token !== this.adminSecret) {
+      this.logger.warn('Admin auth failed: token length ' + (token?.length ?? 0) + ', expected length ' + this.adminSecret.length);
       throw new BadRequestException('Unauthorized');
     }
   }

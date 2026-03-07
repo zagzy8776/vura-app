@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
-import { Users, Shield, CheckCircle, XCircle, Clock, Search, Loader2, Eye, Check, X, AlertTriangle, ArrowLeft, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Users, Shield, CheckCircle, XCircle, Clock, Search, Loader2, Eye, EyeOff, Check, X, AlertTriangle, ArrowLeft, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 interface User {
@@ -55,6 +55,7 @@ export default function AdminDashboard() {
     typeof sessionStorage !== 'undefined' ? sessionStorage.getItem(ADMIN_SECRET_STORAGE_KEY) : null,
   );
   const [adminSecretInput, setAdminSecretInput] = useState('');
+  const [showAdminSecret, setShowAdminSecret] = useState(false);
   const [adminLoginLoading, setAdminLoginLoading] = useState(false);
   const [adminLoginError, setAdminLoginError] = useState('');
   const [users, setUsers] = useState<User[]>([]);
@@ -307,15 +308,32 @@ export default function AdminDashboard() {
           <CardContent className="space-y-4">
             <div>
               <Label htmlFor="admin-secret">Admin secret</Label>
-              <Input
-                id="admin-secret"
-                type="password"
-                placeholder="ADMIN_SECRET"
-                value={adminSecretInput}
-                onChange={(e) => { setAdminSecretInput(e.target.value); setAdminLoginError(''); }}
-                onKeyDown={(e) => e.key === 'Enter' && handleAdminLogin()}
-                className="mt-2 font-mono"
-              />
+              <div className="relative mt-2">
+                <Input
+                  id="admin-secret"
+                  type={showAdminSecret ? 'text' : 'password'}
+                  placeholder="ADMIN_SECRET"
+                  value={adminSecretInput}
+                  onChange={(e) => { setAdminSecretInput(e.target.value); setAdminLoginError(''); }}
+                  onKeyDown={(e) => e.key === 'Enter' && handleAdminLogin()}
+                  className="font-mono pr-10"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="absolute right-0 top-0 h-full px-3 text-muted-foreground hover:text-foreground"
+                  onClick={() => setShowAdminSecret((v) => !v)}
+                  aria-label={showAdminSecret ? 'Hide secret' : 'Show secret'}
+                >
+                  {showAdminSecret ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </Button>
+              </div>
+              {showAdminSecret && adminSecretInput.length > 0 && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  {adminSecretInput.length} character{adminSecretInput.length !== 1 ? 's' : ''} — compare with ADMIN_SECRET in your backend (length and spelling must match exactly).
+                </p>
+              )}
             </div>
             {adminLoginError && (
               <p className="text-sm text-destructive">{adminLoginError}</p>
