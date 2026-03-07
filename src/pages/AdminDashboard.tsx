@@ -28,6 +28,7 @@ import { Link } from 'react-router-dom';
 interface User {
   id: string;
   vuraTag: string;
+  email?: string | null;
   legalFirstName?: string | null;
   legalLastName?: string | null;
   kycTier: number;
@@ -45,6 +46,17 @@ interface User {
   idType: string | null;
   kycRejectionReason?: string | null;
   createdAt: string;
+}
+
+/** Date when user entered verification (for queue ordering and "waiting" display). */
+function getSubmittedAt(u: User): string | null {
+  return u.ninVerifiedAt || u.bvnVerifiedAt || u.createdAt || null;
+}
+function getWaitingDays(u: User): number {
+  const at = getSubmittedAt(u);
+  if (!at) return 0;
+  const ms = Date.now() - new Date(at).getTime();
+  return Math.floor(ms / (24 * 60 * 60 * 1000));
 }
 
 interface KYCStats {
@@ -247,11 +259,22 @@ export default function AdminDashboard() {
     }
   };
 
-  const pendingUsers = users.filter((u) => u.kycStatus === 'PENDING');
+  const pendingUsers = users
+    .filter((u) => u.kycStatus === 'PENDING')
+    .sort((a, b) => {
+      const atA = getSubmittedAt(a) || '';
+      const atB = getSubmittedAt(b) || '';
+      return atA.localeCompare(atB);
+    });
+  const searchLower = search.trim().toLowerCase();
+  const matchesSearch = (u: User) =>
+    !searchLower ||
+    u.vuraTag.toLowerCase().includes(searchLower) ||
+    (u.email && u.email.toLowerCase().includes(searchLower));
   const filtered =
     tab === 'all'
-      ? users.filter((u) => !search || u.vuraTag.toLowerCase().includes(search.toLowerCase()))
-      : pendingUsers.filter((u) => !search || u.vuraTag.toLowerCase().includes(search.toLowerCase()));
+      ? users.filter(matchesSearch)
+      : pendingUsers.filter(matchesSearch);
 
   // ——— Login screen ———
   if (!adminSecret) {
@@ -316,55 +339,64 @@ export default function AdminDashboard() {
 
   // ——— Dashboard ———
   return (
-    <div className="container mx-auto py-8">
-      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
-        <div className="flex items-center gap-3">
-          <Link to="/" className="text-muted-foreground hover:text-foreground flex items-center gap-1 text-sm">
-            <ArrowLeft className="w-4 h-4" /> Back to Vura
-          </Link>
-          <h1 className="text-3xl font-bold">Admin Dashboard</h1>
+    <div className="min-h-screen bg-muted/20">
+      <header className="border-b bg-card">
+        <div className="container mx-auto px-4 py-4">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-4">
+              <Link to="/" className="text-muted-foreground hover:text-foreground flex items-center gap-1.5 text-sm">
+                <ArrowLeft className="w-4 h-4" /> Back to Vura
+              </Link>
+              <Shield className="w-6 h-6 text-primary" />
+              <div>
+                <h1 className="text-xl font-semibold tracking-tight">Vura Admin</h1>
+                <p className="text-xs text-muted-foreground">KYC verification &amp; user review</p>
+              </div>
+            </div>
+            <Button variant="outline" size="sm" onClick={lockAdmin}>Lock admin</Button>
+          </div>
         </div>
-        <Button variant="outline" size="sm" onClick={lockAdmin}>Lock admin</Button>
-      </div>
+      </header>
 
-      <div className="mb-6 p-4 rounded-lg border bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800 flex items-start gap-3">
-        <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-        <div className="text-sm text-amber-800 dark:text-amber-200">
-          <p className="font-medium">Compliance &amp; fraud prevention</p>
-          <p className="mt-1 text-amber-700 dark:text-amber-300">
-            Only approve after confirming identity. Reject if anything is suspicious. All actions are logged. See docs/ADMIN_AND_FRAUD_PREVENTION.md.
-          </p>
+      <main className="container mx-auto px-4 py-6">
+        <div className="mb-6 p-4 rounded-lg border bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800 flex items-start gap-3">
+          <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+          <div className="text-sm text-amber-800 dark:text-amber-200">
+            <p className="font-medium">Compliance &amp; fraud prevention</p>
+            <p className="mt-1 text-amber-700 dark:text-amber-300">
+              Only approve after confirming identity. Reject if anything is suspicious. All actions are logged.
+            </p>
+          </div>
         </div>
-      </div>
 
-      {stats && (
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-          <Card><CardContent className="pt-6"><div className="flex items-center gap-4"><Users className="w-10 h-10 text-blue-500" /><div><p className="text-2xl font-bold">{stats.totalUsers}</p><p className="text-sm text-gray-500">Total Users</p></div></div></CardContent></Card>
-          <Card><CardContent className="pt-6"><div className="flex items-center gap-4"><Clock className="w-10 h-10 text-yellow-500" /><div><p className="text-2xl font-bold">{stats.kycStatusBreakdown.pending}</p><p className="text-sm text-gray-500">Pending KYC</p></div></div></CardContent></Card>
-          <Card><CardContent className="pt-6"><div className="flex items-center gap-4"><CheckCircle className="w-10 h-10 text-green-500" /><div><p className="text-2xl font-bold">{stats.kycStatusBreakdown.verified}</p><p className="text-sm text-gray-500">Verified</p></div></div></CardContent></Card>
-          <Card><CardContent className="pt-6"><div className="flex items-center gap-4"><XCircle className="w-10 h-10 text-red-500" /><div><p className="text-2xl font-bold">{stats.kycStatusBreakdown.rejected}</p><p className="text-sm text-gray-500">Rejected</p></div></div></CardContent></Card>
-        </div>
-      )}
+        {stats && (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <Card className="border-0 shadow-sm"><CardContent className="pt-5 pb-5"><div className="flex items-center gap-3"><Users className="w-9 h-9 text-blue-600" /><div><p className="text-2xl font-bold tabular-nums">{stats.totalUsers}</p><p className="text-xs text-muted-foreground">Total users</p></div></div></CardContent></Card>
+            <Card className="border-0 shadow-sm"><CardContent className="pt-5 pb-5"><div className="flex items-center gap-3"><Clock className="w-9 h-9 text-amber-600" /><div><p className="text-2xl font-bold tabular-nums">{stats.kycStatusBreakdown.pending}</p><p className="text-xs text-muted-foreground">Pending review</p></div></div></CardContent></Card>
+            <Card className="border-0 shadow-sm"><CardContent className="pt-5 pb-5"><div className="flex items-center gap-3"><CheckCircle className="w-9 h-9 text-green-600" /><div><p className="text-2xl font-bold tabular-nums">{stats.kycStatusBreakdown.verified}</p><p className="text-xs text-muted-foreground">Verified</p></div></div></CardContent></Card>
+            <Card className="border-0 shadow-sm"><CardContent className="pt-5 pb-5"><div className="flex items-center gap-3"><XCircle className="w-9 h-9 text-red-600" /><div><p className="text-2xl font-bold tabular-nums">{stats.kycStatusBreakdown.rejected}</p><p className="text-xs text-muted-foreground">Rejected</p></div></div></CardContent></Card>
+          </div>
+        )}
 
-      <div className="mb-6 flex flex-col sm:flex-row gap-4 sm:items-center sm:justify-between">
-        <div className="flex rounded-lg border p-1 bg-muted/30">
-          <button type="button" onClick={() => setTab('pending')} className={`px-4 py-2 rounded-md text-sm font-medium ${tab === 'pending' ? 'bg-background shadow' : 'text-muted-foreground'}`}>
-            Pending ({pendingUsers.length})
-          </button>
-          <button type="button" onClick={() => setTab('all')} className={`px-4 py-2 rounded-md text-sm font-medium ${tab === 'all' ? 'bg-background shadow' : 'text-muted-foreground'}`}>
-            All users
-          </button>
+        <div className="mb-4 flex flex-col sm:flex-row gap-4 sm:items-center sm:justify-between">
+          <div className="flex rounded-lg border bg-background p-1">
+            <button type="button" onClick={() => setTab('pending')} className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${tab === 'pending' ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}>
+              Pending ({pendingUsers.length})
+            </button>
+            <button type="button" onClick={() => setTab('all')} className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${tab === 'all' ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}>
+              All users
+            </button>
+          </div>
+          <div className="relative w-full sm:w-72">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input placeholder="Search by @tag or email..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-10" />
+          </div>
         </div>
-        <div className="relative w-full sm:w-64">
-          <Search className="absolute left-3 top-3 w-4 h-4 text-muted-foreground" />
-          <Input placeholder="Search by vura tag..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-10" />
-        </div>
-      </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>KYC Verification</CardTitle>
-          <CardDescription>Approve or reject users. Prembly (BVN + NIN + face) or ID/selfie uploads.</CardDescription>
+      <Card className="shadow-sm">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-lg">KYC queue</CardTitle>
+          <CardDescription>{tab === 'pending' ? 'Oldest first. Review and approve or reject.' : 'All users. Use search to find by @tag or email.'}</CardDescription>
         </CardHeader>
         <CardContent>
           {filtered.length === 0 ? (
@@ -373,24 +405,46 @@ export default function AdminDashboard() {
             </p>
           ) : (
             <>
-              <div className="space-y-4">
-                {filtered.map((user) => (
-                  <div key={user.id} className="flex items-center justify-between p-4 border rounded-lg">
-                    <div className="flex items-center gap-4">
-                      <div className="w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center"><span className="font-bold text-primary">{user.vuraTag[0].toUpperCase()}</span></div>
-                      <div>
-                        <p className="font-medium">@{user.vuraTag}</p>
-                        <p className="text-sm text-muted-foreground">Tier {user.kycTier} · Joined {new Date(user.createdAt).toLocaleDateString()}</p>
+              <div className="space-y-3">
+                {filtered.map((user) => {
+                  const submittedAt = getSubmittedAt(user);
+                  const waitingDays = getWaitingDays(user);
+                  const hasRisk = typeof user.fraudScore === 'number' && user.fraudScore > 0;
+                  return (
+                    <div
+                      key={user.id}
+                      className={`flex items-center justify-between p-4 border rounded-lg ${hasRisk ? 'border-red-300 dark:border-red-700 bg-red-50/50 dark:bg-red-950/20' : ''}`}
+                    >
+                      <div className="flex items-center gap-4">
+                        <div className="w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center shrink-0">
+                          <span className="font-bold text-primary">{user.vuraTag[0].toUpperCase()}</span>
+                        </div>
+                        <div>
+                          <p className="font-medium">@{user.vuraTag}</p>
+                          <p className="text-sm text-muted-foreground">
+                            Tier {user.kycTier} · Joined {new Date(user.createdAt).toLocaleDateString()}
+                            {tab === 'pending' && submittedAt && (
+                              <> · Submitted {new Date(submittedAt).toLocaleDateString()}</>
+                            )}
+                          </p>
+                          {tab === 'pending' && waitingDays > 0 && (
+                            <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">
+                              Waiting {waitingDays} day{waitingDays !== 1 ? 's' : ''}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 flex-wrap justify-end">
+                        {hasRisk && (
+                          <Badge variant="destructive" className="font-semibold">Risk {user.fraudScore}</Badge>
+                        )}
+                        <Badge variant={user.kycStatus === 'VERIFIED' ? 'default' : 'secondary'}>{user.kycStatus || 'PENDING'}</Badge>
+                        {(user.idCardUrl || user.selfieUrl) && <Badge variant="outline">{user.idCardUrl && user.selfieUrl ? 'ID + Selfie' : user.idCardUrl ? 'ID only' : 'Selfie only'}</Badge>}
+                        <Button variant="outline" size="sm" onClick={() => setSelectedUser(user)}><Eye className="w-4 h-4 mr-1" /> Review</Button>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      {typeof user.fraudScore === 'number' && user.fraudScore > 0 && <Badge variant="destructive">Risk {user.fraudScore}</Badge>}
-                      <Badge variant={user.kycStatus === 'VERIFIED' ? 'default' : 'secondary'}>{user.kycStatus || 'PENDING'}</Badge>
-                      {(user.idCardUrl || user.selfieUrl) && <Badge variant="outline">{user.idCardUrl && user.selfieUrl ? 'ID + Selfie' : user.idCardUrl ? 'ID only' : 'Selfie only'}</Badge>}
-                      <Button variant="outline" size="sm" onClick={() => setSelectedUser(user)}><Eye className="w-4 h-4 mr-1" /> Review</Button>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
               {tab === 'all' && totalPages > 1 && (
                 <div className="flex items-center justify-between pt-4 mt-4 border-t">
@@ -405,6 +459,7 @@ export default function AdminDashboard() {
           )}
         </CardContent>
       </Card>
+      </main>
 
       {/* Verify confirm */}
       {verifyConfirm && (
@@ -448,7 +503,12 @@ export default function AdminDashboard() {
                 <div><p className="text-sm font-medium">NIN verified</p><p>{selectedUser.ninVerified ? 'Yes' : 'No'}</p></div>
                 <div><p className="text-sm font-medium">NIN verified at</p><p>{selectedUser.ninVerifiedAt ? new Date(selectedUser.ninVerifiedAt).toLocaleString() : '—'}</p></div>
                 <div><p className="text-sm font-medium">ID type</p><p>{selectedUser.idType || '—'}</p></div>
-                {typeof selectedUser.fraudScore === 'number' && selectedUser.fraudScore > 0 && <div className="col-span-2"><p className="text-sm font-medium text-red-600">Fraud score</p><p>{selectedUser.fraudScore} — review carefully.</p></div>}
+                {typeof selectedUser.fraudScore === 'number' && selectedUser.fraudScore > 0 && (
+                  <div className="col-span-2 p-3 rounded-lg border-2 border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-950/30">
+                    <p className="text-sm font-semibold text-red-700 dark:text-red-300">Fraud / risk score: {selectedUser.fraudScore}</p>
+                    <p className="text-xs text-red-600 dark:text-red-400 mt-1">Review carefully before approving. Reject if anything is suspicious.</p>
+                  </div>
+                )}
                 {selectedUser.lastLoginAt && <div><p className="text-sm font-medium">Last login</p><p>{new Date(selectedUser.lastLoginAt).toLocaleString()}</p></div>}
                 {selectedUser.kycRejectionReason && <div className="col-span-2"><p className="text-sm font-medium text-red-600">Previous rejection</p><p className="text-sm text-muted-foreground">{selectedUser.kycRejectionReason}</p></div>}
                 <div className="col-span-2"><p className="text-sm font-medium">Bank account</p><p>{selectedUser.reservedAccountNumber ? `${selectedUser.reservedAccountNumber} (${selectedUser.reservedAccountBankName || 'Bank'})` : 'Not generated'}</p></div>
@@ -487,15 +547,15 @@ export default function AdminDashboard() {
           <Card className="w-full max-w-md">
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-red-600"><X className="h-5 w-5" /> Reject KYC</CardTitle>
-              <CardDescription>This reason will be shown to @{rejectModal.user.vuraTag} in Settings → Identity verification.</CardDescription>
+              <CardDescription>This reason will be shown to @{rejectModal.user.vuraTag} in Settings → Identity verification. A reason is required.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div>
-                <Label htmlFor="reject-reason">Reason</Label>
-                <textarea id="reject-reason" value={rejectModal.reason} onChange={(e) => setRejectModal((m) => m ? { ...m, reason: e.target.value } : m)} placeholder="e.g. ID unclear; please upload a clear government-issued ID" className="w-full min-h-[100px] px-3 py-2 text-sm border rounded-md bg-background mt-1" maxLength={500} />
+                <Label htmlFor="reject-reason">Reason for rejection (required)</Label>
+                <textarea id="reject-reason" value={rejectModal.reason} onChange={(e) => setRejectModal((m) => m ? { ...m, reason: e.target.value } : m)} placeholder="e.g. ID document unclear; please upload a clear government-issued ID" className="w-full min-h-[100px] px-3 py-2 text-sm border rounded-md bg-background mt-1" maxLength={500} />
               </div>
               <div className="flex gap-2">
-                <Button variant="destructive" className="flex-1" onClick={handleReject} disabled={actionLoading}>{actionLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} Confirm reject</Button>
+                <Button variant="destructive" className="flex-1" onClick={handleReject} disabled={actionLoading || !rejectModal.reason.trim()}>{actionLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} Confirm reject</Button>
                 <Button variant="outline" onClick={() => setRejectModal(null)}>Cancel</Button>
               </div>
             </CardContent>
