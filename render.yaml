@@ -15,11 +15,13 @@ services:
   - type: web
     name: vura-app
     runtime: node
-    buildCommand: cd vura-backend && npm ci && npx prisma generate --schema=prisma/schema.prisma && npx prisma migrate deploy && npm run build
+    buildCommand: cd vura-backend && npm ci && npx prisma generate --schema=prisma/schema.prisma && npm run build
+    releaseCommand: cd vura-backend && npx prisma migrate deploy --schema=prisma/schema.prisma
     startCommand: cd vura-backend && npm run start:prod
     envVars:
       - key: NODE_ENV
         value: production
+      # Use Neon "direct" connection URL (not pooler) if migrate deploy times out on advisory lock.
       - key: DATABASE_URL
         sync: false
       - key: PRISMA_POOL_MAX
