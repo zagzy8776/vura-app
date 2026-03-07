@@ -7,13 +7,16 @@ import {
   Request,
   Query,
   BadRequestException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { TransactionsService } from './transactions.service';
 import { AuthGuard } from '../auth/auth.guard';
 import { BankCodesService } from '../services/bank-codes.service';
 import { PaystackService } from '../services/paystack.service';
 import { PrismaService } from '../prisma.service';
+import { LimitsService } from '../limits/limits.service';
 import Decimal from 'decimal.js';
+import * as bcrypt from 'bcrypt';
 
 @Controller('transactions')
 export class TransactionsController {
@@ -22,6 +25,7 @@ export class TransactionsController {
     private bankCodesService: BankCodesService,
     private paystackService: PaystackService,
     private prisma: PrismaService,
+    private limitsService: LimitsService,
   ) {}
 
   @UseGuards(AuthGuard)
@@ -60,19 +64,35 @@ export class TransactionsController {
     },
   ) {
     const userId = req.user.userId;
-    const { accountNumber, bankCode, accountName, amount, description } = body;
+    const { accountNumber, bankCode, accountName, amount, description, pin } = body;
 
     if (!amount || amount < 100) {
       throw new BadRequestException('Minimum transfer is ₦100');
     }
 
+    if (!pin) {
+      throw new BadRequestException('PIN is required for bank transfer');
+    }
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { hashedPin: true },
+    });
+    if (!user?.hashedPin) {
+      throw new UnauthorizedException('Account not ready. Set your PIN in Settings.');
+    }
+    const pinValid = await bcrypt.compare(pin, user.hashedPin);
+    if (!pinValid) {
+      throw new UnauthorizedException('Invalid PIN');
+    }
+
+    const fee = amount <= 5000 ? 10 : amount <= 50000 ? 25 : 50;
+    const totalDeduction = amount + fee;
+    await this.limitsService.checkSendLimit(userId, new Decimal(totalDeduction), 'NGN');
+
     const verificationResult = await this.paystackService.verifyAccount(
       accountNumber,
       bankCode,
     );
-
-    const fee = amount <= 5000 ? 10 : amount <= 50000 ? 25 : 50;
-    const totalDeduction = amount + fee;
     const reference = `BANK-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
     const tx = await this.prisma.$transaction(async (prisma) => {

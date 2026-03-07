@@ -85,9 +85,21 @@ const Receive = () => {
     }
   };
 
-  // Try to generate/fetch virtual account after BVN is verified (user action still needed if missing)
+  // Load existing virtual account on mount (createOrGet returns existing if any)
   useEffect(() => {
-    setVirtualAccount(null);
+    if (!user?.id) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await apiFetch('/virtual-accounts/create', { method: 'POST' });
+        const data = await res.json().catch(() => ({}));
+        if (cancelled) return;
+        if (res.ok && data?.data) setVirtualAccount(data.data);
+      } catch {
+        if (!cancelled) { /* ignore */ }
+      }
+    })();
+    return () => { cancelled = true; };
   }, [user?.id]);
 
   const handleCopy = () => {
@@ -198,16 +210,14 @@ const Receive = () => {
       type: 'image/png',
     });
 
-    // Try native share first
-    // @ts-expect-error - Web Share API types vary by browser
-    if (navigator.share && navigator.canShare?.({ files: [file] })) {
+    // Try native share first (canShare/files not in all TS libs)
+    if (navigator.share && (navigator as { canShare?: (x: { files?: File[] }) => boolean }).canShare?.({ files: [file] })) {
       try {
-        // @ts-expect-error - Web Share API types vary by browser
         await navigator.share({
           title: 'Vura Bank Details',
           text: 'Use these details to send me money on Vura.',
           files: [file],
-        });
+        } as ShareData);
         return;
       } catch {
         // user cancelled, fallback to download

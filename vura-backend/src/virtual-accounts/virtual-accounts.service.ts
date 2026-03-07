@@ -55,7 +55,7 @@ export class VirtualAccountsService {
 
     if (!user.legalFirstName || !user.legalLastName) {
       throw new BadRequestException(
-        'Legal name not available. Please verify BVN again.',
+        'Legal name is missing on your profile. Complete identity verification in Settings, or contact support.',
       );
     }
 

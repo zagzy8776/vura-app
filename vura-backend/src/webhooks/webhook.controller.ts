@@ -15,6 +15,7 @@ import type { Request } from 'express';
 import { ConfigService } from '@nestjs/config';
 import * as crypto from 'crypto';
 import { PrismaService } from '../prisma.service';
+import { LimitsService } from '../limits/limits.service';
 import Decimal from 'decimal.js';
 
 @Controller('webhooks')
@@ -26,6 +27,7 @@ export class WebhookController {
   constructor(
     private config: ConfigService,
     private prisma: PrismaService,
+    private limitsService: LimitsService,
   ) {
     this.monnifySecret = this.config.get('MONNIFY_WEBHOOK_SECRET') || '';
     // Paystack signs webhooks with the secret key; no separate webhook secret is issued
@@ -131,6 +133,31 @@ export class WebhookController {
 
     if (existingTx) {
       return { status: 'already_processed' };
+    }
+
+    try {
+      await this.limitsService.checkMaxBalance(user.id, amount, 'NGN');
+    } catch {
+      this.logger.warn(
+        'Monnify deposit would exceed max balance limit; crediting anyway and flagging',
+        {
+          userId: user.id,
+          reference,
+          amount: amount.toString(),
+        },
+      );
+      await this.prisma.auditLog.create({
+        data: {
+          action: 'BALANCE_LIMIT_EXCEEDED_CREDIT',
+          userId: user.id,
+          actorType: 'system',
+          metadata: {
+            reference,
+            amount: amount.toString(),
+            provider: 'monnify',
+          } as any,
+        },
+      });
     }
 
     // Atomic credit transaction

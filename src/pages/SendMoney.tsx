@@ -251,6 +251,11 @@ const SendMoney = () => {
       toast({ title: "Invalid PIN", description: "Enter your 6-digit PIN", variant: "destructive" });
       return;
     }
+    const effectiveSchedule = scheduleType;
+    if (effectiveSchedule !== "now") {
+      toast({ title: "Coming soon", description: "Scheduled and recurring transfers will be available soon. Use Send now for instant transfers.", variant: "default" });
+      return;
+    }
     setSending(true);
     try {
       let res;
@@ -263,9 +268,9 @@ const SendMoney = () => {
             amount: Number(amount),
             description,
             pin,
-            scheduleType,
-            scheduleDate: scheduleType !== "now" ? scheduleDate : undefined,
-            recurring: scheduleType === "recurring" ? recurringFrequency : undefined,
+            scheduleType: effectiveSchedule,
+            scheduleDate: effectiveSchedule !== "now" ? scheduleDate : undefined,
+            recurring: effectiveSchedule === "recurring" ? recurringFrequency : undefined,
           }),
         });
       } else {
@@ -278,9 +283,9 @@ const SendMoney = () => {
             amount: Number(amount),
             description,
             pin,
-            scheduleType,
-            scheduleDate: scheduleType !== "now" ? scheduleDate : undefined,
-            recurring: scheduleType === "recurring" ? recurringFrequency : undefined,
+            scheduleType: effectiveSchedule,
+            scheduleDate: effectiveSchedule !== "now" ? scheduleDate : undefined,
+            recurring: effectiveSchedule === "recurring" ? recurringFrequency : undefined,
           }),
         });
       }
@@ -301,13 +306,7 @@ const SendMoney = () => {
       };
       setRecentRecipients(prev => [newRecipient, ...prev.filter(r => r.identifier !== newRecipient.identifier)].slice(0, 10));
       setStep("success");
-      if (scheduleType === "now") {
-        toast({ title: "Transfer successful!", description: `₦${Number(amount).toLocaleString()} sent` });
-      } else if (scheduleType === "later") {
-        toast({ title: "Transfer Scheduled!", description: `Will be sent on ${scheduleDate}` });
-      } else {
-        toast({ title: "Recurring Transfer Set!", description: `Will send ${recurringFrequency}ly` });
-      }
+      toast({ title: "Transfer successful!", description: `₦${Number(amount).toLocaleString()} sent` });
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : "Transfer failed";
       toast({ title: "Transfer failed", description: errorMessage, variant: "destructive" });

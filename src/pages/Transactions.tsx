@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import AppSidebar from "@/components/AppSidebar";
 import DashboardHeader from "@/components/DashboardHeader";
 import { apiFetch } from "@/hooks/useAuth";
+import { toast } from "@/hooks/use-toast";
 
 interface Transaction {
   id: string;
@@ -80,7 +81,7 @@ const Transactions = () => {
               <h2 className="text-xl sm:text-2xl font-bold text-foreground">Transactions</h2>
               <p className="text-muted-foreground text-sm mt-1">Your complete transaction history</p>
             </div>
-            <Button variant="outline" className="rounded-xl shrink-0" size="sm">
+            <Button variant="outline" className="rounded-xl shrink-0" size="sm" onClick={() => toast({ title: "Coming soon", description: "Export to CSV will be available soon." })}>
               <Download className="h-4 w-4 mr-1" /> Export
             </Button>
           </div>
