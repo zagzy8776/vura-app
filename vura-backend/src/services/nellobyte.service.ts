@@ -141,51 +141,93 @@ export class NellobyteService {
   }
 
   async getDataPlans(network: string): Promise<{ plan_code: string; name: string; price: number }[]> {
-    if (!this.enabled) return [];
+    if (!this.enabled) return this.getStaticDataPlans(toNellobyteNetwork(network));
     const networkCode = toNellobyteNetwork(network);
     try {
       const data = await this.get<any>('APIDatabundlePlansV2.asp', {});
       if (!data || typeof data !== 'object') return this.getStaticDataPlans(networkCode);
 
       const plans: { plan_code: string; name: string; price: number }[] = [];
-      const matchNet = (netName: string): boolean => {
-        const n = String(netName).toLowerCase();
-        return (
-          (networkCode === '01' && n.includes('mtn')) ||
-          (networkCode === '02' && n.includes('glo')) ||
-          (networkCode === '04' && n.includes('airtel')) ||
-          (networkCode === '03' && (n.includes('9mobile') || n.includes('etisalat')))
-        );
-      };
+      const seen = new Set<string>();
 
       const pushPlan = (item: any) => {
         if (!item || typeof item !== 'object') return;
         const code = item?.code ?? item?.id ?? item?.plan_code ?? item?.DataPlan ?? item?.Plan ?? '';
         const name = typeof item?.name === 'string' ? item.name : (typeof item?.description === 'string' ? item.description : (typeof item?.Product === 'string' ? item.Product : String(code)));
         const price = Number(item?.price ?? item?.amount ?? item?.Amount ?? 0);
-        if (code && name && !String(name).includes('[object')) plans.push({ plan_code: String(code), name: String(name), price });
+        if (!code || !name || String(name).includes('[object')) return;
+        const key = `${String(code)}-${price}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        plans.push({ plan_code: String(code), name: String(name), price });
+      };
+
+      const isForNetwork = (key: string): boolean => {
+        const k = String(key).toLowerCase().trim();
+        if (k === networkCode || k === networkCode.padStart(2, '0')) return true;
+        if (networkCode === '01' && (k.includes('mtn') || k === '1')) return true;
+        if (networkCode === '02' && (k.includes('glo') || k === '2')) return true;
+        if (networkCode === '04' && (k.includes('airtel') || k === '4')) return true;
+        if (networkCode === '03' && (k.includes('9mobile') || k.includes('etisalat') || k === '3')) return true;
+        return false;
+      };
+
+      const collectFrom = (raw: any) => {
+        if (Array.isArray(raw)) for (const item of raw) pushPlan(item);
+        else if (raw && typeof raw === 'object') for (const item of Object.values(raw)) pushPlan(item);
       };
 
       if (Array.isArray(data)) {
+        for (const item of data) {
+          const net = item?.network ?? item?.Network ?? item?.mobileNetwork ?? item?.MobileNetwork ?? item?.biller_id ?? '';
+          if (isForNetwork(String(net))) pushPlan(item);
+        }
+        if (plans.length > 0) return this.sortPlans(plans);
         for (const item of data) pushPlan(item);
       } else {
-        for (const [netName, items] of Object.entries(data)) {
-          if (!matchNet(netName)) continue;
+        for (const [key, items] of Object.entries(data)) {
+          if (isForNetwork(key)) {
+            const arr = Array.isArray(items) ? items : (items && typeof items === 'object' ? Object.values(items) : []);
+            for (const item of arr) pushPlan(item);
+          }
+        }
+        if (plans.length > 0) return this.sortPlans(plans);
+        for (const [, items] of Object.entries(data)) {
           const arr = Array.isArray(items) ? items : (items && typeof items === 'object' ? Object.values(items) : []);
           for (const item of arr) pushPlan(item);
         }
+        const wrapKeys = ['data', 'plans', 'Plans', 'databundle', 'Databundle', 'result', 'Result'];
+        for (const w of wrapKeys) {
+          if (data[w] != null) collectFrom(data[w]);
+          if (plans.length > 0) return this.sortPlans(plans);
+        }
       }
 
-      if (plans.length > 0) return plans;
+      if (plans.length > 0) return this.sortPlans(plans);
     } catch (e: any) {
       this.logger.warn(`getDataPlans: ${e.message}`);
     }
     return this.getStaticDataPlans(networkCode);
   }
 
+  private sortPlans(plans: { plan_code: string; name: string; price: number }[]): { plan_code: string; name: string; price: number }[] {
+    return [...plans].sort((a, b) => a.price - b.price);
+  }
+
   private getStaticDataPlans(networkCode: string): { plan_code: string; name: string; price: number }[] {
-    const plans: Record<string, { plan_code: string; name: string; price: number }[]> = {
+    const generic = [
+      { plan_code: '50', name: '50 MB - 30 days', price: 7 },
+      { plan_code: '100', name: '100 MB - 30 days', price: 14 },
+      { plan_code: '300', name: '300 MB - 30 days', price: 42 },
+      { plan_code: '500', name: '500 MB - 30 days', price: 75 },
+      { plan_code: '1000', name: '1 GB - 30 days', price: 135 },
+      { plan_code: '2000', name: '2 GB - 30 days', price: 270 },
+      { plan_code: '5000', name: '5 GB - 30 days', price: 675 },
+      { plan_code: '10000', name: '10 GB - 30 days', price: 1350 },
+    ];
+    const byNetwork: Record<string, { plan_code: string; name: string; price: number }[]> = {
       '01': [
+        ...generic,
         { plan_code: '500', name: '500MB - 7 days (SME)', price: 404 },
         { plan_code: '1000', name: '1GB - 7 days (SME)', price: 567 },
         { plan_code: '2000', name: '2GB - 7 days (SME)', price: 1134 },
@@ -194,8 +236,14 @@ export class NellobyteService {
         { plan_code: '1500.01', name: '2GB+2mins Monthly', price: 1500 },
         { plan_code: '2500.01', name: '6GB Weekly', price: 2500 },
         { plan_code: '3500.02', name: '7GB Monthly', price: 3500 },
+        { plan_code: 'awuf500', name: 'MTN Awuf 500MB', price: 200 },
+        { plan_code: 'awuf1', name: 'MTN Awuf 1GB', price: 300 },
       ],
       '02': [
+        ...generic,
+        { plan_code: '920', name: 'GLO Yakata 920MB - 30 days', price: 400 },
+        { plan_code: '1800', name: 'GLO Yakata 1.8GB - 30 days', price: 800 },
+        { plan_code: '5000glo', name: 'GLO Yakata 5GB - 30 days', price: 1600 },
         { plan_code: '500', name: '500MB - 7 days (SME)', price: 235 },
         { plan_code: '1000', name: '1GB - 30 days (SME)', price: 470 },
         { plan_code: '2000', name: '2GB - 30 days (SME)', price: 940 },
@@ -204,6 +252,7 @@ export class NellobyteService {
         { plan_code: '1000.01', name: '2.6GB - 30 days', price: 1000 },
       ],
       '04': [
+        ...generic,
         { plan_code: '499.91', name: '1GB - 1 day', price: 499.91 },
         { plan_code: '999.91', name: '3GB - 2 days', price: 999.91 },
         { plan_code: '799.91', name: '1GB - 7 days', price: 799.91 },
@@ -211,6 +260,7 @@ export class NellobyteService {
         { plan_code: '2499.92', name: '4GB - 30 days', price: 2499.92 },
       ],
       '03': [
+        ...generic,
         { plan_code: '500', name: '500MB - 30 days (SME)', price: 225 },
         { plan_code: '1000', name: '1GB - 30 days (SME)', price: 450 },
         { plan_code: '2000', name: '2GB - 30 days (SME)', price: 900 },
@@ -218,7 +268,13 @@ export class NellobyteService {
         { plan_code: '1000.01', name: '1.1GB - 30 days', price: 1000 },
       ],
     };
-    return plans[networkCode] ?? [];
+    const list = byNetwork[networkCode] ?? generic;
+    const dedup = new Map<string, { plan_code: string; name: string; price: number }>();
+    for (const p of list) {
+      const k = `${p.plan_code}-${p.name}-${p.price}`;
+      if (!dedup.has(k)) dedup.set(k, p);
+    }
+    return Array.from(dedup.values()).sort((a, b) => a.price - b.price);
   }
 
   async buyData(input: {
