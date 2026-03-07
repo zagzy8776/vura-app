@@ -34,10 +34,12 @@ const SettingsPage = () => {
   const navigate = useNavigate();
   
   const [activeDialog, setActiveDialog] = useState<string | null>(null);
-  const [bvn, setBvn] = useState("");
-  const [bvnFirstName, setBvnFirstName] = useState("");
-  const [bvnLastName, setBvnLastName] = useState("");
-  const [bvnStatus, setBvnStatus] = useState<{ verified: boolean; tier?: number; verifiedAt?: string | null } | null>(null);
+  const [verificationStatus, setVerificationStatus] = useState<{
+    verified: boolean;
+    tier?: number;
+    verifiedAt?: string | null;
+    kycStatus?: string;
+  } | null>(null);
   const [currentPin, setCurrentPin] = useState("");
   const [newPin, setNewPin] = useState("");
   const [confirmPin, setConfirmPin] = useState("");
@@ -77,12 +79,16 @@ const SettingsPage = () => {
         // ignore invalid stored prefs
       }
     }
-    if (user) fetchBvnStatus();
+    if (user) fetchVerificationStatus();
   }, [user]);
 
   useEffect(() => {
-    if (activeDialog === "bvn") fetchBvnStatus();
-  }, [activeDialog]);
+    const onFocus = () => {
+      if (user) fetchVerificationStatus();
+    };
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [user]);
 
   const updateSetting = (key: keyof typeof settings, value: boolean) => {
     const newSettings = { ...settings, [key]: value };
@@ -107,86 +113,22 @@ const SettingsPage = () => {
 
   const getInitials = (tag: string) => tag.slice(0, 2).toUpperCase();
 
-  const fetchBvnStatus = async () => {
+  const fetchVerificationStatus = async () => {
     try {
       const response = await apiFetch("/kyc/bvn-status");
       if (response.ok) {
         const data = await response.json();
-        // backend returns { success: true, data: { verified, verifiedAt, kycTier } }
         if (data?.data) {
-          setBvnStatus({
+          setVerificationStatus({
             verified: !!data.data.verified,
             tier: data.data.kycTier,
             verifiedAt: data.data.verifiedAt ?? null,
+            kycStatus: data.data.kycStatus ?? 'PENDING',
           });
         }
       }
     } catch (error) {
-      console.error("Failed to fetch BVN status:", error);
-    }
-  };
-
-  const handleBvnSubmit = async () => {
-    if (bvn.length !== 11) {
-      toast({ title: "Invalid BVN", description: "BVN must be 11 digits", variant: "destructive" });
-      return;
-    }
-    if (!bvnFirstName.trim() || !bvnLastName.trim()) {
-      toast({
-        title: "Missing name",
-        description: "Enter your first name and last name as it appears on your BVN.",
-        variant: "destructive",
-      });
-      return;
-    }
-    setLoading(true);
-    try {
-      const response = await apiFetch("/kyc/verify-bvn", {
-        method: "POST",
-        body: JSON.stringify({ bvn, firstName: bvnFirstName.trim(), lastName: bvnLastName.trim() }),
-      });
-      const contentType = response.headers.get("content-type") || "";
-      if (contentType.includes("text/html")) {
-        toast({ title: "Wrong server", description: "The API URL may point to the app instead of the backend. Check VITE_API_URL and redeploy.", variant: "destructive" });
-        return;
-      }
-      let data: { success?: boolean; message?: string; data?: { success?: boolean; consentUrl?: string; url?: string; message?: string } };
-      try {
-        data = await response.json();
-      } catch {
-        toast({ title: "Verification Failed", description: "Invalid response from server. Please try again or contact support.", variant: "destructive" });
-        return;
-      }
-      if (response.ok) {
-        // Backend can return 200 with data.data.success === false (e.g. Prembly not configured correctly)
-        if (data?.data && (data.data as { success?: boolean }).success === false) {
-          const msg = (data.data as { message?: string }).message || data.message || "Verification could not be completed.";
-          toast({ title: "Verification Failed", description: msg, variant: "destructive" });
-          return;
-        }
-        const consentUrl = data?.data?.consentUrl || data?.data?.url;
-        if (consentUrl && typeof consentUrl === "string") {
-          toast({
-            title: "Taking you to secure verification",
-            description: "You'll complete BVN consent on a secure NIBSS page, then return here.",
-          });
-          window.location.href = consentUrl;
-          return;
-        }
-        // No redirect = instant verification (e.g. Prembly)
-        toast({
-          title: "BVN verified",
-          description: "Your account is now Tier 2. Higher limits are active.",
-        });
-        fetchBvnStatus();
-        setActiveDialog(null);
-      } else {
-        toast({ title: "Verification Failed", description: data?.message ?? "BVN verification failed. Please try again or contact support.", variant: "destructive" });
-      }
-    } catch (error) {
-      toast({ title: "Error", description: "Failed to verify BVN. Please try again or contact support.", variant: "destructive" });
-    } finally {
-      setLoading(false);
+      console.error("Failed to fetch verification status:", error);
     }
   };
 
@@ -271,7 +213,7 @@ const SettingsPage = () => {
   };
 
   const getKycStatus = () => {
-    if (bvnStatus?.verified || (user?.kycTier && user.kycTier >= 2)) {
+    if (verificationStatus?.verified || (user?.kycTier && user.kycTier >= 2)) {
       return { text: "Verified", color: "text-green-500", bg: "bg-green-50" };
     }
     return { text: "Unverified", color: "text-amber-500", bg: "bg-amber-50" };
@@ -335,22 +277,20 @@ const SettingsPage = () => {
           </motion.div>
 
           {/* Account & Security */}
-          <SettingsSection title="Verification (step by step)">
+          <SettingsSection title="Verification">
             <SettingsItem
               icon={Shield}
-              label="Step 1: BVN Verification"
-              value={bvnStatus?.verified ? "Verified" : "Verify your BVN to unlock higher limits"}
-              onClick={() => setActiveDialog("bvn")}
-            />
-            <SettingsItem
-              icon={BadgeCheck}
-              label="Step 2: Identity verification"
-              value={bvnStatus?.verified ? "Document + selfie" : "Complete Step 1 first"}
-              onClick={
-                bvnStatus?.verified
-                  ? () => navigate("/settings/identity-verification")
-                  : () => toast({ title: "Complete Step 1 first", description: "Verify your BVN above to unlock identity verification.", variant: "destructive" })
+              label="Identity verification"
+              value={
+                verificationStatus?.tier === 3
+                  ? "Verified • Tier 3"
+                  : verificationStatus?.kycStatus === "PENDING" && (verificationStatus?.tier ?? 0) >= 2
+                    ? "Pending review • Tier 2"
+                    : verificationStatus?.verified
+                      ? `Verified • Tier ${verificationStatus?.tier ?? 2}`
+                      : "Verify with BVN, ID and face to unlock limits"
               }
+              onClick={() => navigate("/settings/identity-verification")}
             />
           </SettingsSection>
 
@@ -427,91 +367,6 @@ const SettingsPage = () => {
               <Button variant="outline" className="w-full" onClick={openSupportMail}>
                 <Mail className="h-4 w-4 mr-2" /> Contact support
               </Button>
-            </div>
-          </DialogContent>
-        </Dialog>
-
-        {/* BVN Dialog */}
-        <Dialog open={activeDialog === "bvn"} onOpenChange={() => setActiveDialog(null)}>
-          <DialogContent className="sm:max-w-md">
-            <DialogHeader>
-              <DialogTitle>BVN Verification</DialogTitle>
-              <DialogDescription>
-                {bvnStatus?.verified
-                  ? "Your identity is verified. You have access to higher limits."
-                  : "Verify once to unlock Tier 2 limits and secure your account. We use a secure NIBSS-backed flow."}
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4 py-4">
-              {bvnStatus?.verified ? (
-                <div className="p-6 rounded-xl bg-green-500/10 border border-green-500/20 text-center space-y-3">
-                  <div className="mx-auto w-14 h-14 rounded-full bg-green-500/20 flex items-center justify-center">
-                    <Shield className="h-7 w-7 text-green-600" />
-                  </div>
-                  <p className="font-semibold text-green-800 dark:text-green-200">BVN Verified</p>
-                  <p className="text-sm text-muted-foreground">
-                    Tier {bvnStatus?.tier ?? user?.kycTier ?? 2} &bull; Higher limits enabled
-                  </p>
-                  {bvnStatus?.verifiedAt && (
-                    <p className="text-xs text-muted-foreground">
-                      Verified {new Date(bvnStatus.verifiedAt).toLocaleDateString("en-NG", { dateStyle: "medium" })}
-                    </p>
-                  )}
-                </div>
-              ) : (
-                <>
-                  <div className="p-4 rounded-xl bg-muted/80 border border-border space-y-2">
-                    <p className="text-sm text-muted-foreground">
-                      Enter your details exactly as they appear on your BVN. Verification is secure and we never store your full BVN.
-                    </p>
-                    <p className="text-xs text-muted-foreground">You may be taken to a secure NIBSS page to complete consent, or verified instantly depending on our provider.</p>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-2">
-                      <Label>First name</Label>
-                      <Input
-                        value={bvnFirstName}
-                        onChange={(e) => setBvnFirstName(e.target.value)}
-                        placeholder="As on BVN"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Last name</Label>
-                      <Input
-                        value={bvnLastName}
-                        onChange={(e) => setBvnLastName(e.target.value)}
-                        placeholder="As on BVN"
-                      />
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>11-digit BVN</Label>
-                    <Input
-                      type="password"
-                      inputMode="numeric"
-                      value={bvn}
-                      onChange={(e) => setBvn(e.target.value.replace(/\D/g, "").slice(0, 11))}
-                      placeholder="•••••••••••"
-                      maxLength={11}
-                      className="font-mono"
-                    />
-                  </div>
-                  <Button
-                    onClick={handleBvnSubmit}
-                    className="w-full h-11 rounded-xl"
-                    disabled={bvn.length !== 11 || !bvnFirstName.trim() || !bvnLastName.trim() || loading}
-                  >
-                    {loading ? (
-                      <>
-                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                        Preparing…
-                      </>
-                    ) : (
-                      "Continue to secure verification"
-                    )}
-                  </Button>
-                </>
-              )}
             </div>
           </DialogContent>
         </Dialog>

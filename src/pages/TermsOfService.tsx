@@ -73,9 +73,9 @@ export const TermsOfService: React.FC = () => {
                   Transaction limits are determined by your KYC tier:
                 </p>
                 <ul className="list-disc list-inside mt-2 space-y-1 text-gray-700">
-                  <li>Tier 1 (BVN Verified): Daily limit ₦50,000</li>
-                  <li>Tier 2 (NIN Verified): Daily limit ₦200,000</li>
-                  <li>Tier 3 (Biometric Verified): Daily limit ₦1,000,000</li>
+                  <li>Tier 1 (Basic): Daily send limit ₦50,000</li>
+                  <li>Tier 2 (Identity verified): Daily send limit ₦200,000</li>
+                  <li>Tier 3 (Fully approved): Daily send limit ₦5,000,000</li>
                 </ul>
               </section>
 

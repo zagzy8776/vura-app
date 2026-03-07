@@ -8,7 +8,7 @@ import DashboardHeader from "@/components/DashboardHeader";
 
 const faqs = [
   { q: "How do I send money?", a: "Navigate to Send Money, enter the recipient's @tag or email, type the amount, and confirm. Transfers within Vura are instant.", icon: ArrowRightLeft },
-  { q: "What are the tier limits?", a: "Tier 1: ₦50k/day send. Tier 2 (BVN verified): ₦200k/day. Tier 3 (BVN + NIN): ₦5M/day. Upgrade anytime in Settings.", icon: Shield },
+  { q: "What are the tier limits?", a: "Tier 1: ₦50k/day. Tier 2 (after identity verification): ₦200k/day. Tier 3 (after admin approval): ₦5M/day. Complete identity verification in Settings.", icon: Shield },
   { q: "How do I get a virtual card?", a: "Go to Cards and tap 'New Card'. Virtual cards are issued instantly and can be used for online purchases worldwide.", icon: CreditCard },
   { q: "What happens if I'm flagged for fraud?", a: "Your transaction will be reviewed within 16 days per CBN guidelines. You'll receive updates and can contact support anytime.", icon: HelpCircle },
 ];

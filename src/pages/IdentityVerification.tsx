@@ -18,6 +18,14 @@ import { toast } from "@/hooks/use-toast";
 import { useNavigate } from "react-router-dom";
 import QRCode from "qrcode";
 
+const isMobileDevice = () => {
+  if (typeof window === "undefined") return false;
+  const ua = navigator.userAgent || navigator.vendor || "";
+  const hasTouch = "ontouchstart" in window || navigator.maxTouchPoints > 0;
+  const smallScreen = window.innerWidth < 768;
+  return smallScreen || hasTouch || /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(ua.toLowerCase());
+};
+
 const IdentityVerification = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
@@ -25,6 +33,7 @@ const IdentityVerification = () => {
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [isMobile] = useState(isMobileDevice);
 
   useEffect(() => {
     let cancelled = false;
@@ -46,7 +55,7 @@ const IdentityVerification = () => {
             .then((url) => !cancelled && setQrDataUrl(url))
             .catch(() => {});
         } else {
-          setError(data?.message || "Could not start verification. Complete Step 1 (BVN) first.");
+          setError(data?.message || "Could not start verification. Please try again.");
         }
       } catch {
         if (!cancelled) setError("Failed to load. Please try again.");
@@ -69,6 +78,7 @@ const IdentityVerification = () => {
 
   const openOnThisDevice = () => {
     if (!verificationUrl) return;
+    // Same-tab navigation works on all mobile browsers (no popup blocking). Widget opens full screen.
     window.location.href = verificationUrl;
   };
 
@@ -97,14 +107,14 @@ const IdentityVerification = () => {
                 <ShieldCheck className="h-5 w-5 text-primary" />
               </div>
               <div>
-                <h1 className="text-lg font-semibold text-foreground">
-                  Identity verification
-                </h1>
-                <p className="text-xs text-muted-foreground">Step 2 of 2</p>
+            <h1 className="text-lg font-semibold text-foreground">
+              Identity verification
+            </h1>
+            <p className="text-xs text-muted-foreground">One flow: BVN + ID + face</p>
               </div>
             </div>
             <p className="text-sm text-muted-foreground mb-6">
-              Verify your identity with your ID document and a selfie. Choose how you’d like to continue.
+              Verify with BVN, ID and face in one flow. Choose how you’d like to continue.
             </p>
 
             {loading && (
@@ -122,60 +132,80 @@ const IdentityVerification = () => {
 
             {!loading && verificationUrl && (
               <div className="space-y-4">
-                {/* Continue on this device */}
+                {/* Primary CTA: same-tab open so widget works on all mobile browsers */}
                 <button
                   type="button"
                   onClick={openOnThisDevice}
-                  className="w-full flex items-center gap-4 p-4 rounded-xl border border-border hover:bg-muted/50 transition-colors text-left"
+                  className="w-full flex items-center gap-4 p-5 rounded-xl border-2 border-primary bg-primary/10 hover:bg-primary/20 active:scale-[0.98] transition-all text-left touch-manipulation min-h-[72px]"
                 >
-                  <div className="h-12 w-12 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
-                    <Monitor className="h-6 w-6 text-primary" />
+                  <div className="h-12 w-12 rounded-xl bg-primary/20 flex items-center justify-center shrink-0">
+                    {isMobile ? (
+                      <Smartphone className="h-6 w-6 text-primary" />
+                    ) : (
+                      <Monitor className="h-6 w-6 text-primary" />
+                    )}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="font-medium text-foreground">Continue on this device</p>
-                    <p className="text-xs text-muted-foreground">
-                      Complete verification in this browser (ID + selfie)
+                    <p className="font-semibold text-foreground">
+                      {isMobile ? "Open verification" : "Continue on this device"}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {isMobile
+                        ? "Opens in this tab so the widget works on your phone. Complete BVN, ID and face there."
+                        : "Complete verification in this browser (ID + selfie)"}
                     </p>
                   </div>
                 </button>
 
-                {/* Open on my phone */}
-                <div className="rounded-xl border border-border p-4 space-y-3">
-                  <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-                    <Smartphone className="h-4 w-4" /> Open on my phone
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    Scan the QR code with your phone camera, or copy the link and open it on your phone.
-                  </p>
-                  {qrDataUrl && (
-                    <div className="flex justify-center py-2">
-                      <img
-                        src={qrDataUrl}
-                        alt="Verification QR code"
-                        className="w-[200px] h-[200px] rounded-lg border border-border"
-                      />
+                {/* Open on my phone: only show on desktop (on mobile they're already on phone) */}
+                {!isMobile && (
+                  <div className="rounded-xl border border-border p-4 space-y-3">
+                    <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                      <Smartphone className="h-4 w-4" /> Open on my phone
                     </div>
-                  )}
-                  <div className="flex gap-2">
-                    <Input
-                      readOnly
-                      value={verificationUrl}
-                      className="font-mono text-xs bg-muted flex-1 min-w-0"
-                    />
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      onClick={copyLink}
-                      className="shrink-0"
-                    >
-                      {copied ? (
-                        <Check className="h-4 w-4 text-green-600" />
-                      ) : (
-                        <Copy className="h-4 w-4" />
-                      )}
-                    </Button>
+                    <p className="text-xs text-muted-foreground">
+                      Scan the QR code with your phone camera, or copy the link and open it on your phone.
+                    </p>
+                    {qrDataUrl && (
+                      <div className="flex justify-center py-2">
+                        <img
+                          src={qrDataUrl}
+                          alt="Verification QR code"
+                          className="w-[200px] h-[200px] rounded-lg border border-border"
+                        />
+                      </div>
+                    )}
+                    <div className="flex gap-2">
+                      <Input
+                        readOnly
+                        value={verificationUrl}
+                        className="font-mono text-xs bg-muted flex-1 min-w-0"
+                      />
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        onClick={copyLink}
+                        className="shrink-0"
+                      >
+                        {copied ? (
+                          <Check className="h-4 w-4 text-green-600" />
+                        ) : (
+                          <Copy className="h-4 w-4" />
+                        )}
+                      </Button>
+                    </div>
                   </div>
-                </div>
+                )}
+
+                {isMobile && (
+                  <p className="text-xs text-muted-foreground text-center">
+                    Or{" "}
+                    <button type="button" onClick={copyLink} className="text-primary font-medium underline">
+                      copy link
+                    </button>{" "}
+                    to open in another browser.
+                  </p>
+                )}
               </div>
             )}
 

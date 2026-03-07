@@ -605,8 +605,7 @@ export class WebhookController {
 
   /**
    * When user completes Prembly widget (BVN + NIN + face), Prembly POSTs here.
-   * Payload has data.verification.status, data.widget_info.user_ref (our userId).
-   * We set user to Tier 3 + biometric/NIN/BVN so all APIs respect the new tier.
+   * We set user to Tier 2 + PENDING so they appear in admin for approval. Admin approves → Tier 3 VERIFIED.
    */
   @Post('prembly')
   @HttpCode(200)
@@ -671,8 +670,8 @@ export class WebhookController {
     await this.prisma.user.update({
       where: { id: userRef },
       data: {
-        kycTier: 3,
-        kycStatus: 'VERIFIED',
+        kycTier: 2,
+        kycStatus: 'PENDING',
         kycRejectionReason: null,
         bvnVerified: true,
         bvnVerifiedAt: new Date(),
@@ -684,11 +683,11 @@ export class WebhookController {
       },
     });
 
-    this.logger.log('Prembly verification completed: user upgraded to Tier 3', {
+    this.logger.log('Prembly verification completed: user set to Tier 2 PENDING (awaiting admin)', {
       userId: userRef,
     });
 
-    return { status: 'ok', tier: 3 };
+    return { status: 'ok', tier: 2 };
   }
 
   // ============================================

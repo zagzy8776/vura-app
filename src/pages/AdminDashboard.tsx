@@ -213,9 +213,8 @@ export default function AdminDashboard() {
   };
 
   // Pending = has at least ID or selfie uploaded and status is PENDING (so admin can catch bad uploads)
-  const pendingUsers = users.filter(
-    (u) => (u.idCardUrl || u.selfieUrl) && u.kycStatus === 'PENDING',
-  );
+  // Pending = anyone awaiting admin approval (Prembly widget completed = Tier 2 PENDING, or old ID/selfie upload)
+  const pendingUsers = users.filter((u) => u.kycStatus === 'PENDING');
 
   const filteredUsers =
     listTab === 'all'
@@ -326,15 +325,17 @@ export default function AdminDashboard() {
         <CardHeader>
           <CardTitle>KYC Verification</CardTitle>
           <CardDescription>
-            Review ID and selfie uploads. Verify documents are valid government-issued ID and a real selfie—reject if invalid (e.g. wrong document or non-human).
+            Users complete verification via the Prembly widget (BVN + NIN + face). Approve or reject here. You can also review legacy ID/selfie uploads if present.
           </CardDescription>
         </CardHeader>
         <CardContent>
           {filteredUsers.length === 0 ? (
             <p className="text-center text-gray-500 py-8">
               {listTab === 'pending'
-                ? 'No pending KYC verifications. Users who upload ID or selfie will appear here.'
-                : 'No users match your search.'}
+                ? 'No users pending review. Users who complete Prembly verification (or upload ID/selfie) will appear here.'
+                : users.length === 0
+                  ? 'No users in the system yet.'
+                  : 'No users match your search.'}
             </p>
           ) : (
             <div className="space-y-4">

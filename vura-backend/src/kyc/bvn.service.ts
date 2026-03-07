@@ -157,12 +157,13 @@ export class BVNService {
   }
 
   /**
-   * Get BVN status for user
+   * Get verification status for user (BVN/identity + tier + kycStatus for UI).
    */
   async getBVNStatus(userId: string): Promise<{
     verified: boolean;
     verifiedAt: Date | null;
     kycTier: number;
+    kycStatus: string;
   }> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
@@ -170,6 +171,7 @@ export class BVNService {
         bvnVerified: true,
         bvnVerifiedAt: true,
         kycTier: true,
+        kycStatus: true,
       },
     });
 
@@ -181,6 +183,7 @@ export class BVNService {
       verified: user.bvnVerified,
       verifiedAt: user.bvnVerifiedAt,
       kycTier: user.kycTier,
+      kycStatus: user.kycStatus ?? 'PENDING',
     };
   }
 }
