@@ -61,7 +61,7 @@ export class BVNService {
     let fName = '';
     let lName = '';
 
-    // Try Korapay first if configured
+    // Use Korapay when configured (primary). Skip Prembly so we get a clear Korapay result.
     if (korapayConfigured) {
       const korapayResult = await this.korapayIdentityService.verifyBvn(bvn, {
         firstName: firstName?.trim(),
@@ -71,45 +71,23 @@ export class BVNService {
         provider = 'korapay';
         fName = korapayResult.firstName?.trim() || firstName?.trim() || '';
         lName = korapayResult.lastName?.trim() || lastName?.trim() || '';
+      } else {
+        // Korapay failed — don't fall back to Prembly when user asked to use Kora; surface Korapay error.
+        throw new BadRequestException(
+          korapayResult.message ||
+            'Korapay BVN verification failed. Check KORAPAY_SECRET_KEY and that Identity/BVN is enabled on your Korapay account.',
+        );
       }
-    }
-
-    // Fallback to Prembly if Korapay not used (not configured or failed)
-    let premblyError: string | null = null;
-    if (provider !== 'korapay' && premblyConfigured) {
+    } else if (premblyConfigured) {
       const premblyResult = await this.premblyService.verifyBvn(bvn);
       if (!premblyResult.success) {
-        premblyError = premblyResult.message || 'Prembly verification failed.';
-      } else {
-        provider = 'prembly';
-        fName = premblyResult.firstName?.trim() || firstName?.trim() || '';
-        lName = premblyResult.lastName?.trim() || lastName?.trim() || '';
-      }
-    }
-
-    const verified =
-      provider === 'korapay' || (provider === 'prembly' && !premblyError);
-    if (!verified) {
-      const parts: string[] = ['BVN verification could not be completed.'];
-      if (korapayConfigured) {
-        parts.push('Korapay was tried but failed.');
-      }
-      if (premblyConfigured && premblyError) {
-        parts.push(premblyError);
-      } else if (!premblyConfigured && korapayConfigured) {
-        parts.push(
-          'Check KORAPAY_SECRET_KEY in Render (Settings → API Configuration, Live secret key) and ensure Identity/BVN is enabled on your Korapay account.',
-        );
-      } else if (premblyConfigured) {
-        parts.push(
-          'Set PREMBLY_API_KEY and PREMBLY_APP_ID in Render, or set KORAPAY_SECRET_KEY to use Korapay instead.',
-        );
-      } else {
-        parts.push(
-          'Set KORAPAY_SECRET_KEY or PREMBLY_API_KEY (and PREMBLY_APP_ID) in your backend environment and redeploy.',
+        throw new BadRequestException(
+          premblyResult.message || 'Prembly BVN verification failed.',
         );
       }
-      throw new BadRequestException(parts.join(' '));
+      provider = 'prembly';
+      fName = premblyResult.firstName?.trim() || firstName?.trim() || '';
+      lName = premblyResult.lastName?.trim() || lastName?.trim() || '';
     }
 
     if (!fName && !lName) {
