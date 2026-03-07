@@ -61,7 +61,7 @@ export class BVNService {
     let fName = '';
     let lName = '';
 
-    // Use Korapay when configured (primary). Skip Prembly so we get a clear Korapay result.
+    // Try Korapay first if configured
     if (korapayConfigured) {
       const korapayResult = await this.korapayIdentityService.verifyBvn(bvn, {
         firstName: firstName?.trim(),
@@ -71,14 +71,11 @@ export class BVNService {
         provider = 'korapay';
         fName = korapayResult.firstName?.trim() || firstName?.trim() || '';
         lName = korapayResult.lastName?.trim() || lastName?.trim() || '';
-      } else {
-        // Korapay failed — don't fall back to Prembly when user asked to use Kora; surface Korapay error.
-        throw new BadRequestException(
-          korapayResult.message ||
-            'Korapay BVN verification failed. Check KORAPAY_SECRET_KEY and that Identity/BVN is enabled on your Korapay account.',
-        );
       }
-    } else if (premblyConfigured) {
+    }
+
+    // Fallback to Prembly if Korapay didn't succeed (not configured, failed, or "not authorized")
+    if (provider !== 'korapay' && premblyConfigured) {
       const premblyResult = await this.premblyService.verifyBvn(bvn);
       if (!premblyResult.success) {
         throw new BadRequestException(
@@ -88,6 +85,11 @@ export class BVNService {
       provider = 'prembly';
       fName = premblyResult.firstName?.trim() || firstName?.trim() || '';
       lName = premblyResult.lastName?.trim() || lastName?.trim() || '';
+    } else if (provider !== 'korapay') {
+      // Korapay was tried but failed and no Prembly
+      throw new BadRequestException(
+        'Korapay returned "not authorized" — your account may not have Identity/BVN enabled. Add PREMBLY_API_KEY (and PREMBLY_APP_ID) to use Prembly for BVN instead, or contact Korapay to enable Identity/BVN for your account.',
+      );
     }
 
     if (!fName && !lName) {

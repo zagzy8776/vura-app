@@ -156,7 +156,7 @@ export class PremblyService {
       success: false,
       message:
         lastError ||
-        'BVN verification could not be completed. Add PREMBLY_APP_ID in Render (from Prembly dashboard) for fallback validation. Ensure your Prembly account has BVN verification enabled.',
+        'Prembly did not return name for this BVN. Enter your first and last name in the form and try again. PREMBLY_APP_ID is optional (only needed for a fallback path if your Prembly plan has it).',
     };
   }
 }
