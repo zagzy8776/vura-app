@@ -50,6 +50,8 @@ services:
         sync: false
       - key: FRONTEND_URL
         value: https://vura-app.vercel.app
+      - key: ADMIN_SECRET
+        sync: false
       # Not used at runtime; backend does not call itself. Kept for consistency.
       - key: VITE_API_URL
         value: https://vura-app.onrender.com/api

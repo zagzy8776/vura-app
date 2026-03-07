@@ -1,8 +1,8 @@
 /**
- * Base URL for the backend API. Must point to your backend (e.g. Render).
- * Set VITE_API_URL in your frontend env to your backend URL (e.g. https://vura-backend.onrender.com).
+ * Base URL for the backend API. Points to your backend on Render (vura-app service).
+ * Set VITE_API_URL in your frontend env if you use a different backend URL.
  */
-const PROD_FALLBACK = "https://vura-backend.onrender.com/api";
+const PROD_FALLBACK = "https://vura-app.onrender.com/api";
 
 export function getApiUrl(): string {
   const fromEnv = import.meta.env.VITE_API_URL;
