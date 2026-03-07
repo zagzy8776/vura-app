@@ -135,14 +135,16 @@ export class AdminController {
   }
 
   /**
-   * Get all users with their KYC status
+   * Get all users with their KYC status. Requires admin secret in Authorization header.
    */
   @Get('users')
   async getUsers(
+    @Headers('authorization') authHeader: string,
     @Query('page') page: string = '1',
     @Query('limit') limit: string = '20',
     @Query('kycStatus') kycStatus?: string,
   ) {
+    this.checkAdmin(authHeader);
     const pageNum = parseInt(page) || 1;
     const limitNum = parseInt(limit) || 20;
     const skip = (pageNum - 1) * limitNum;
@@ -166,6 +168,9 @@ export class AdminController {
           bvnVerified: true,
           bvnVerifiedAt: true,
           ninVerified: true,
+          ninVerifiedAt: true,
+          lastLoginAt: true,
+          fraudScore: true,
           reservedAccountNumber: true,
           reservedAccountBankName: true,
           flutterwaveOrderRef: true,
@@ -192,10 +197,14 @@ export class AdminController {
   }
 
   /**
-   * Get user details for admin review
+   * Get user details for admin review. Requires admin secret.
    */
   @Get('users/:id')
-  async getUserDetails(@Param('id') userId: string) {
+  async getUserDetails(
+    @Headers('authorization') authHeader: string,
+    @Param('id') userId: string,
+  ) {
+    this.checkAdmin(authHeader);
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: {
@@ -307,13 +316,15 @@ export class AdminController {
   }
 
   /**
-   * Verify user's KYC (Tier 3)
+   * Verify user's KYC (Tier 3). Requires admin secret.
    */
   @Post('users/:id/verify-kyc')
   async verifyKYC(
+    @Headers('authorization') authHeader: string,
     @Param('id') userId: string,
     @Body() body: { tier?: number; notes?: string },
   ) {
+    this.checkAdmin(authHeader);
     const { tier = 3, notes } = body;
 
     // Update user KYC status and clear any previous rejection reason
@@ -349,13 +360,15 @@ export class AdminController {
   }
 
   /**
-   * Reject user's KYC
+   * Reject user's KYC. Requires admin secret.
    */
   @Post('users/:id/reject-kyc')
   async rejectKYC(
+    @Headers('authorization') authHeader: string,
     @Param('id') userId: string,
     @Body() body: { reason: string },
   ) {
+    this.checkAdmin(authHeader);
     const { reason } = body;
 
     if (!reason) {
@@ -394,10 +407,11 @@ export class AdminController {
   }
 
   /**
-   * Get KYC statistics
+   * Get KYC statistics. Requires admin secret.
    */
   @Get('stats/kyc')
-  async getKYCStats() {
+  async getKYCStats(@Headers('authorization') authHeader: string) {
+    this.checkAdmin(authHeader);
     const [
       totalUsers,
       tier1Users,

@@ -7,7 +7,8 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
-import { Users, Shield, CheckCircle, XCircle, Clock, Search, Loader2, Eye, Check, X } from 'lucide-react';
+import { Users, Shield, CheckCircle, XCircle, Clock, Search, Loader2, Eye, Check, X, AlertTriangle, ArrowLeft, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Link } from 'react-router-dom';
 
 interface User {
   id: string;
@@ -19,6 +20,9 @@ interface User {
   bvnVerified: boolean;
   bvnVerifiedAt?: string | null;
   ninVerified: boolean;
+  ninVerifiedAt?: string | null;
+  lastLoginAt?: string | null;
+  fraudScore?: number;
   reservedAccountNumber?: string | null;
   reservedAccountBankName?: string | null;
   flutterwaveOrderRef?: string | null;
@@ -43,8 +47,16 @@ interface KYCStats {
   };
 }
 
+const ADMIN_SECRET_STORAGE_KEY = 'vura_admin_secret';
+
 export default function AdminDashboard() {
-  const { token } = useAuth();
+  const { user } = useAuth();
+  const [adminAccessSecret, setAdminAccessSecret] = useState<string | null>(() =>
+    typeof sessionStorage !== 'undefined' ? sessionStorage.getItem(ADMIN_SECRET_STORAGE_KEY) : null,
+  );
+  const [adminSecretInput, setAdminSecretInput] = useState('');
+  const [adminLoginLoading, setAdminLoginLoading] = useState(false);
+  const [adminLoginError, setAdminLoginError] = useState('');
   const [users, setUsers] = useState<User[]>([]);
   const [stats, setStats] = useState<KYCStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -58,13 +70,25 @@ export default function AdminDashboard() {
   const [tier2FirstName, setTier2FirstName] = useState('');
   const [tier2LastName, setTier2LastName] = useState('');
   const [tier2Reason, setTier2Reason] = useState('');
-  const [adminSecret, setAdminSecret] = useState('');
   const [setTier2Loading, setSetTier2Loading] = useState(false);
+  const [page, setPage] = useState(1);
+  const [totalUsersCount, setTotalUsersCount] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+  const [showVerifyConfirm, setShowVerifyConfirm] = useState(false);
+  const [userToVerify, setUserToVerify] = useState<User | null>(null);
+
+  const authHeader = adminAccessSecret ? `Bearer ${adminAccessSecret}` : '';
+  const limit = 20;
 
   useEffect(() => {
-    fetchUsers();
-    fetchStats();
-  }, [token]);
+    if (adminAccessSecret) {
+      setLoading(true);
+      fetchUsers(page);
+      fetchStats();
+    } else {
+      setLoading(false);
+    }
+  }, [adminAccessSecret, page]);
 
   useEffect(() => {
     if (selectedUser) {
@@ -73,14 +97,50 @@ export default function AdminDashboard() {
     }
   }, [selectedUser?.id]);
 
-  const fetchUsers = async () => {
+  const handleAdminLogin = async () => {
+    const secret = adminSecretInput.trim();
+    if (!secret) {
+      setAdminLoginError('Enter your admin secret');
+      return;
+    }
+    setAdminLoginLoading(true);
+    setAdminLoginError('');
     try {
-      const res = await fetch(`${getApiUrl()}/admin/users?limit=50`, {
-        headers: { Authorization: `Bearer ${token}` },
+      const res = await fetch(`${getApiUrl()}/admin/users?limit=1`, {
+        headers: { Authorization: `Bearer ${secret}` },
+      });
+      if (res.ok) {
+        sessionStorage.setItem(ADMIN_SECRET_STORAGE_KEY, secret);
+        setAdminAccessSecret(secret);
+        setAdminSecretInput('');
+      } else {
+        setAdminLoginError('Invalid admin secret. Use ADMIN_SECRET from your backend (e.g. Render).');
+      }
+    } catch {
+      setAdminLoginError('Could not reach server. Try again.');
+    } finally {
+      setAdminLoginLoading(false);
+    }
+  };
+
+  const lockAdmin = () => {
+    sessionStorage.removeItem(ADMIN_SECRET_STORAGE_KEY);
+    setAdminAccessSecret(null);
+    setUsers([]);
+    setStats(null);
+  };
+
+  const fetchUsers = async (pageNum: number = 1) => {
+    if (!authHeader) return;
+    try {
+      const res = await fetch(`${getApiUrl()}/admin/users?limit=${limit}&page=${pageNum}`, {
+        headers: { Authorization: authHeader },
       });
       if (res.ok) {
         const data = await res.json();
         setUsers(data.users || []);
+        setTotalUsersCount(data.total ?? 0);
+        setTotalPages(Math.max(1, data.totalPages ?? 1));
       }
     } catch (error) {
       console.error('Failed to fetch users:', error);
@@ -90,9 +150,10 @@ export default function AdminDashboard() {
   };
 
   const fetchStats = async () => {
+    if (!authHeader) return;
     try {
       const res = await fetch(`${getApiUrl()}/admin/stats/kyc`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: authHeader },
       });
       if (res.ok) {
         const data = await res.json();
@@ -103,20 +164,29 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleVerify = async (userId: string) => {
+  const requestVerify = (u: User) => {
+    setUserToVerify(u);
+    setShowVerifyConfirm(true);
+  };
+
+  const handleVerify = async () => {
+    if (!authHeader || !userToVerify) return;
     setActionLoading(true);
+    setShowVerifyConfirm(false);
+    const userId = userToVerify.id;
+    setUserToVerify(null);
     try {
       const res = await fetch(`${getApiUrl()}/admin/users/${userId}/verify-kyc`, {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${token}`,
+          Authorization: authHeader,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ tier: 3, notes: 'Verified by admin' }),
       });
       if (res.ok) {
-        toast.success('KYC verified successfully');
-        fetchUsers();
+        toast.success('KYC approved. User is now Tier 3.');
+        fetchUsers(page);
         fetchStats();
         setSelectedUser(null);
       } else {
@@ -130,15 +200,11 @@ export default function AdminDashboard() {
   };
 
   const handleSetTier2 = async () => {
-    if (!selectedUser) return;
+    if (!selectedUser || !authHeader) return;
     const first = tier2FirstName.trim();
     const last = tier2LastName.trim();
     if (!first || !last) {
       toast.error('First name and last name are required');
-      return;
-    }
-    if (!adminSecret.trim()) {
-      toast.error('Admin secret is required for this action');
       return;
     }
     setSetTier2Loading(true);
@@ -146,7 +212,7 @@ export default function AdminDashboard() {
       const res = await fetch(`${getApiUrl()}/admin/users/${selectedUser.id}/set-tier-2`, {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${adminSecret.trim()}`,
+          Authorization: authHeader,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
@@ -161,8 +227,7 @@ export default function AdminDashboard() {
         setTier2FirstName('');
         setTier2LastName('');
         setTier2Reason('');
-        setAdminSecret('');
-        fetchUsers();
+        fetchUsers(page);
         fetchStats();
         setSelectedUser(null);
       } else {
@@ -182,21 +247,21 @@ export default function AdminDashboard() {
   };
 
   const handleReject = async () => {
-    if (!userToReject) return;
+    if (!userToReject || !authHeader) return;
     const reason = rejectReason.trim() || 'Documents could not be verified. Please upload a valid government-issued ID and a clear selfie.';
     setActionLoading(true);
     try {
       const res = await fetch(`${getApiUrl()}/admin/users/${userToReject.id}/reject-kyc`, {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${token}`,
+          Authorization: authHeader,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ reason }),
       });
       if (res.ok) {
-        toast.success('KYC rejected. User will see the reason on their ID upload page.');
-        fetchUsers();
+        toast.success('KYC rejected. User will see the reason in Settings → Identity verification.');
+        fetchUsers(page);
         fetchStats();
         setSelectedUser(null);
         setShowRejectModal(false);
@@ -229,6 +294,46 @@ export default function AdminDashboard() {
           )
         : pendingUsers;
 
+  if (!adminAccessSecret) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4 bg-muted/30">
+        <Card className="w-full max-w-md">
+          <CardHeader>
+            <CardTitle>Admin access</CardTitle>
+            <CardDescription>
+              Enter your admin secret to view and permit verifications. Use the ADMIN_SECRET from your backend (e.g. Render environment variables).
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div>
+              <Label htmlFor="admin-secret">Admin secret</Label>
+              <Input
+                id="admin-secret"
+                type="password"
+                placeholder="ADMIN_SECRET"
+                value={adminSecretInput}
+                onChange={(e) => { setAdminSecretInput(e.target.value); setAdminLoginError(''); }}
+                onKeyDown={(e) => e.key === 'Enter' && handleAdminLogin()}
+                className="mt-2 font-mono"
+              />
+            </div>
+            {adminLoginError && (
+              <p className="text-sm text-destructive">{adminLoginError}</p>
+            )}
+            <Button
+              className="w-full"
+              onClick={handleAdminLogin}
+              disabled={adminLoginLoading || !adminSecretInput.trim()}
+            >
+              {adminLoginLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+              Access admin dashboard
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -239,7 +344,27 @@ export default function AdminDashboard() {
 
   return (
     <div className="container mx-auto py-8">
-      <h1 className="text-3xl font-bold mb-8">Admin Dashboard</h1>
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+        <div className="flex items-center gap-3">
+          <Link to="/" className="text-muted-foreground hover:text-foreground flex items-center gap-1 text-sm">
+            <ArrowLeft className="w-4 h-4" /> Back to Vura
+          </Link>
+          <h1 className="text-3xl font-bold">Admin Dashboard</h1>
+        </div>
+        <Button variant="outline" size="sm" onClick={lockAdmin}>
+          Lock admin
+        </Button>
+      </div>
+
+      <div className="mb-6 p-4 rounded-lg border bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800 flex items-start gap-3">
+        <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+        <div className="text-sm text-amber-800 dark:text-amber-200">
+          <p className="font-medium">Compliance &amp; fraud prevention</p>
+          <p className="mt-1 text-amber-700 dark:text-amber-300">
+            Only approve after confirming identity. Reject if anything is suspicious (mismatched details, fake documents, or high fraud indicators). All actions are logged. You are responsible for protecting the platform and our users. See docs/ADMIN_AND_FRAUD_PREVENTION.md for full guidance.
+          </p>
+        </div>
+      </div>
 
       {/* Stats Cards */}
       {stats && (
@@ -338,6 +463,7 @@ export default function AdminDashboard() {
                   : 'No users match your search.'}
             </p>
           ) : (
+            <>
             <div className="space-y-4">
               {filteredUsers.map((user) => (
                 <div key={user.id} className="flex items-center justify-between p-4 border rounded-lg">
@@ -347,10 +473,13 @@ export default function AdminDashboard() {
                     </div>
                     <div>
                       <p className="font-medium">@{user.vuraTag}</p>
-                      <p className="text-sm text-gray-500">Tier {user.kycTier}</p>
+                      <p className="text-sm text-gray-500">Tier {user.kycTier} · Joined {new Date(user.createdAt).toLocaleDateString()}</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
+                    {typeof user.fraudScore === 'number' && user.fraudScore > 0 && (
+                      <Badge variant="destructive" title="Fraud score">Risk {user.fraudScore}</Badge>
+                    )}
                     <Badge variant={user.kycStatus === 'VERIFIED' ? 'default' : 'secondary'}>
                       {user.kycStatus || 'PENDING'}
                     </Badge>
@@ -366,9 +495,48 @@ export default function AdminDashboard() {
                 </div>
               ))}
             </div>
+            {listTab === 'all' && totalPages > 1 && (
+              <div className="flex items-center justify-between pt-4 mt-4 border-t">
+                <p className="text-sm text-muted-foreground">
+                  Page {page} of {totalPages} ({totalUsersCount} users)
+                </p>
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1}>
+                    <ChevronLeft className="w-4 h-4" />
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page >= totalPages}>
+                    <ChevronRight className="w-4 h-4" />
+                  </Button>
+                </div>
+              </div>
+            )}
+            </>
           )}
         </CardContent>
       </Card>
+
+      {/* Verify confirmation modal */}
+      {showVerifyConfirm && userToVerify && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-[60]">
+          <Card className="w-full max-w-md">
+            <CardHeader>
+              <CardTitle>Approve KYC</CardTitle>
+              <CardDescription>
+                Approve @{userToVerify.vuraTag} to Tier 3? They will get full limits.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex gap-2 justify-end">
+              <Button variant="outline" onClick={() => { setShowVerifyConfirm(false); setUserToVerify(null); }}>
+                Cancel
+              </Button>
+              <Button className="bg-green-600 hover:bg-green-700" onClick={handleVerify} disabled={actionLoading}>
+                {actionLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+                Yes, approve
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {/* User Detail Modal */}
       {selectedUser && (
@@ -379,12 +547,21 @@ export default function AdminDashboard() {
               <CardDescription>User ID: {selectedUser.id}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
+              {!(selectedUser.idCardUrl || selectedUser.selfieUrl) ? (
+                <div className="p-3 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg">
+                  <p className="text-sm font-medium text-blue-800 dark:text-blue-200">Prembly verification</p>
+                  <p className="text-xs text-blue-700 dark:text-blue-300 mt-1">
+                    This user verified via Prembly (BVN + NIN + face). We don&apos;t store ID/selfie images here. Approve only if you&apos;re satisfied they completed the flow. Reject if anything seems off.
+                  </p>
+                </div>
+              ) : (
               <div className="p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg">
-                <p className="text-sm font-medium text-amber-800 dark:text-amber-200">Review checklist</p>
+                <p className="text-sm font-medium text-amber-800 dark:text-amber-200">Review checklist (ID/selfie)</p>
                 <p className="text-xs text-amber-700 dark:text-amber-300 mt-1">
                   Confirm the ID is a valid government-issued document (NIN, driver’s licence, voter’s card, or passport) and the selfie matches the person. Reject if uploads are invalid, unclear, or not a real ID/selfie (e.g. picture of an animal or wrong document).
                 </p>
               </div>
+              )}
               <div className="grid grid-cols-2 gap-4">
                 <div className="col-span-2">
                   <p className="text-sm font-medium">Legal Name</p>
@@ -420,9 +597,29 @@ export default function AdminDashboard() {
                   <p>{selectedUser.ninVerified ? 'Yes' : 'No'}</p>
                 </div>
                 <div>
+                  <p className="text-sm font-medium">NIN Verified At</p>
+                  <p>
+                    {selectedUser.ninVerifiedAt
+                      ? new Date(selectedUser.ninVerifiedAt).toLocaleString()
+                      : '—'}
+                  </p>
+                </div>
+                <div>
                   <p className="text-sm font-medium">ID Type</p>
                   <p>{selectedUser.idType || 'Not provided'}</p>
                 </div>
+                {typeof selectedUser.fraudScore === 'number' && selectedUser.fraudScore > 0 && (
+                  <div className="col-span-2">
+                    <p className="text-sm font-medium text-red-600">Fraud / risk score</p>
+                    <p>{selectedUser.fraudScore} — review carefully before approving.</p>
+                  </div>
+                )}
+                {selectedUser.lastLoginAt && (
+                  <div>
+                    <p className="text-sm font-medium">Last login</p>
+                    <p>{new Date(selectedUser.lastLoginAt).toLocaleString()}</p>
+                  </div>
+                )}
                 {selectedUser.kycRejectionReason && (
                   <div className="col-span-2">
                     <p className="text-sm font-medium text-red-600">Previous rejection reason</p>
@@ -438,8 +635,16 @@ export default function AdminDashboard() {
                   </p>
                 </div>
                 <div>
-                  <p className="text-sm font-medium">Member Since</p>
-                  <p>{new Date(selectedUser.createdAt).toLocaleDateString()}</p>
+                  <p className="text-sm font-medium">Joined</p>
+                  <p>{new Date(selectedUser.createdAt).toLocaleString()}</p>
+                </div>
+                <div>
+                  <p className="text-sm font-medium">Verification submitted</p>
+                  <p>
+                    {(selectedUser.ninVerifiedAt || selectedUser.bvnVerifiedAt)
+                      ? new Date(selectedUser.ninVerifiedAt || selectedUser.bvnVerifiedAt!).toLocaleString()
+                      : '—'}
+                  </p>
                 </div>
               </div>
 
@@ -478,20 +683,10 @@ export default function AdminDashboard() {
                       className="mt-1"
                     />
                   </div>
-                  <div>
-                    <Label className="text-xs">Admin secret</Label>
-                    <Input
-                      type="password"
-                      placeholder="ADMIN_SECRET from Render"
-                      value={adminSecret}
-                      onChange={(e) => setAdminSecret(e.target.value)}
-                      className="mt-1 font-mono text-sm"
-                    />
-                  </div>
                   <Button
                     size="sm"
                     onClick={handleSetTier2}
-                    disabled={setTier2Loading || !tier2FirstName.trim() || !tier2LastName.trim() || !adminSecret.trim()}
+                    disabled={setTier2Loading || !tier2FirstName.trim() || !tier2LastName.trim()}
                   >
                     {setTier2Loading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
                     Set Tier 2
@@ -532,7 +727,7 @@ export default function AdminDashboard() {
               <div className="flex gap-4 pt-4">
                 <Button
                   className="flex-1 bg-green-600 hover:bg-green-700"
-                  onClick={() => handleVerify(selectedUser.id)}
+                  onClick={() => requestVerify(selectedUser)}
                   disabled={actionLoading}
                 >
                   {actionLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Check className="w-4 h-4 mr-2" />}
