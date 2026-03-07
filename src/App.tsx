@@ -86,7 +86,7 @@ const AppRoutes = () => (
     <Route path="/privacy" element={<PrivacyPolicy />} />
     <Route path="/id-upload" element={<ProtectedRoute><IdUpload /></ProtectedRoute>} />
     <Route path="/fund-wallet" element={<ProtectedRoute><FundWallet /></ProtectedRoute>} />
-    <Route path="/admin" element={<ProtectedRoute><AdminDashboard /></ProtectedRoute>} />
+    <Route path="/admin" element={<AdminDashboard />} />
     <Route path="*" element={<NotFound />} />
   </Routes>
 );
