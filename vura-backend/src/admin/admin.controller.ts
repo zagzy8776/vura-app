@@ -24,7 +24,8 @@ export class AdminController {
     private prisma: PrismaService,
     private config: ConfigService,
   ) {
-    this.adminSecret = this.config.get('ADMIN_SECRET', 'change-me-in-production');
+    const raw = this.config.get('ADMIN_SECRET', 'change-me-in-production') || '';
+    this.adminSecret = (typeof raw === 'string' ? raw : String(raw)).trim();
   }
 
   private checkAdmin(authHeader?: string) {
@@ -133,6 +134,14 @@ export class AdminController {
         balanceAfter: result.after.toFixed(2),
       },
     };
+  }
+
+  /**
+   * No-auth check: returns expected secret length so admin can verify they're hitting the right backend and typing the right length.
+   */
+  @Get('check')
+  async check() {
+    return { secretLength: this.adminSecret.length, message: 'Set ADMIN_SECRET on this backend (Render env) and enter it above.' };
   }
 
   /**

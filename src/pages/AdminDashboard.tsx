@@ -58,6 +58,8 @@ export default function AdminDashboard() {
   const [showAdminSecret, setShowAdminSecret] = useState(false);
   const [adminLoginLoading, setAdminLoginLoading] = useState(false);
   const [adminLoginError, setAdminLoginError] = useState('');
+  const [backendSecretLength, setBackendSecretLength] = useState<number | null>(null);
+  const [backendCheckError, setBackendCheckError] = useState<string | null>(null);
   const [users, setUsers] = useState<User[]>([]);
   const [stats, setStats] = useState<KYCStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -97,6 +99,31 @@ export default function AdminDashboard() {
       setTier2LastName(selectedUser.legalLastName || '');
     }
   }, [selectedUser?.id]);
+
+  // When showing login form, ask backend what length it expects (no secret required)
+  useEffect(() => {
+    if (adminAccessSecret) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${getApiUrl()}/admin/check`);
+        if (cancelled) return;
+        if (res.ok) {
+          const data = await res.json();
+          setBackendSecretLength(data.secretLength ?? null);
+          setBackendCheckError(null);
+        } else {
+          setBackendSecretLength(null);
+          setBackendCheckError('Backend returned ' + res.status);
+        }
+      } catch (e) {
+        if (cancelled) return;
+        setBackendSecretLength(null);
+        setBackendCheckError('Could not reach backend. Check VITE_API_URL points to your API (e.g. Render).');
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [adminAccessSecret]);
 
   const handleAdminLogin = async () => {
     const secret = adminSecretInput.trim();
@@ -304,6 +331,16 @@ export default function AdminDashboard() {
             <CardDescription>
               Enter your admin secret to view and permit verifications. Use the ADMIN_SECRET from your backend (e.g. Render environment variables).
             </CardDescription>
+            {backendCheckError && (
+              <p className="text-sm text-amber-600 dark:text-amber-400 mt-2">
+                {backendCheckError}
+              </p>
+            )}
+            {backendSecretLength !== null && !backendCheckError && (
+              <p className="text-sm text-muted-foreground mt-2">
+                Your backend expects a secret of <strong>{backendSecretLength}</strong> character{backendSecretLength !== 1 ? 's' : ''}. Type exactly that many (no extra space or quotes).
+              </p>
+            )}
           </CardHeader>
           <CardContent className="space-y-4">
             <div>
@@ -331,7 +368,10 @@ export default function AdminDashboard() {
               </div>
               {showAdminSecret && adminSecretInput.length > 0 && (
                 <p className="text-xs text-muted-foreground mt-1">
-                  {adminSecretInput.length} character{adminSecretInput.length !== 1 ? 's' : ''} — compare with ADMIN_SECRET in your backend (length and spelling must match exactly).
+                  You entered {adminSecretInput.length} character{adminSecretInput.length !== 1 ? 's' : ''}
+                  {backendSecretLength !== null && (
+                    <> — {adminSecretInput.length === backendSecretLength ? 'length matches backend.' : `backend expects ${backendSecretLength}.`}</>
+                  )}
                 </p>
               )}
             </div>
