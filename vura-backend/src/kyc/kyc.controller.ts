@@ -159,6 +159,7 @@ export class KYCController {
       firstName,
       lastName,
       email,
+      userRef: userId,
     });
 
     if (!result.success) {

@@ -33,13 +33,14 @@ export class PremblySdkService {
 
   /**
    * Initiate a Prembly SDK verification session.
-   * Returns session_id and verification URL to open in popup/redirect.
+   * user_ref is echoed in webhook data.widget_info.user_ref so we can link completion to the user.
    */
   async initiateSession(params: {
     firstName: string;
     lastName: string;
     email: string;
     phone?: string;
+    userRef?: string; // userId – Prembly echoes this in webhook widget_info.user_ref
   }): Promise<PremblySdkInitiateResult> {
     if (!this.widgetId || !this.widgetKey) {
       return {
@@ -57,6 +58,7 @@ export class PremblySdkService {
           last_name: params.lastName,
           email: params.email,
           ...(params.phone ? { phone: params.phone } : {}),
+          ...(params.userRef ? { user_ref: params.userRef } : {}),
           widget_id: this.widgetId,
           widget_key: this.widgetKey,
         },

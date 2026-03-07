@@ -14,6 +14,7 @@ import Cards from "./pages/Cards";
 import Transactions from "./pages/Transactions";
 import Accounts from "./pages/Accounts";
 import Settings from "./pages/Settings";
+import IdentityVerification from "./pages/IdentityVerification";
 import Help from "./pages/Help";
 import NotFound from "./pages/NotFound";
 import CryptoDeposit from "./pages/CryptoDeposit";
@@ -74,6 +75,7 @@ const AppRoutes = () => (
     <Route path="/transactions" element={<ProtectedRoute><Transactions /></ProtectedRoute>} />
     <Route path="/accounts" element={<ProtectedRoute><Accounts /></ProtectedRoute>} />
     <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+    <Route path="/settings/identity-verification" element={<ProtectedRoute><IdentityVerification /></ProtectedRoute>} />
     <Route path="/kyc/bvn-callback" element={<ProtectedRoute><BvnCallback /></ProtectedRoute>} />
     <Route path="/help" element={<ProtectedRoute><Help /></ProtectedRoute>} />
     <Route path="/crypto-deposit" element={<ProtectedRoute><CryptoDeposit /></ProtectedRoute>} />

@@ -600,6 +600,98 @@ export class WebhookController {
   }
 
   // ============================================
+  // PREMBLY SDK WEBHOOK (full identity: BVN + NIN + face)
+  // ============================================
+
+  /**
+   * When user completes Prembly widget (BVN + NIN + face), Prembly POSTs here.
+   * Payload has data.verification.status, data.widget_info.user_ref (our userId).
+   * We set user to Tier 3 + biometric/NIN/BVN so all APIs respect the new tier.
+   */
+  @Post('prembly')
+  @HttpCode(200)
+  async handlePremblyWebhook(@Body() payload: any, @Req() req: Request) {
+    const verification = payload?.verification ?? payload?.data?.verification;
+    const status = verification?.status;
+    const reference =
+      verification?.reference ??
+      payload?.data?.verification_response?.reference;
+
+    const widgetInfo =
+      payload?.data?.widget_info ?? payload?.data?.data?.widget_info ?? {};
+    const userRef = widgetInfo.user_ref;
+
+    if (!userRef) {
+      this.logger.warn('Prembly webhook missing user_ref in widget_info', {
+        ip: req.ip,
+      });
+      return { status: 'ignored', reason: 'missing_user_ref' };
+    }
+
+    const providerTxId = reference ?? `prembly-${userRef}-${Date.now()}`;
+
+    const existing = await this.prisma.processedWebhook.findUnique({
+      where: { providerTxId },
+    });
+    if (existing) {
+      return { status: 'already_processed' };
+    }
+
+    if (status !== 'VERIFIED' && status !== 'verified') {
+      this.logger.log('Prembly webhook status not VERIFIED', {
+        status,
+        userRef,
+      });
+      return { status: 'ignored', reason: 'not_verified' };
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userRef },
+      select: { id: true, kycTier: true },
+    });
+    if (!user) {
+      this.logger.warn('Prembly webhook user not found', { userRef });
+      return { status: 'ignored', reason: 'user_not_found' };
+    }
+
+    const firstName =
+      widgetInfo.first_name ?? payload?.data?.verified_first_name;
+    const lastName = widgetInfo.last_name ?? payload?.data?.verified_last_name;
+
+    await this.prisma.processedWebhook.create({
+      data: {
+        provider: 'prembly',
+        providerTxId,
+        eventType: 'verification.completed',
+        rawPayload: payload,
+        signatureValid: true,
+      },
+    });
+
+    await this.prisma.user.update({
+      where: { id: userRef },
+      data: {
+        kycTier: 3,
+        kycStatus: 'VERIFIED',
+        kycRejectionReason: null,
+        bvnVerified: true,
+        bvnVerifiedAt: new Date(),
+        ninVerified: true,
+        ninVerifiedAt: new Date(),
+        biometricVerified: true,
+        ...(firstName && { legalFirstName: String(firstName).trim() }),
+        ...(lastName && { legalLastName: String(lastName).trim() }),
+      },
+    });
+
+    this.logger.log('Prembly verification completed: user upgraded to Tier 3', {
+      userId: userRef,
+    });
+
+    return { status: 'ok', tier: 3 };
+  }
+
+  // ============================================
   // SIGNATURE VERIFICATION HELPERS
   // ============================================
 
