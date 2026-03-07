@@ -56,17 +56,72 @@ export class PremblyService {
 
   /**
    * Verify BVN using Prembly.
-   * 1) Quick Start: POST /v1/verify with body { type: "bvn", number: "..." }, header x-api-key.
-   * 2) If no name data: fallback to BVN Basic POST /verification/bvn_validation (requires app-id + x-api-key).
+   * 1) Tries BVN Basic POST /verification/bvn_validation (works with app-id + x-api-key; may work with x-api-key only on some plans).
+   * 2) Fallback: POST /v1/verify with x-api-key only (no app-id).
+   * If you don't have PREMBLY_APP_ID: get it from Prembly dashboard → Integrations → API Library → Applications → copy App ID.
    */
   async verifyBvn(bvn: string): Promise<PremblyBvnResult> {
     if (!this.apiKey) {
-      return { success: false, message: 'Prembly API key not configured. Set PREMBLY_API_KEY in Render environment variables.' };
+      return { success: false, message: 'Prembly API key not configured. Set PREMBLY_API_KEY in your backend environment.' };
     }
 
     let lastError: string | null = null;
 
-    // 1) Quick Start: POST /v1/verify (docs: x-api-key, body type + number)
+    // 1) BVN Basic: try /verification/bvn_validation (with app-id if set; some plans may accept x-api-key only)
+    const bvnValidationPaths = [
+      `${this.baseUrl}/verification/bvn_validation`,
+      `${this.baseUrl}/identitypass/verification/bvn_validation`,
+    ] as const;
+
+    for (const url of bvnValidationPaths) {
+      try {
+        const headers: Record<string, string> = {
+          'x-api-key': this.apiKey,
+          'Content-Type': 'application/json',
+        };
+        if (this.appId) headers['app-id'] = this.appId;
+
+        const res = await axios.post(
+          url,
+          { number: bvn },
+          { headers, timeout: 15000 },
+        );
+
+        const d = res.data as Record<string, unknown>;
+        const status = d?.status === true;
+        const code = (d?.response_code ?? d?.responseCode ?? '') as string;
+        if (!status && code !== '00') {
+          const msg = (d?.detail ?? d?.message ?? 'Verification failed') as string;
+          lastError = msg;
+          continue;
+        }
+
+        // Docs use both "data" and "bvn_data"
+        const data = (d?.data ?? d?.bvn_data ?? d?.verification) as Record<string, unknown> | undefined;
+        const parsed = this.parseBvnData(data ?? null);
+        if (parsed.firstName || parsed.lastName) {
+          return { success: true, ...parsed };
+        }
+        lastError = 'Prembly did not return name for this BVN.';
+        break; // same path won't change
+      } catch (err: any) {
+        const status = err.response?.status;
+        const data = err.response?.data;
+        const msg = (data?.detail ?? data?.message ?? err.message) as string ?? 'BVN validation failed';
+        lastError = msg;
+        this.logger.warn(`Prembly bvn_validation ${url}: ${msg}`, { status });
+        if (status === 404) continue; // try next path
+        if (status === 401) {
+          return { success: false, message: 'Invalid Prembly API key. Check PREMBLY_API_KEY.' };
+        }
+        if (status === 400 || status === 403) {
+          // Might be "app-id required" – fall through to try /v1/verify
+          break;
+        }
+      }
+    }
+
+    // 2) Fallback: POST /v1/verify with x-api-key only (no app-id)
     try {
       const v1Res = await axios.post(
         `${this.baseUrl}/v1/verify`,
@@ -90,73 +145,38 @@ export class PremblyService {
         return { success: false, message: msg };
       }
 
-      const data = (d?.data ?? d?.verification) as Record<string, unknown> | undefined;
+      const data = (d?.data ?? d?.bvn_data ?? d?.verification) as Record<string, unknown> | undefined;
       const parsed = this.parseBvnData(data ?? null);
       if (parsed.firstName || parsed.lastName) {
         return { success: true, ...parsed };
       }
-      lastError = 'Prembly did not return name for this BVN.';
+      lastError = lastError || 'Prembly did not return name for this BVN.';
     } catch (err: any) {
       const status = err.response?.status;
       const data = err.response?.data;
       const msg =
         (data?.detail ?? data?.message ?? err.message) as string ?? 'Prembly request failed';
-      lastError = msg;
+      lastError = lastError || msg;
       this.logger.warn(`Prembly v1/verify error: ${msg}`, { status });
 
       if (status === 401) {
-        return { success: false, message: 'Invalid Prembly API key. Check PREMBLY_API_KEY in Render.' };
+        return { success: false, message: 'Invalid Prembly API key. Check PREMBLY_API_KEY.' };
       }
       if (status === 400) {
         return { success: false, message: (data?.detail as string) ?? msg };
       }
       if (status === 403) {
-        return { success: false, message: 'Prembly access denied. Ensure your Prembly account has BVN verification enabled.' };
-      }
-      // Fall through to bvn_validation if we have app-id
-    }
-
-    // 2) Fallback: BVN Basic POST /verification/bvn_validation (docs: app-id + x-api-key, body number)
-    if (this.appId) {
-      try {
-        const res = await axios.post(
-          `${this.baseUrl}/verification/bvn_validation`,
-          { number: bvn },
-          {
-            headers: {
-              'app-id': this.appId,
-              'x-api-key': this.apiKey,
-              'Content-Type': 'application/json',
-            },
-            timeout: 15000,
-          },
-        );
-
-        const d = res.data as Record<string, unknown>;
-        const status = d?.status === true;
-        const code = (d?.response_code ?? '') as string;
-        if (!status && code !== '00') {
-          const msg = (d?.detail ?? d?.message ?? 'Verification failed') as string;
-          return { success: false, message: msg };
-        }
-
-        const data = d?.data as Record<string, unknown> | undefined;
-        const parsed = this.parseBvnData(data ?? null);
-        return { success: true, ...parsed };
-      } catch (err: any) {
-        const data = err.response?.data;
-        const msg =
-          (data?.detail ?? data?.message ?? err.message) as string ?? 'BVN validation failed';
-        this.logger.warn(`Prembly bvn_validation error: ${msg}`);
-        return { success: false, message: msg };
+        return { success: false, message: 'Prembly access denied. Ensure your account has BVN verification enabled.' };
       }
     }
+
+    const needAppId = !this.appId;
 
     return {
       success: false,
-      message:
-        lastError ||
-        'Prembly did not return name for this BVN. Enter your first and last name in the form and try again. PREMBLY_APP_ID is optional (only needed for a fallback path if your Prembly plan has it).',
+      message: needAppId
+        ? 'BVN verification with Prembly requires an App ID. Get it from your Prembly dashboard: go to Integrations → API Library → Applications, copy the App ID, then set PREMBLY_APP_ID in your backend environment (e.g. Render).'
+        : (lastError || 'Prembly BVN verification failed. Enter your first and last name in the form and try again.'),
     };
   }
 }

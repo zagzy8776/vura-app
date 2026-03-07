@@ -44,6 +44,7 @@ const SettingsPage = () => {
   const [otp, setOtp] = useState("");
   const [otpSent, setOtpSent] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [premblySdkLoading, setPremblySdkLoading] = useState(false);
   
   const [settings, setSettings] = useState({
     hideBalance: false,
@@ -270,6 +271,38 @@ const SettingsPage = () => {
     window.location.href = "mailto:support@vura.com?subject=Vura%20Support";
   };
 
+  const handlePremblySdkStart = async () => {
+    setPremblySdkLoading(true);
+    try {
+      const response = await apiFetch("/kyc/prembly-sdk/initiate", {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (response.ok && data?.verificationUrl) {
+        toast({
+          title: "Verification window",
+          description: "Complete your identity verification in the popup, then return here.",
+        });
+        window.open(data.verificationUrl, "prembly_verification", "width=800,height=600,scrollbars=yes");
+      } else {
+        toast({
+          title: "Could not start verification",
+          description: data?.message || "Prembly SDK may not be configured. Try BVN verification instead.",
+          variant: "destructive",
+        });
+      }
+    } catch (e) {
+      toast({
+        title: "Error",
+        description: "Failed to start identity verification. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setPremblySdkLoading(false);
+    }
+  };
+
   const getKycStatus = () => {
     if (bvnStatus?.verified || (user?.kycTier && user.kycTier >= 2)) {
       return { text: "Verified", color: "text-green-500", bg: "bg-green-50" };
@@ -337,6 +370,12 @@ const SettingsPage = () => {
           {/* Account & Security */}
           <SettingsSection title="Account & Security">
             <SettingsItem icon={Shield} label="BVN Verification" value={bvnStatus?.verified ? "Verified" : "Verify your BVN to upgrade"} onClick={() => setActiveDialog("bvn")} />
+            <SettingsItem
+              icon={BadgeCheck}
+              label="Identity verification (Prembly)"
+              value={premblySdkLoading ? "Opening…" : "Document + selfie verification"}
+              onClick={premblySdkLoading ? undefined : handlePremblySdkStart}
+            />
             <SettingsItem icon={Lock} label="Transaction PIN" value="Change or reset your 6-digit PIN" onClick={() => setActiveDialog("pin")} />
             <SettingsItem icon={Fingerprint} label="Biometric Login" value="Use fingerprint or Face ID" toggle toggleValue={settings.biometricEnabled} onToggle={() => updateSetting("biometricEnabled", !settings.biometricEnabled)} />
           </SettingsSection>

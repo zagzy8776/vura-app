@@ -5,11 +5,14 @@ import {
   Body,
   UseGuards,
   Request,
+  BadRequestException,
 } from '@nestjs/common';
 import { BVNService } from './bvn.service';
 import { AuthGuard } from '../auth/auth.guard';
 import { PrismaService } from '../prisma.service';
 import { UnauthorizedException } from '@nestjs/common';
+import { PremblySdkService } from '../services/prembly-sdk.service';
+import { decrypt } from '../utils/encryption';
 
 @Controller('kyc')
 @UseGuards(AuthGuard)
@@ -17,6 +20,7 @@ export class KYCController {
   constructor(
     private bvnService: BVNService,
     private prisma: PrismaService,
+    private premblySdk: PremblySdkService,
   ) {}
 
   @Post('verify-bvn')
@@ -95,5 +99,76 @@ export class KYCController {
     });
 
     return user;
+  }
+
+  /**
+   * Start Prembly SDK identity verification (document + selfie flow).
+   * Returns sessionId and verificationUrl to open in popup or redirect.
+   */
+  @Post('prembly-sdk/initiate')
+  async initiatePremblySdk(
+    @Body() body: { firstName?: string; lastName?: string; email?: string },
+    @Request() req: { user?: { userId?: string } },
+  ) {
+    const userId = req.user?.userId;
+    if (!userId) {
+      throw new UnauthorizedException();
+    }
+
+    if (!this.premblySdk.isConfigured()) {
+      throw new BadRequestException(
+        'Prembly SDK is not configured. Set PREMBLY_WIDGET_ID and PREMBLY_WIDGET_KEY in your backend environment.',
+      );
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        legalFirstName: true,
+        legalLastName: true,
+        emailEncrypted: true,
+        vuraTag: true,
+      },
+    });
+
+    if (!user) {
+      throw new UnauthorizedException();
+    }
+
+    let email = body.email?.trim();
+    if (!email && user.emailEncrypted) {
+      try {
+        email = decrypt(user.emailEncrypted);
+      } catch {
+        email = `${user.vuraTag}@vura.app`;
+      }
+    }
+    if (!email) {
+      email = `${user.vuraTag}@vura.app`;
+    }
+
+    const firstName =
+      body.firstName?.trim() ||
+      user.legalFirstName?.trim() ||
+      user.vuraTag ||
+      'User';
+    const lastName =
+      body.lastName?.trim() || user.legalLastName?.trim() || 'Account';
+
+    const result = await this.premblySdk.initiateSession({
+      firstName,
+      lastName,
+      email,
+    });
+
+    if (!result.success) {
+      throw new BadRequestException(result.message || 'Failed to start verification.');
+    }
+
+    return {
+      success: true,
+      sessionId: result.sessionId,
+      verificationUrl: result.verificationUrl,
+    };
   }
 }
