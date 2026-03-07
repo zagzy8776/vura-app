@@ -6,7 +6,6 @@ import {
 import { PrismaService } from '../prisma.service';
 import { hashIdNumber } from '../utils/kyc-hash';
 import { PremblyService } from '../services/prembly.service';
-import { KorapayIdentityService } from '../services/korapay-identity.service';
 import { encryptToColumns } from '../utils/field-encryption';
 import { VirtualAccountsService } from '../virtual-accounts/virtual-accounts.service';
 
@@ -15,12 +14,11 @@ export class BVNService {
   constructor(
     private prisma: PrismaService,
     private premblyService: PremblyService,
-    private korapayIdentityService: KorapayIdentityService,
     private virtualAccountsService: VirtualAccountsService,
   ) {}
 
   /**
-   * Verify BVN using Korapay (if configured) or Prembly. On success, user moves to Tier 2 and gets a Paystack virtual account.
+   * Verify BVN using Prembly. On success, user moves to Tier 2 and gets a Paystack virtual account.
    */
   async verifyBVN(
     userId: string,
@@ -48,12 +46,11 @@ export class BVNService {
       throw new ConflictException('BVN already registered to another account');
     }
 
-    const korapayConfigured = this.korapayIdentityService.isConfigured();
     const premblyConfigured = this.premblyService.isConfigured();
 
-    if (!korapayConfigured && !premblyConfigured) {
+    if (!premblyConfigured) {
       throw new BadRequestException(
-        'BVN verification is not configured. Set KORAPAY_SECRET_KEY or PREMBLY_API_KEY (and PREMBLY_APP_ID for Prembly) in your backend environment.',
+        'BVN verification is not configured. Set PREMBLY_API_KEY in your backend environment.',
       );
     }
 
@@ -61,36 +58,16 @@ export class BVNService {
     let fName = '';
     let lName = '';
 
-    // Try Korapay first if configured
-    if (korapayConfigured) {
-      const korapayResult = await this.korapayIdentityService.verifyBvn(bvn, {
-        firstName: firstName?.trim(),
-        lastName: lastName?.trim(),
-      });
-      if (korapayResult.success) {
-        provider = 'korapay';
-        fName = korapayResult.firstName?.trim() || firstName?.trim() || '';
-        lName = korapayResult.lastName?.trim() || lastName?.trim() || '';
-      }
-    }
-
-    // Fallback to Prembly if Korapay didn't succeed (not configured, failed, or "not authorized")
-    if (provider !== 'korapay' && premblyConfigured) {
-      const premblyResult = await this.premblyService.verifyBvn(bvn);
-      if (!premblyResult.success) {
-        throw new BadRequestException(
-          premblyResult.message || 'Prembly BVN verification failed.',
-        );
-      }
-      provider = 'prembly';
-      fName = premblyResult.firstName?.trim() || firstName?.trim() || '';
-      lName = premblyResult.lastName?.trim() || lastName?.trim() || '';
-    } else if (provider !== 'korapay') {
-      // Korapay was tried but failed and no Prembly
+    // Use Prembly only (Korapay skipped)
+    const premblyResult = await this.premblyService.verifyBvn(bvn);
+    if (!premblyResult.success) {
       throw new BadRequestException(
-        'Korapay returned "not authorized" — your account may not have Identity/BVN enabled. Add PREMBLY_API_KEY (and PREMBLY_APP_ID) to use Prembly for BVN instead, or contact Korapay to enable Identity/BVN for your account.',
+        premblyResult.message || 'Prembly BVN verification failed.',
       );
     }
+    provider = 'prembly';
+    fName = premblyResult.firstName?.trim() || firstName?.trim() || '';
+    lName = premblyResult.lastName?.trim() || lastName?.trim() || '';
 
     if (!fName && !lName) {
       throw new BadRequestException(
