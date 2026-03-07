@@ -66,7 +66,13 @@ import { SecurityMiddleware } from './middleware/security.middleware';
     VirtualAccountsModule,
     FundingModule,
   ],
-  controllers: [AppController, TransactionsController, WebhookController],
+  controllers: [
+    AppController,
+    TransactionsController,
+    WebhookController,
+    AdminController,
+    KYCUploadController,
+  ],
   providers: [
     AppService,
     PrismaService,
@@ -76,8 +82,6 @@ import { SecurityMiddleware } from './middleware/security.middleware';
     CloudinaryService,
     EmailService,
     AccountLockoutService,
-    AdminController,
-    KYCUploadController,
     {
       provide: APP_GUARD,
       useClass: ThrottlerGuard,

@@ -97,7 +97,7 @@ export default function AdminDashboard() {
       .then((res) => {
         if (cancelled) return;
         if (res.ok) return res.json().then((d) => setBackendHint({ length: d.secretLength }));
-        setBackendHint({ error: `Backend returned ${res.status}. Ensure your backend is deployed at the API URL below.` });
+        setBackendHint({ error: `Backend returned ${res.status}. Redeploy the vura-app backend on Render (Manual Deploy → Deploy latest commit) so it has the admin routes. Test: open ${getApiUrl()}/health in a browser — if that works, the backend is up but needs a fresh deploy.` });
       })
       .catch(() => {
         if (!cancelled) setBackendHint({ error: 'Could not reach backend. Set VITE_API_URL to https://vura-app.onrender.com in Vercel and redeploy.' });
