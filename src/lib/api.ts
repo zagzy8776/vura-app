@@ -14,11 +14,8 @@ export function getApiUrl(): string {
     const base = fromEnv.trim().replace(/\/$/, "");
     const normalized = base.endsWith("/api") ? base : `${base}/api`;
 
-    // Auto-correct the known wrong host to avoid 404 HTML responses during auth
+    // Auto-correct deprecated/wrong host so requests hit the backend (no console spam)
     if (MISCONFIGURED_HOSTS.some((host) => normalized.startsWith(host))) {
-      console.warn(
-        `[Vura] VITE_API_URL is set to deprecated host (${normalized}). Falling back to ${PROD_FALLBACK}.`,
-      );
       return PROD_FALLBACK;
     }
 
