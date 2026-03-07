@@ -1330,7 +1330,16 @@ const Bills = () => {
                   </Button>
                 </div>
                 {meterValidated && (
-                  <p className="text-xs text-green-600 mt-1">✓ Meter verified — proceed to pay</p>
+                  <div className="mt-2 p-3 rounded-xl bg-muted/50 border border-border">
+                    <p className="text-xs text-green-600 font-medium mb-1.5">✓ Meter verified — proceed to pay</p>
+                    <p className="text-xs text-muted-foreground">
+                      <span className="font-medium text-foreground">Disco:</span> {discos.find((d) => (d.id ?? d.identifier) === selectedDisco)?.name ?? selectedDisco}
+                      {" · "}
+                      <span className="font-medium text-foreground">Meter:</span> <span className="font-mono">{meterNumber}</span>
+                      {" · "}
+                      <span className="font-medium text-foreground">Type:</span> {selectedElectricityItem?.name ?? "—"}
+                    </p>
+                  </div>
                 )}
               </div>
             )}
