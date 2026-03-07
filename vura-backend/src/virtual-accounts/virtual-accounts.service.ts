@@ -19,6 +19,8 @@ export class VirtualAccountsService {
         emailEncrypted: true,
         phoneEncrypted: true,
         bvnVerified: true,
+        kycTier: true,
+        kycStatus: true,
         legalFirstName: true,
         legalLastName: true,
         reservedAccountNumber: true,
@@ -42,9 +44,12 @@ export class VirtualAccountsService {
       };
     }
 
-    if (!user.bvnVerified) {
+    const canCreateAccount =
+      user.bvnVerified ||
+      (user.kycStatus === 'VERIFIED' && user.kycTier >= 2);
+    if (!canCreateAccount) {
       throw new BadRequestException(
-        'BVN must be verified before generating an account',
+        'Complete identity verification first. Go to Settings → Identity verification.',
       );
     }
 

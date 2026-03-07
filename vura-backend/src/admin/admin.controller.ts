@@ -337,13 +337,16 @@ export class AdminController {
     this.checkAdmin(authHeader);
     const { tier = 3, notes } = body;
 
-    // Update user KYC status and clear any previous rejection reason
+    // Update user KYC status and clear any previous rejection reason.
+    // Set bvnVerified so they can generate a Vura bank account on the Receive page without being sent to BVN again.
     const user = await this.prisma.user.update({
       where: { id: userId },
       data: {
         kycTier: tier,
         kycStatus: 'VERIFIED',
         kycRejectionReason: null,
+        bvnVerified: true,
+        bvnVerifiedAt: new Date(),
       },
     });
 

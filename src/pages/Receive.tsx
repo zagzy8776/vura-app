@@ -27,7 +27,7 @@ const Receive = () => {
   const [paymentLink, setPaymentLink] = useState<string>("");
   const [virtualAccount, setVirtualAccount] = useState<VirtualAccount | null>(null);
   const [isMinting, setIsMinting] = useState(false);
-  const [needsBvn, setNeedsBvn] = useState(false);
+  const [needsVerification, setNeedsVerification] = useState(false);
   const tag = user?.vuraTag ? `@${user.vuraTag}` : "@user";
 
   // Generate QR code when user changes
@@ -52,15 +52,15 @@ const Receive = () => {
 
   const handleGenerateVirtualAccount = async () => {
     setIsMinting(true);
-    setNeedsBvn(false);
+    setNeedsVerification(false);
     try {
       const res = await apiFetch('/virtual-accounts/create', { method: 'POST' });
       const data = await res.json();
       if (!res.ok) {
-        const message = String(data.message || 'Please complete BVN verification first.');
-        if (message.toLowerCase().includes('bvn')) {
-          setNeedsBvn(true);
-        }
+        const message = String(data.message || 'Please complete identity verification first.');
+        const needsVerify =
+          /bvn|verification|identity|verify/i.test(message);
+        if (needsVerify) setNeedsVerification(true);
         toast({
           title: 'Cannot generate account',
           description: message,
@@ -341,13 +341,13 @@ const Receive = () => {
                   </p>
                 </div>
 
-                {needsBvn && (
+                {needsVerification && (
                   <Button
-                    onClick={() => navigate('/settings')}
+                    onClick={() => navigate('/settings/identity-verification')}
                     variant="outline"
                     className="w-full h-12 rounded-xl"
                   >
-                    Verify BVN to Generate Account
+                    Complete identity verification in Settings
                   </Button>
                 )}
 
