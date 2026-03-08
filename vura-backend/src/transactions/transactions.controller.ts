@@ -235,9 +235,19 @@ export class TransactionsController {
       const isStarterError =
         typeof rawMessage === 'string' &&
         /starter|cannot initiate/i.test(rawMessage);
-      const message = isStarterError
-        ? 'Bank transfer is not available on your current Paystack plan (Starter). Upgrade to a Registered Business in Paystack Dashboard (Compliance > Profile), or ensure Korapay is configured for send-to-bank.'
-        : rawMessage || 'Transfer failed. Your balance has been refunded.';
+      const isIpAuthError =
+        typeof rawMessage === 'string' &&
+        /not authorized|authorized to use this resource|whitelist|invalid ip|ip address is not allowed|not allowed to make this call/i.test(rawMessage);
+      let message: string;
+      if (isStarterError) {
+        message =
+          'Bank transfer is not available on your current Paystack plan (Starter). Upgrade to a Registered Business in Paystack Dashboard (Compliance > Profile), or ensure Korapay is configured for send-to-bank.';
+      } else if (isIpAuthError) {
+        message =
+          'Bank transfer was rejected: your server IP is not whitelisted. Add your server’s public IP in Paystack (Settings → API Keys and Webhook → Add IP) and in Korapay (Settings → API configuration → IP whitelist) if you use it. Get the IP by calling GET /api/admin/server-ip with header Authorization: Bearer YOUR_ADMIN_SECRET. Your balance has been refunded.';
+      } else {
+        message = rawMessage || 'Transfer failed. Your balance has been refunded.';
+      }
       throw new BadRequestException(message);
     }
   }

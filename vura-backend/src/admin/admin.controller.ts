@@ -51,6 +51,24 @@ export class AdminController {
   }
 
   /**
+   * Get this server's public IP (for whitelisting in Paystack/Korapay). Requires admin secret.
+   */
+  @Get('server-ip')
+  async getServerIp(@Headers('authorization') authHeader: string) {
+    this.checkAdmin(authHeader);
+    try {
+      const res = await fetch('https://api.ipify.org?format=json', { signal: AbortSignal.timeout(5000) });
+      const data = (await res.json()) as { ip?: string };
+      const ip = data?.ip?.trim();
+      if (!ip) throw new Error('No IP in response');
+      return { ip, hint: 'Add this IP in Paystack (Settings → API Keys and Webhook) and Korapay (Settings → API configuration) if you use send-to-bank.' };
+    } catch (e) {
+      this.logger.warn('getServerIp failed: ' + (e instanceof Error ? e.message : String(e)));
+      throw new BadRequestException('Could not fetch server IP. Try https://api.ipify.org from your server or check Render dashboard for outbound IP.');
+    }
+  }
+
+  /**
    * Top up business float. Record money received (e.g. bank transfer, cash) with a reference for accountability.
    */
   @Post('top-up')
