@@ -1,4 +1,4 @@
-import { Controller, Post, Get, UseGuards, Request, NotFoundException } from '@nestjs/common';
+import { Controller, Post, Get, UseGuards, Request } from '@nestjs/common';
 import { Request as ExpressRequest } from 'express';
 import { AuthGuard } from '../auth/auth.guard';
 import { VirtualAccountsService } from './virtual-accounts.service';
@@ -11,14 +11,13 @@ export class VirtualAccountsController {
   ) {}
 
   /**
-   * Get existing virtual account if any. Does not create. Returns 404 if none.
+   * Get existing virtual account if any. Does not create. Returns 200 with data: null when none (so frontend does not 404).
    * GET /virtual-accounts
    */
   @Get()
   async get(@Request() req: ExpressRequest & { user: { userId: string } }) {
     const result = await this.virtualAccountsService.getExisting(req.user.userId);
-    if (!result) throw new NotFoundException('No virtual account');
-    return result;
+    return result ?? { success: true, data: null };
   }
 
   /**

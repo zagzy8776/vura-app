@@ -561,7 +561,7 @@ const SendMoney = () => {
                   </div>
                 )}
 
-                <Button onClick={() => setShowSecurityModal(true)} disabled={!isFormValid()} className="w-full h-12 rounded-xl gradient-brand text-primary-foreground font-semibold border-0 hover:opacity-90">Continue</Button>
+                <Button onClick={() => setStep("confirm")} disabled={!isFormValid()} className="w-full h-12 rounded-xl gradient-brand text-primary-foreground font-semibold border-0 hover:opacity-90">Continue</Button>
               </div>
             </motion.div>
           )}

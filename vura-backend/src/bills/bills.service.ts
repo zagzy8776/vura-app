@@ -191,10 +191,13 @@ export class BillsService {
     }
 
     const plans = await this.getDataPlans(data.network);
-    const plan = plans.find((p: any) => p.plan_code === data.planCode);
+    const planCodeNorm = String(data.planCode ?? '').trim();
+    const plan = plans.find((p: any) => String(p.plan_code ?? '').trim() === planCodeNorm);
 
     if (!plan) {
-      throw new BadRequestException('Invalid data plan selected');
+      throw new BadRequestException(
+        'Invalid data plan selected. Please choose a plan from the list and try again.',
+      );
     }
 
     const planPrice = new Decimal(plan.price ?? 0);

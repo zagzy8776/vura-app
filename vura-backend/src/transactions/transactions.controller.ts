@@ -30,7 +30,7 @@ export class TransactionsController {
 
   @UseGuards(AuthGuard)
   @Post('send')
-  sendMoney(
+  async sendMoney(
     @Request() req: { user: { userId: string } },
     @Body()
     body: {
@@ -40,6 +40,20 @@ export class TransactionsController {
       pin?: string;
     },
   ) {
+    if (!body.pin) {
+      throw new BadRequestException('PIN is required to send money');
+    }
+    const user = await this.prisma.user.findUnique({
+      where: { id: req.user.userId },
+      select: { hashedPin: true },
+    });
+    if (!user?.hashedPin) {
+      throw new UnauthorizedException('Account not ready. Set your PIN in Settings.');
+    }
+    const pinValid = await bcrypt.compare(body.pin, user.hashedPin);
+    if (!pinValid) {
+      throw new UnauthorizedException('Invalid PIN');
+    }
     return this.transactionsService.sendMoney(
       req.user.userId,
       body.recipientTag,
@@ -210,11 +224,13 @@ export class TransactionsController {
     return this.transactionsService.getBalance(req.user.userId);
   }
 
+  @UseGuards(AuthGuard)
   @Get('lookup')
   lookupTag(@Query('tag') tag: string) {
     return this.transactionsService.lookupTag(tag);
   }
 
+  @UseGuards(AuthGuard)
   @Get('verify-account')
   async verifyAccount(
     @Query('accountNumber') accountNumber: string,
@@ -239,6 +255,7 @@ export class TransactionsController {
     }
   }
 
+  @UseGuards(AuthGuard)
   @Get('transfer-fee')
   getTransferFee(@Query('amount') amount: string) {
     const parsed = Number(amount);

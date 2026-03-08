@@ -118,10 +118,11 @@ export class TransactionsService {
       });
 
       const recipientBefore = Number(recipientBalance?.amount || 0);
+      const recipientAfter = recipientBefore + amount;
       await tx.balance.upsert({
-        where: { id: recipientBalance?.id },
-        create: { userId: recipient.id, currency: 'NGN', amount },
-        update: { amount: recipientBefore + amount, lastUpdatedBy: 'user' },
+        where: { userId_currency: { userId: recipient.id, currency: 'NGN' } },
+        create: { userId: recipient.id, currency: 'NGN', amount: recipientAfter, lastUpdatedBy: 'user' },
+        update: { amount: recipientAfter, lastUpdatedBy: 'user' },
       });
 
       const { shouldFlag, reason } =
@@ -328,18 +329,28 @@ export class TransactionsService {
       },
     });
 
-    return transactions.map((tx) => ({
-      id: tx.id,
-      type: tx.type,
-      amount: Number(tx.amount),
-      currency: tx.currency,
-      status: tx.status,
-      reference: tx.reference,
-      createdAt: tx.createdAt,
-      counterparty:
-        tx.senderId === userId ? tx.receiver?.vuraTag : tx.sender?.vuraTag,
-      direction: tx.senderId === userId ? 'sent' : 'received',
-    }));
+    return transactions.map((tx) => {
+      let counterparty: string | undefined =
+        tx.senderId === userId ? tx.receiver?.vuraTag : tx.sender?.vuraTag;
+      if (tx.type === 'bill_payment' && !counterparty) {
+        const meta = (tx.metadata as Record<string, unknown>) || {};
+        const billType = meta.billType as string | undefined;
+        counterparty = billType
+          ? `${String(billType).charAt(0).toUpperCase()}${String(billType).slice(1)}`
+          : 'Bills';
+      }
+      return {
+        id: tx.id,
+        type: tx.type,
+        amount: Number(tx.amount),
+        currency: tx.currency,
+        status: tx.status,
+        reference: tx.reference,
+        createdAt: tx.createdAt,
+        counterparty: counterparty ?? '—',
+        direction: tx.senderId === userId ? 'sent' : 'received',
+      };
+    });
   }
 
   async getBalance(userId: string) {

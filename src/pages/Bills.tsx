@@ -1505,7 +1505,7 @@ const Bills = () => {
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">
-                    {tab === "electricity" ? "Disco" : "Network"}
+                    {tab === "electricity" ? "Disco" : tab === "betting" ? "Company" : tab === "cable" ? "Provider" : "Network"}
                   </span>
                   <span className="font-medium">{selectedNetworkName}</span>
                 </div>
@@ -1522,10 +1522,20 @@ const Bills = () => {
                       </div>
                     )}
                   </>
-                ) : (
+                ) : tab === "betting" ? (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Customer ID</span>
+                    <span className="font-medium font-mono">{bettingCustomerId}</span>
+                  </div>
+                ) : tab !== "cable" ? (
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Phone</span>
                     <span className="font-medium font-mono">{phoneNumber}</span>
+                  </div>
+                ) : (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Smart card</span>
+                    <span className="font-medium font-mono">{smartCardNo}</span>
                   </div>
                 )}
                 {tab === "data" && selectedPlan && (
@@ -1585,6 +1595,10 @@ const Bills = () => {
                   "Buy Airtime"
                 ) : tab === "data" ? (
                   "Buy Data"
+                ) : tab === "cable" ? (
+                  "Pay Cable TV"
+                ) : tab === "betting" ? (
+                  "Fund Betting"
                 ) : (
                   "Pay Electricity"
                 )}
