@@ -110,6 +110,8 @@ export default function AdminDashboard() {
   const [topUpLoading, setTopUpLoading] = useState(false);
   const [paystackForm, setPaystackForm] = useState({ amount: '', reference: '' });
   const [paystackLoading, setPaystackLoading] = useState(false);
+  const [verifyRefInput, setVerifyRefInput] = useState('');
+  const [verifyRefLoading, setVerifyRefLoading] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
 
   const authHeader = adminSecret ? `Bearer ${adminSecret}` : '';
@@ -158,22 +160,37 @@ export default function AdminDashboard() {
     if (selectedUser) setTier2Form({ first: selectedUser.legalFirstName || '', last: selectedUser.legalLastName || '', reason: '' });
   }, [selectedUser?.id]);
 
-  // After redirect from Paystack: show success and refetch balance
+  // After redirect from Paystack: verify payment with Paystack and credit float (don't rely only on webhook)
   useEffect(() => {
     if (!adminSecret) return;
     const floatTopup = searchParams.get('float_topup');
     const ref = searchParams.get('ref');
     if (floatTopup === 'success' && ref) {
-      toast.success('Payment submitted. Your business float will update once Paystack confirms.');
       setSearchParams((p) => {
         const next = new URLSearchParams(p);
         next.delete('float_topup');
         next.delete('ref');
         return next;
       }, { replace: true });
-      adminApi('admin/balance', { headers: { Authorization: authHeader } })
-        .then((r) => r.ok && r.json().then((d) => setBusinessBalance(d?.amount ?? 0)))
-        .catch(() => {});
+      adminApi('admin/verify-float-payment', {
+        method: 'POST',
+        headers: { Authorization: authHeader, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reference: ref }),
+      })
+        .then((res) => res.json().catch(() => ({})))
+        .then((data) => {
+          if (data?.success) {
+            toast.success(data.alreadyCredited ? 'Payment was already credited.' : (data.message || '₦' + (data.amount ?? '') + ' added to business float.'));
+          } else {
+            toast.error(data?.message || 'Could not verify payment. Use "Verify with reference" below.');
+          }
+        })
+        .catch(() => toast.error('Verification failed. Use "Verify with reference" below.'))
+        .finally(() => {
+          adminApi('admin/balance', { headers: { Authorization: authHeader } })
+            .then((r) => r.ok && r.json().then((d) => setBusinessBalance(d?.amount ?? 0)))
+            .catch(() => {});
+        });
     }
   }, [adminSecret, searchParams, authHeader, setSearchParams]);
 
@@ -398,6 +415,37 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleVerifyFloatPayment = async () => {
+    const ref = verifyRefInput.trim();
+    if (!ref) {
+      toast.error('Enter the reference (from Paystack or from the URL after payment)');
+      return;
+    }
+    if (!authHeader) return;
+    setVerifyRefLoading(true);
+    try {
+      const res = await adminApi('admin/verify-float-payment', {
+        method: 'POST',
+        headers: { Authorization: authHeader, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reference: ref }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data?.success) {
+        toast.success(data.alreadyCredited ? 'Already credited to your float.' : (data.message || `₦${data.amount ?? ''} added to business float.`));
+        setVerifyRefInput('');
+        adminApi('admin/balance', { headers: { Authorization: authHeader } })
+          .then((r) => r.ok && r.json().then((d) => setBusinessBalance(d?.amount ?? 0)))
+          .catch(() => {});
+      } else {
+        toast.error(data?.message || 'Verification failed');
+      }
+    } catch {
+      toast.error('Request failed');
+    } finally {
+      setVerifyRefLoading(false);
+    }
+  };
+
   const pendingUsers = users
     .filter((u) => u.kycStatus === 'PENDING')
     .sort((a, b) => {
@@ -594,6 +642,29 @@ export default function AdminDashboard() {
                 {paystackLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
                 Top up with Paystack
               </Button>
+            </div>
+            <div className="border-t pt-4 mt-4">
+              <p className="text-sm font-medium text-muted-foreground mb-2">Payment didn’t show? Verify with reference</p>
+              <p className="text-xs text-muted-foreground mb-2">If you paid but the balance didn’t update, enter the reference from the redirect URL (ref=...) or from your Paystack dashboard.</p>
+              <div className="flex flex-wrap gap-2 items-end">
+                <div className="flex-1 min-w-[200px]">
+                  <Label className="text-xs">Reference</Label>
+                  <Input
+                    placeholder="e.g. ADMIN-FLOAT-abc-123..."
+                    value={verifyRefInput}
+                    onChange={(e) => setVerifyRefInput(e.target.value)}
+                    className="mt-1"
+                  />
+                </div>
+                <Button
+                  variant="outline"
+                  onClick={handleVerifyFloatPayment}
+                  disabled={verifyRefLoading}
+                >
+                  {verifyRefLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                  Verify payment
+                </Button>
+              </div>
             </div>
           </CardContent>
         </Card>

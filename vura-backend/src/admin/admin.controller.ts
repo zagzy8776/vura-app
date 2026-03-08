@@ -173,6 +173,94 @@ export class AdminController {
   }
 
   /**
+   * Verify a Paystack payment for admin float and credit BusinessBalance.
+   * Use when webhook didn't fire or you returned from Paystack and balance didn't update.
+   * Call with the reference from the redirect URL (ref=...) or from Paystack dashboard.
+   */
+  @Post('verify-float-payment')
+  async verifyFloatPayment(
+    @Headers('authorization') authHeader: string,
+    @Body() body: { reference: string },
+  ) {
+    this.checkAdmin(authHeader);
+    const reference = typeof body.reference === 'string' ? body.reference.trim() : '';
+    if (!reference) {
+      throw new BadRequestException('Reference is required (e.g. from the URL after Paystack, or from Paystack dashboard)');
+    }
+
+    const transaction = await this.prisma.transaction.findUnique({
+      where: { reference },
+    });
+    if (!transaction) {
+      throw new BadRequestException('No float top-up found with this reference. Use the reference from when you clicked "Top up with Paystack".');
+    }
+    if (transaction.status === 'SUCCESS') {
+      return {
+        success: true,
+        alreadyCredited: true,
+        message: 'This payment was already credited to your business float.',
+      };
+    }
+    const meta = transaction.metadata as Record<string, unknown> | null;
+    if (meta?.type !== 'admin_float_topup') {
+      throw new BadRequestException('This reference is not for a business float top-up.');
+    }
+
+    const verified = await this.paystack.verifyTransaction(reference);
+    if (!verified.success) {
+      throw new BadRequestException(
+        `Payment not completed on Paystack (status: ${verified.status}). Complete the payment first, then verify again.`,
+      );
+    }
+
+    const amount = new Decimal(verified.amount);
+
+    await this.prisma.$transaction(async (tx) => {
+      const row = await tx.businessBalance.findUnique({
+        where: { currency: 'NGN' },
+      });
+      const before = row ? new Decimal(String(row.amount)) : new Decimal(0);
+      const after = before.add(amount);
+      await tx.businessBalance.upsert({
+        where: { currency: 'NGN' },
+        create: {
+          currency: 'NGN',
+          amount: after.toNumber(),
+          lastUpdatedBy: 'paystack_admin_float_verify',
+        },
+        update: {
+          amount: after.toNumber(),
+          lastUpdatedBy: 'paystack_admin_float_verify',
+        },
+      });
+      await tx.transaction.update({
+        where: { id: transaction.id },
+        data: {
+          status: 'SUCCESS',
+          beforeBalance: before.toNumber(),
+          afterBalance: after.toNumber(),
+        },
+      });
+    });
+
+    await this.prisma.auditLog.create({
+      data: {
+        action: 'ADMIN_FLOAT_TOPUP_VERIFIED',
+        userId: null,
+        actorType: 'admin',
+        metadata: { reference, amount: amount.toString(), currency: 'NGN' },
+      },
+    });
+
+    this.logger.log(`Admin float payment verified and credited: ₦${amount.toString()}, ref ${reference}`);
+    return {
+      success: true,
+      message: `₦${amount.toFixed(2)} added to business float`,
+      amount: amount.toNumber(),
+    };
+  }
+
+  /**
    * Manually credit a user's wallet from business float (admin only). Deducts from float; fails if insufficient.
    */
   @Post('credit')
