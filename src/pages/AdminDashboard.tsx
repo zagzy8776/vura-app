@@ -22,6 +22,7 @@ import {
   ArrowLeft,
   ChevronLeft,
   ChevronRight,
+  Banknote,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
@@ -259,6 +260,40 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleCreditUser = async () => {
+    const tag = creditForm.vuraTag.trim().replace(/^@/, '');
+    const amount = parseFloat(creditForm.amount);
+    const reason = creditForm.reason.trim();
+    if (!tag || !Number.isFinite(amount) || amount < 1 || amount > 50_000_000) {
+      toast.error('Enter a valid @vuraTag and amount (₦1 – ₦50,000,000)');
+      return;
+    }
+    if (!reason) {
+      toast.error('Reason is required (e.g. Crypto purchase USDT - ref 123)');
+      return;
+    }
+    if (!authHeader) return;
+    setCreditLoading(true);
+    try {
+      const res = await adminApi('admin/credit', {
+        method: 'POST',
+        headers: { Authorization: authHeader, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ vuraTag: tag, amount, reason }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        toast.success(data.message || `₦${amount.toLocaleString()} credited to @${tag}`);
+        setCreditForm({ vuraTag: '', amount: '', reason: '' });
+      } else {
+        toast.error(data.message || 'Credit failed');
+      }
+    } catch {
+      toast.error('Credit request failed');
+    } finally {
+      setCreditLoading(false);
+    }
+  };
+
   const pendingUsers = users
     .filter((u) => u.kycStatus === 'PENDING')
     .sort((a, b) => {
@@ -377,6 +412,61 @@ export default function AdminDashboard() {
             <Card className="border-0 shadow-sm"><CardContent className="pt-5 pb-5"><div className="flex items-center gap-3"><XCircle className="w-9 h-9 text-red-600" /><div><p className="text-2xl font-bold tabular-nums">{stats.kycStatusBreakdown.rejected}</p><p className="text-xs text-muted-foreground">Rejected</p></div></div></CardContent></Card>
           </div>
         )}
+
+        {/* Credit user — e.g. after confirming crypto purchase */}
+        <Card className="shadow-sm mb-6">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Banknote className="w-5 h-5" />
+              Credit user (manual)
+            </CardTitle>
+            <CardDescription>
+              Credit NGN to a user by @vuraTag. Use for crypto purchases or any manual credit after you confirm payment.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col sm:flex-row gap-3">
+            <div className="flex-1 grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <Label className="text-xs">@vuraTag</Label>
+                <Input
+                  placeholder="usertag"
+                  value={creditForm.vuraTag}
+                  onChange={(e) => setCreditForm((f) => ({ ...f, vuraTag: e.target.value }))}
+                  className="mt-1"
+                />
+              </div>
+              <div>
+                <Label className="text-xs">Amount (₦)</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={50000000}
+                  placeholder="e.g. 50000"
+                  value={creditForm.amount}
+                  onChange={(e) => setCreditForm((f) => ({ ...f, amount: e.target.value }))}
+                  className="mt-1"
+                />
+              </div>
+              <div>
+                <Label className="text-xs">Reason (required)</Label>
+                <Input
+                  placeholder="e.g. Crypto USDT - ref #123"
+                  value={creditForm.reason}
+                  onChange={(e) => setCreditForm((f) => ({ ...f, reason: e.target.value }))}
+                  className="mt-1"
+                />
+              </div>
+            </div>
+            <Button
+              onClick={handleCreditUser}
+              disabled={creditLoading}
+              className="sm:self-end shrink-0"
+            >
+              {creditLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              Credit user
+            </Button>
+          </CardContent>
+        </Card>
 
         <div className="mb-4 flex flex-col sm:flex-row gap-4 sm:items-center sm:justify-between">
           <div className="flex rounded-lg border bg-background p-1">

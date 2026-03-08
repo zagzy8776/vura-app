@@ -15,7 +15,40 @@ export class VirtualAccountsService {
     private readonly config: ConfigService,
   ) {}
 
+  /** Returns existing VA data if user has one, else null. */
+  async getExisting(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        legalFirstName: true,
+        legalLastName: true,
+        vuraTag: true,
+        reservedAccountNumber: true,
+        reservedAccountBankName: true,
+        paystackCustomerCode: true,
+      },
+    });
+    if (!user || !user.reservedAccountNumber || !user.reservedAccountBankName) {
+      return null;
+    }
+    const accountName =
+      `${user.legalFirstName ?? ''} ${user.legalLastName ?? ''}`.trim() ||
+      `${user.vuraTag || 'Vura'} Account`;
+    return {
+      success: true,
+      data: {
+        accountNumber: user.reservedAccountNumber,
+        bankName: user.reservedAccountBankName,
+        accountName,
+        orderRef: user.paystackCustomerCode ?? undefined,
+      },
+    };
+  }
+
   async createOrGet(userId: string) {
+    const existing = await this.getExisting(userId);
+    if (existing) return existing;
+
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: {
@@ -37,21 +70,6 @@ export class VirtualAccountsService {
     });
 
     if (!user) throw new BadRequestException('User not found');
-
-    if (user.reservedAccountNumber && user.reservedAccountBankName) {
-      const accountName =
-        `${user.legalFirstName ?? ''} ${user.legalLastName ?? ''}`.trim() ||
-        `${user.vuraTag || 'Vura'} Account`;
-      return {
-        success: true,
-        data: {
-          accountNumber: user.reservedAccountNumber,
-          bankName: user.reservedAccountBankName,
-          accountName,
-          orderRef: user.paystackCustomerCode ?? undefined,
-        },
-      };
-    }
 
     const canCreateAccount =
       user.bvnVerified ||
@@ -169,9 +187,12 @@ export class VirtualAccountsService {
         raw.includes('nuban') ||
         raw.includes('not available') ||
         raw.includes('not available for this business');
-      const message = isPaystackDvaDisabled
+      let message = isPaystackDvaDisabled
         ? 'Bank account generation is temporarily unavailable. Please try again later or contact support.'
         : result.error || 'Failed to create virtual account';
+      if (isPaystackDvaDisabled && this.korapayService.isConfigured()) {
+        message += ' You can add your BVN in Settings to get a dedicated account.';
+      }
       throw new BadRequestException(message);
     }
     await this.prisma.user.update({

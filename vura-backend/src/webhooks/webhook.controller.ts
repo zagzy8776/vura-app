@@ -738,14 +738,14 @@ export class WebhookController {
     const reference = data.reference;
     const amountRaw = data.amount;
     const vba = data.virtual_bank_account_details?.virtual_bank_account;
-    const accountReference = vba?.account_reference; // we set this to user.id
-    if (!reference || amountRaw == null || !accountReference) {
-      this.logger.warn('Korapay webhook missing reference/amount/account_reference', {
-        ip: req.ip,
-      });
+    const accountReference = vba?.account_reference; // VBA: we set this to user.id
+    if (!reference || amountRaw == null) {
+      this.logger.warn('Korapay webhook missing reference/amount', { ip: req.ip });
       return { status: 'ignored', reason: 'missing_data' };
     }
-    const amount = new Decimal(amountRaw);
+    // Amount: Korapay sends kobo for NGN. VBA transfers and charges both use kobo.
+    const amountKobo = Number(amountRaw) || 0;
+    const amount = new Decimal(amountKobo / 100);
     if (amount.lte(0)) return { status: 'ignored', reason: 'invalid_amount' };
 
     const existing = await this.prisma.processedWebhook.findUnique({
@@ -763,31 +763,48 @@ export class WebhookController {
       },
     });
 
-    const user = await this.prisma.user.findUnique({
-      where: { id: accountReference },
-      select: { id: true },
-    });
-    if (!user) {
-      this.logger.warn('Korapay webhook user not found', { accountReference });
-      return { status: 'user_not_found' };
+    // Two flows: VBA (dedicated NUBAN) vs Fund Wallet (card/pay_with_bank charges)
+    let userId: string;
+    if (accountReference) {
+      // VBA flow: account_reference is user.id
+      const user = await this.prisma.user.findUnique({
+        where: { id: accountReference },
+        select: { id: true },
+      });
+      if (!user) {
+        this.logger.warn('Korapay VBA webhook user not found', { accountReference });
+        return { status: 'user_not_found' };
+      }
+      userId = user.id;
+    } else {
+      // Fund Wallet flow: look up pending transaction by reference
+      const pendingTx = await this.prisma.transaction.findFirst({
+        where: { reference, status: 'PENDING', type: 'deposit' },
+        select: { senderId: true },
+      });
+      if (!pendingTx?.senderId) {
+        this.logger.warn('Korapay Fund Wallet webhook: no pending transaction', { reference });
+        return { status: 'user_not_found' };
+      }
+      userId = pendingTx.senderId;
     }
 
     const existingTx = await this.prisma.transaction.findUnique({
       where: { idempotencyKey: reference },
     });
-    if (existingTx) return { status: 'already_processed' };
+    if (existingTx?.status === 'SUCCESS') return { status: 'already_processed' };
 
     try {
-      await this.limitsService.checkMaxBalance(user.id, amount, 'NGN');
+      await this.limitsService.checkMaxBalance(userId, amount, 'NGN');
     } catch {
       this.logger.warn(
         'Korapay deposit would exceed max balance limit; crediting anyway and flagging',
-        { userId: user.id, reference, amount: amount.toString() },
+        { userId, reference, amount: amount.toString() },
       );
       await this.prisma.auditLog.create({
         data: {
           action: 'BALANCE_LIMIT_EXCEEDED_CREDIT',
-          userId: user.id,
+          userId,
           actorType: 'system',
           metadata: {
             reference,
@@ -798,10 +815,11 @@ export class WebhookController {
       });
     }
 
+    const isFundWallet = !accountReference;
     await this.prisma.$transaction(async (tx) => {
       const balance = await tx.balance.findUnique({
         where: {
-          userId_currency: { userId: user.id, currency: 'NGN' },
+          userId_currency: { userId, currency: 'NGN' },
         },
       });
       const beforeBalance = balance
@@ -810,42 +828,53 @@ export class WebhookController {
       const afterBalance = beforeBalance.add(amount);
       await tx.balance.upsert({
         where: {
-          userId_currency: { userId: user.id, currency: 'NGN' },
+          userId_currency: { userId, currency: 'NGN' },
         },
         create: {
-          userId: user.id,
+          userId,
           currency: 'NGN',
           amount: afterBalance.toNumber(),
-          lastUpdatedBy: 'korapay_vba',
+          lastUpdatedBy: isFundWallet ? 'korapay_charge' : 'korapay_vba',
         },
         update: {
           amount: afterBalance.toNumber(),
-          lastUpdatedBy: 'korapay_vba',
+          lastUpdatedBy: isFundWallet ? 'korapay_charge' : 'korapay_vba',
         },
       });
-      await tx.transaction.create({
-        data: {
-          receiverId: user.id,
-          amount: amount.toNumber(),
-          currency: 'NGN',
-          type: 'deposit',
-          status: 'SUCCESS',
-          idempotencyKey: reference,
-          providerTxId: reference,
-          beforeBalance: beforeBalance.toNumber(),
-          afterBalance: afterBalance.toNumber(),
-          reference: `KPY-${reference}`,
-          metadata: {
-            provider: 'korapay',
-            vbaAccountNumber: vba?.account_number,
-            vbaBankName: vba?.bank_name,
-          } as any,
-        },
-      });
+      if (isFundWallet) {
+        await tx.transaction.updateMany({
+          where: { reference, status: 'PENDING' },
+          data: {
+            status: 'SUCCESS',
+            beforeBalance: beforeBalance.toNumber(),
+            afterBalance: afterBalance.toNumber(),
+          },
+        });
+      } else {
+        await tx.transaction.create({
+          data: {
+            receiverId: userId,
+            amount: amount.toNumber(),
+            currency: 'NGN',
+            type: 'deposit',
+            status: 'SUCCESS',
+            idempotencyKey: reference,
+            providerTxId: reference,
+            beforeBalance: beforeBalance.toNumber(),
+            afterBalance: afterBalance.toNumber(),
+            reference: `KPY-${reference}`,
+            metadata: {
+              provider: 'korapay',
+              vbaAccountNumber: vba?.account_number,
+              vbaBankName: vba?.bank_name,
+            } as any,
+          },
+        });
+      }
     });
 
-    this.logger.log('Korapay VBA deposit credited', {
-      userId: user.id,
+    this.logger.log(isFundWallet ? 'Korapay Fund Wallet charge credited' : 'Korapay VBA deposit credited', {
+      userId,
       reference,
       amount: amount.toString(),
     });

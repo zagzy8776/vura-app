@@ -85,13 +85,13 @@ const Receive = () => {
     }
   };
 
-  // Load existing virtual account on mount (createOrGet returns existing if any)
+  // Load existing virtual account on mount (GET only – no create)
   useEffect(() => {
     if (!user?.id) return;
     let cancelled = false;
     (async () => {
       try {
-        const res = await apiFetch('/virtual-accounts/create', { method: 'POST' });
+        const res = await apiFetch('/virtual-accounts');
         const data = await res.json().catch(() => ({}));
         if (cancelled) return;
         if (res.ok && data?.data) setVirtualAccount(data.data);

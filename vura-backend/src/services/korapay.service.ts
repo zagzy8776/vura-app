@@ -92,6 +92,118 @@ export class KorapayService {
   }
 
   /**
+   * Initialize charge (Checkout Redirect) for Fund Wallet.
+   * Amount in kobo (NGN). Returns checkout_url to redirect user.
+   */
+  async initializeCharge(params: {
+    amount: number;
+    currency?: string;
+    reference: string;
+    customer: { email: string; name?: string };
+    redirect_url?: string;
+    notification_url?: string;
+    metadata?: Record<string, string>;
+  }): Promise<
+    | { success: true; checkoutUrl: string; reference: string }
+    | { success: false; error: string }
+  > {
+    if (!this.isConfigured()) {
+      return { success: false, error: 'Korapay is not configured.' };
+    }
+    try {
+      const res = await axios.post<{
+        status: boolean;
+        message?: string;
+        data?: { reference: string; checkout_url: string };
+      }>(`${KORAPAY_BASE}/charges/initialize`, {
+        amount: params.amount,
+        currency: params.currency ?? 'NGN',
+        reference: params.reference,
+        customer: params.customer,
+        redirect_url: params.redirect_url,
+        notification_url: params.notification_url,
+        metadata: params.metadata,
+        channels: ['card', 'bank_transfer', 'pay_with_bank'],
+        default_channel: 'card',
+      }, {
+        headers: this.getHeaders(),
+        timeout: 15000,
+      });
+      if (!res.data.status || !res.data.data?.checkout_url) {
+        return {
+          success: false,
+          error: res.data.message || 'Failed to initialize charge',
+        };
+      }
+      return {
+        success: true,
+        checkoutUrl: res.data.data.checkout_url,
+        reference: res.data.data.reference ?? params.reference,
+      };
+    } catch (err: unknown) {
+      if (axios.isAxiosError(err)) {
+        const msg =
+          (err.response?.data as { message?: string })?.message ||
+          err.message;
+        return { success: false, error: String(msg) };
+      }
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : 'Unknown error',
+      };
+    }
+  }
+
+  /**
+   * Verify charge by reference (for Fund Wallet verification).
+   */
+  async verifyCharge(
+    reference: string,
+  ): Promise<
+    | { success: true; amount: number; status: string }
+    | { success: false; error: string }
+  > {
+    if (!this.isConfigured()) {
+      return { success: false, error: 'Korapay is not configured.' };
+    }
+    try {
+      const res = await axios.get<{
+        status: boolean;
+        message?: string;
+        data?: { amount: string; amount_paid?: number; status: string };
+      }>(`${KORAPAY_BASE}/charges/${encodeURIComponent(reference)}`, {
+        headers: this.getHeaders(),
+        timeout: 10000,
+      });
+      if (!res.data.status || !res.data.data) {
+        return {
+          success: false,
+          error: res.data.message || 'Charge not found',
+        };
+      }
+      const d = res.data.data;
+      const amount = Number(d.amount) || d.amount_paid || 0;
+      const status = d.status || 'pending';
+      return {
+        success: true,
+        amount,
+        status,
+      };
+    } catch (err: unknown) {
+      if (axios.isAxiosError(err)) {
+        const msg =
+          (err.response?.data as { message?: string })?.message ||
+          err.message;
+        return { success: false, error: String(msg) };
+      }
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : 'Unknown error',
+      };
+    }
+  }
+
+  /**
    * Get Virtual Bank Account by account_reference (e.g. userId).
    */
   async getVirtualBankAccount(
