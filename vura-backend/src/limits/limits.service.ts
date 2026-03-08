@@ -13,6 +13,7 @@ export class LimitsService {
       dailySendLimit: Decimal; // total daily debit limit (internal + external)
       maxBalance: Decimal; // balance cap (cumulative balance limit)
       requiresBiometric: boolean;
+      biometricThreshold?: Decimal; // Tier 3: only require biometric above this amount (NGN)
       cumulativeLimit: Decimal; // Annual cumulative limit
     }
   > = {
@@ -32,6 +33,7 @@ export class LimitsService {
       dailySendLimit: new Decimal(5000000), // ₦5m
       maxBalance: new Decimal(0), // 0 means unlimited for Tier 3
       requiresBiometric: true,
+      biometricThreshold: new Decimal(500000), // Only require biometric for single transfers >= ₦500k
       cumulativeLimit: new Decimal(50000000), // ₦50m annual cumulative
     },
   };
@@ -70,10 +72,17 @@ export class LimitsService {
       throw new BadRequestException('Invalid KYC tier');
     }
 
-    // Check biometric requirement for Tier 3
-    if (tierLimits.requiresBiometric && !user.biometricVerified) {
+    // Check biometric requirement for Tier 3 (only for large amounts)
+    const threshold = tierLimits.biometricThreshold;
+    const amountAtOrAboveThreshold =
+      !threshold || amount.greaterThanOrEqualTo(threshold);
+    if (
+      tierLimits.requiresBiometric &&
+      !user.biometricVerified &&
+      amountAtOrAboveThreshold
+    ) {
       throw new BadRequestException(
-        'Biometric verification required for Tier 3 transactions',
+        `Biometric verification required for Tier 3 transactions of ₦${threshold?.toFixed(0) ?? '500,000'} or more. Transfers below that amount can be done without biometric.`,
       );
     }
 
