@@ -11,7 +11,6 @@ import {
 } from '@nestjs/common';
 import { AuthGuard } from '../auth/auth.guard';
 import { PaystackService } from '../services/paystack.service';
-import { KorapayService } from '../services/korapay.service';
 import { PrismaService } from '../prisma.service';
 import { ConfigService } from '@nestjs/config';
 import Decimal from 'decimal.js';
@@ -24,7 +23,6 @@ export class FundingController {
 
   constructor(
     private paystack: PaystackService,
-    private korapay: KorapayService,
     private prisma: PrismaService,
     private config: ConfigService,
   ) {}
@@ -53,13 +51,8 @@ export class FundingController {
     const email = user.emailEncrypted || `${user.vuraTag}@vura.app`;
     const frontendUrl = this.config.get('FRONTEND_URL', 'https://vura-app.vercel.app');
     const callbackUrl = `${frontendUrl}/fund-wallet?ref=${reference}`;
-    const apiBase = this.config.get('API_BASE_URL', `${frontendUrl.replace(/\/$/, '')}/api`);
-    const webhookUrl = `${apiBase.replace(/\/$/, '')}/webhooks/korapay`;
 
     const fee = amount <= 2500 ? amount * 0.015 : Math.min(amount * 0.015, 2000);
-
-    // Use Korapay when configured; otherwise Paystack
-    const useKorapay = this.korapay.isConfigured();
 
     await this.prisma.transaction.create({
       data: {
@@ -71,59 +64,11 @@ export class FundingController {
         idempotencyKey: reference,
         reference,
         metadata: {
-          method: useKorapay ? 'korapay' : 'paystack',
+          method: 'paystack',
           fee: Math.ceil(fee),
         },
       },
     });
-
-    if (useKorapay) {
-      const result = await this.korapay.initializeCharge({
-        amount: Math.round(amount * 100), // kobo
-        currency: 'NGN',
-        reference,
-        customer: { email },
-        redirect_url: callbackUrl,
-        notification_url: webhookUrl,
-        metadata: { userId: req.user.userId, type: 'wallet_funding' },
-      });
-      if (!result.success) {
-        this.logger.warn(`Korapay initialize failed: ${result.error}, falling back to Paystack`);
-        await this.prisma.transaction.update({
-          where: { reference },
-          data: { metadata: { method: 'paystack', fee: Math.ceil(fee) } },
-        });
-        const psResult = await this.paystack.initializeTransaction({
-          email,
-          amount,
-          reference,
-          callbackUrl,
-          metadata: { userId: req.user.userId, type: 'wallet_funding' },
-        });
-        this.logger.log(`Fund wallet initialized via Paystack (Korapay fallback): ₦${amount}`);
-        return {
-          success: true,
-          data: {
-            authorizationUrl: psResult.authorizationUrl,
-            reference: psResult.reference,
-            amount,
-            fee: Math.ceil(fee),
-            total: amount + Math.ceil(fee),
-          },
-        };
-      }
-      this.logger.log(`Fund wallet initialized via Korapay: ₦${amount} by ${req.user.userId}`);
-      return {
-        success: true,
-        data: {
-          authorizationUrl: result.checkoutUrl,
-          reference: result.reference,
-          amount,
-          fee: Math.ceil(fee),
-          total: amount + Math.ceil(fee),
-        },
-      };
-    }
 
     const result = await this.paystack.initializeTransaction({
       email,
@@ -169,11 +114,7 @@ export class FundingController {
     }
 
     const metadata = (tx.metadata || {}) as { method?: string };
-    const useKorapay = metadata.method === 'korapay' && this.korapay.isConfigured();
-
-    const verification = useKorapay
-      ? await this.korapay.verifyCharge(reference)
-      : await this.paystack.verifyTransaction(reference);
+    const verification = await this.paystack.verifyTransaction(reference);
 
     if (!verification.success) {
       await this.prisma.transaction.update({
@@ -183,9 +124,7 @@ export class FundingController {
       throw new BadRequestException('Payment was not successful');
     }
 
-    const verifiedAmount = useKorapay
-      ? (verification as { amount: number }).amount
-      : (verification as { amount: number }).amount;
+    const verifiedAmount = (verification as { amount: number }).amount;
     const amount = new Decimal(verifiedAmount);
 
     await this.prisma.$transaction(async (prisma) => {
@@ -221,7 +160,7 @@ export class FundingController {
       },
     });
 
-    this.logger.log(`Wallet funded: ₦${amount} for ${req.user.userId} via ${useKorapay ? 'Korapay' : 'Paystack'}`);
+    this.logger.log(`Wallet funded: ₦${amount} for ${req.user.userId} via Paystack`);
 
     return {
       success: true,

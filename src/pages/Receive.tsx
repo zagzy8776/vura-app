@@ -10,7 +10,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/hooks/use-toast";
 import QRCode from "qrcode";
 import { apiFetch } from "@/hooks/useAuth";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 type VirtualAccount = {
   accountNumber: string;
@@ -21,14 +21,34 @@ type VirtualAccount = {
 const Receive = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [copied, setCopied] = useState(false);
   const [requestAmount, setRequestAmount] = useState("");
+  const [requestNote, setRequestNote] = useState("");
   const [qrDataUrl, setQrDataUrl] = useState<string>("");
   const [paymentLink, setPaymentLink] = useState<string>("");
   const [virtualAccount, setVirtualAccount] = useState<VirtualAccount | null>(null);
   const [isMinting, setIsMinting] = useState(false);
   const [needsVerification, setNeedsVerification] = useState(false);
+  const [requestFromTag, setRequestFromTag] = useState("");
+  const [requestFromAmount, setRequestFromAmount] = useState("");
+  const [requestFromNote, setRequestFromNote] = useState("");
+  const [sendingRequest, setSendingRequest] = useState(false);
   const tag = user?.vuraTag ? `@${user.vuraTag}` : "@user";
+
+  // Prefill from URL ?amount= & ?note=
+  useEffect(() => {
+    const amt = searchParams.get("amount");
+    const note = searchParams.get("note");
+    if (amt && !isNaN(Number(amt))) setRequestAmount(amt);
+    if (note) setRequestNote(note);
+    if (amt || note) setSearchParams((prev) => {
+      const p = new URLSearchParams(prev);
+      p.delete("amount");
+      p.delete("note");
+      return p;
+    }, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   // Generate QR code when user changes
   useEffect(() => {
@@ -113,7 +133,10 @@ const Receive = () => {
     if (!user?.vuraTag) return;
     
     const baseUrl = window.location.origin;
-    const link = `${baseUrl}/send?to=${user.vuraTag}${requestAmount ? `&amount=${requestAmount}` : ""}`;
+    const params = new URLSearchParams({ to: user.vuraTag });
+    if (requestAmount) params.set("amount", requestAmount);
+    if (requestNote) params.set("note", requestNote);
+    const link = `${baseUrl}/send?${params.toString()}`;
     setPaymentLink(link);
     
     navigator.clipboard.writeText(link);
@@ -145,6 +168,39 @@ const Receive = () => {
     if (!virtualAccount?.accountNumber) return;
     await navigator.clipboard.writeText(virtualAccount.accountNumber);
     toast({ title: 'Copied!', description: 'Account number copied' });
+  };
+
+  const handleSendPaymentRequest = async () => {
+    const payerTag = (requestFromTag || "").trim().replace(/^@/, "");
+    const amt = Number(requestFromAmount);
+    if (!payerTag || !amt || amt <= 0) {
+      toast({ title: "Invalid input", description: "Enter payer @tag and amount.", variant: "destructive" });
+      return;
+    }
+    setSendingRequest(true);
+    try {
+      const res = await apiFetch("/payment-requests/create", {
+        method: "POST",
+        body: JSON.stringify({
+          payerVuraTag: payerTag,
+          amount: amt,
+          description: requestFromNote.trim() || undefined,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast({ title: "Request failed", description: data.message || "Could not send request", variant: "destructive" });
+        return;
+      }
+      toast({ title: "Request sent", description: `Payment request sent to @${payerTag}. They can pay from their dashboard.` });
+      setRequestFromTag("");
+      setRequestFromAmount("");
+      setRequestFromNote("");
+    } catch (e) {
+      toast({ title: "Error", description: e instanceof Error ? e.message : "Failed to send request", variant: "destructive" });
+    } finally {
+      setSendingRequest(false);
+    }
   };
 
   const handleShareReceiptImage = async () => {
@@ -300,6 +356,10 @@ const Receive = () => {
               <label className="text-sm font-medium text-foreground mb-1.5 block">Amount (₦)</label>
               <Input type="number" placeholder="0.00" value={requestAmount} onChange={(e) => setRequestAmount(e.target.value)} className="h-12 rounded-xl text-xl font-bold" />
             </div>
+            <div>
+              <label className="text-sm font-medium text-foreground mb-1.5 block">Note (optional)</label>
+              <Input placeholder="e.g. Lunch reimbursement" value={requestNote} onChange={(e) => setRequestNote(e.target.value)} className="h-11 rounded-xl" />
+            </div>
             <Button 
               onClick={handleGenerateLink} 
               disabled={!requestAmount} 
@@ -319,6 +379,28 @@ const Receive = () => {
                 <p className="text-sm font-medium text-primary truncate">{paymentLink}</p>
               </motion.div>
             )}
+          </motion.div>
+
+          {/* Request from @tag (pull request) */}
+          <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.12 }} className="rounded-2xl bg-card border border-border p-6 shadow-card space-y-4">
+            <h3 className="text-lg font-semibold text-foreground">Request from someone</h3>
+            <p className="text-sm text-muted-foreground">Send a payment request to a Vura user. They can pay you from their dashboard.</p>
+            <div>
+              <label className="text-sm font-medium text-foreground mb-1.5 block">Their @tag</label>
+              <Input placeholder="@username" value={requestFromTag} onChange={(e) => setRequestFromTag(e.target.value)} className="h-11 rounded-xl" />
+            </div>
+            <div>
+              <label className="text-sm font-medium text-foreground mb-1.5 block">Amount (₦)</label>
+              <Input type="number" placeholder="0.00" value={requestFromAmount} onChange={(e) => setRequestFromAmount(e.target.value)} className="h-11 rounded-xl" />
+            </div>
+            <div>
+              <label className="text-sm font-medium text-foreground mb-1.5 block">Note (optional)</label>
+              <Input placeholder="e.g. Lunch split" value={requestFromNote} onChange={(e) => setRequestFromNote(e.target.value)} className="h-11 rounded-xl" />
+            </div>
+            <Button onClick={handleSendPaymentRequest} disabled={sendingRequest || !requestFromTag.trim() || !requestFromAmount || Number(requestFromAmount) <= 0} className="w-full h-12 rounded-xl gradient-brand text-primary-foreground font-semibold border-0 hover:opacity-90">
+              {sendingRequest ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+              Send payment request
+            </Button>
           </motion.div>
 
           {/* Your Vura Bank Account */}

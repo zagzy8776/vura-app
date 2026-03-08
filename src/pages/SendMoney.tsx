@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
   ArrowUpRight, CheckCircle, AlertTriangle, Search, Building2, User, 
@@ -44,8 +45,11 @@ interface RecentRecipient {
 const DEFAULT_RECIPIENTS: RecentRecipient[] = [];
 
 const SendMoney = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [step, setStep] = useState<"form" | "confirm" | "success">("form");
   const [transferMode, setTransferMode] = useState<TransferMode>("tag");
+  const [sendToBankAvailable, setSendToBankAvailable] = useState(false);
+  const [transferAvailable, setTransferAvailable] = useState(false);
   const [userLimits, setUserLimits] = useState<{ dailyLimit: number; used: number; remaining: number }>({ dailyLimit: 50000, used: 0, remaining: 50000 });
   const [recentRecipients, setRecentRecipients] = useState<RecentRecipient[]>(DEFAULT_RECIPIENTS);
   const [showRecentList, setShowRecentList] = useState(false);
@@ -73,6 +77,7 @@ const SendMoney = () => {
 
   const [banks, setBanks] = useState<BankOption[]>(FALLBACK_BANKS);
   const [bankSearch, setBankSearch] = useState("");
+  const [prefilledFromLink, setPrefilledFromLink] = useState(false);
 
   const [feeBreakdown, setFeeBreakdown] = useState<
     | null
@@ -148,21 +153,67 @@ const SendMoney = () => {
   useEffect(() => {
     const loadBanks = async () => {
       try {
-        // Use for-send-to-bank so codes match verify-account and send-to-bank (Korapay when configured, else Paystack)
         const res = await apiFetch('/bank-codes/for-send-to-bank');
         if (!res.ok) return;
         const data = await res.json();
-        if (data?.success && Array.isArray(data.banks)) {
-          const mapped: BankOption[] = data.banks
-            .filter((b: BankOptionResponse) => b?.code != null && b?.name)
-            .map((b: BankOptionResponse) => ({ code: String(b.code), name: String(b.name) }));
+        const available = data?.success && Array.isArray(data.banks) && data.banks.length > 0;
+        setSendToBankAvailable(!!available);
+        setTransferAvailable(data?.transferAvailable === true);
+        if (available) {
+          const mapped: BankOption[] = (data.banks as BankOptionResponse[])
+            .filter((b) => b?.code != null && b?.name)
+            .map((b) => ({ code: String(b.code), name: String(b.name) }));
           if (mapped.length > 0) setBanks(mapped);
         }
       } catch {
-        // keep fallback
+        setSendToBankAvailable(false);
       }
     };
     loadBanks();
+  }, []);
+
+  // Prefill from payment link: /send?to=emeka&amount=5000&note=...
+  useEffect(() => {
+    const to = searchParams.get("to");
+    const amt = searchParams.get("amount");
+    const note = searchParams.get("note");
+    if (to) {
+      const tag = to.startsWith("@") ? to.slice(1) : to;
+      setRecipientTag(tag);
+      setTransferMode("tag");
+    }
+    if (amt && !isNaN(Number(amt))) setAmount(amt);
+    if (note) setDescription(note);
+    if (to || amt || note) {
+      setPrefilledFromLink(true);
+      setSearchParams({}, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
+
+  // Load saved beneficiaries
+  useEffect(() => {
+    const loadBeneficiaries = async () => {
+      try {
+        const res = await apiFetch("/beneficiaries");
+        if (!res.ok) return;
+        const data = await res.json();
+        const list = Array.isArray(data?.data) ? data.data : [];
+        const mapped: RecentRecipient[] = list.map((b: { id: string; name: string; vuraTag?: string | null; accountNumber?: string | null; bankCode?: string | null; bankName?: string | null; type: string; isFavorite: boolean; createdAt: string }) => ({
+          id: b.id,
+          type: b.type === "bank" ? "bank" : "tag",
+          name: b.name,
+          identifier: b.type === "bank" ? (b.accountNumber || "") : (b.vuraTag || ""),
+          bankCode: b.bankCode || undefined,
+          bankName: b.bankName || undefined,
+          lastUsed: b.createdAt,
+          isFavorite: !!b.isFavorite,
+        }));
+        if (mapped.length > 0) setRecentRecipients(mapped);
+      } catch {
+        // keep default
+      }
+    };
+    loadBeneficiaries();
   }, []);
 
   useEffect(() => {
@@ -251,8 +302,7 @@ const SendMoney = () => {
       toast({ title: "Invalid PIN", description: "Enter your 6-digit PIN", variant: "destructive" });
       return;
     }
-    const effectiveSchedule = scheduleType;
-    if (effectiveSchedule !== "now") {
+    if (scheduleType !== "now") {
       toast({ title: "Coming soon", description: "Scheduled and recurring transfers will be available soon. Use Send now for instant transfers.", variant: "default" });
       return;
     }
@@ -268,9 +318,7 @@ const SendMoney = () => {
             amount: Number(amount),
             description,
             pin,
-            scheduleType: effectiveSchedule,
-            scheduleDate: effectiveSchedule !== "now" ? scheduleDate : undefined,
-            recurring: effectiveSchedule === "recurring" ? recurringFrequency : undefined,
+            scheduleType: "now",
           }),
         });
       } else {
@@ -283,9 +331,7 @@ const SendMoney = () => {
             amount: Number(amount),
             description,
             pin,
-            scheduleType: effectiveSchedule,
-            scheduleDate: effectiveSchedule !== "now" ? scheduleDate : undefined,
-            recurring: effectiveSchedule === "recurring" ? recurringFrequency : undefined,
+            scheduleType: "now",
           }),
         });
       }
@@ -294,17 +340,44 @@ const SendMoney = () => {
         throw new Error(data.message || "Transfer failed");
       }
       setReference(data.reference || `VUR${Date.now()}`);
+      const displayName = transferMode === "tag" ? `@${recipientData?.vuraTag || recipientTag}` : accountName;
       const newRecipient: RecentRecipient = {
         id: Date.now().toString(),
         type: transferMode,
-        name: transferMode === "tag" ? `@${recipientTag}` : accountName,
-        identifier: transferMode === "tag" ? recipientTag : accountNumber,
+        name: displayName,
+        identifier: transferMode === "tag" ? (recipientTag.startsWith("@") ? recipientTag.slice(1) : recipientTag) : accountNumber,
         bankCode: selectedBank,
         bankName: banks.find(b => b.code === selectedBank)?.name,
         lastUsed: new Date().toISOString(),
         isFavorite: false,
       };
       setRecentRecipients(prev => [newRecipient, ...prev.filter(r => r.identifier !== newRecipient.identifier)].slice(0, 10));
+      // Persist as beneficiary (ignore if already exists)
+      try {
+        if (transferMode === "tag") {
+          await apiFetch("/beneficiaries", {
+            method: "POST",
+            body: JSON.stringify({
+              name: displayName,
+              vuraTag: newRecipient.identifier,
+              type: "vura",
+            }),
+          });
+        } else {
+          await apiFetch("/beneficiaries", {
+            method: "POST",
+            body: JSON.stringify({
+              name: accountName,
+              accountNumber,
+              bankCode: selectedBank,
+              bankName: banks.find(b => b.code === selectedBank)?.name,
+              type: "bank",
+            }),
+          });
+        }
+      } catch {
+        // already exists or network; ignore
+      }
       setStep("success");
       toast({ title: "Transfer successful!", description: `₦${Number(amount).toLocaleString()} sent` });
     } catch (error: unknown) {
@@ -338,8 +411,19 @@ const SendMoney = () => {
     setShowRecentList(false);
   };
 
-  const toggleFavorite = (id: string) => {
-    setRecentRecipients(prev => prev.map(r => r.id === id ? { ...r, isFavorite: !r.isFavorite } : r));
+  const toggleFavorite = async (id: string) => {
+    const current = recentRecipients.find(r => r.id === id);
+    const newFavorite = !current?.isFavorite;
+    setRecentRecipients(prev => prev.map(r => r.id === id ? { ...r, isFavorite: newFavorite } : r));
+    try {
+      const res = await apiFetch(`/beneficiaries/${id}`, {
+        method: "PUT",
+        body: JSON.stringify({ isFavorite: newFavorite }),
+      });
+      if (!res.ok) setRecentRecipients(prev => prev.map(r => r.id === id ? { ...r, isFavorite: current?.isFavorite ?? false } : r));
+    } catch {
+      setRecentRecipients(prev => prev.map(r => r.id === id ? { ...r, isFavorite: current?.isFavorite ?? false } : r));
+    }
   };
 
   const selectedBankName = banks.find(b => b.code === selectedBank)?.name || "Select Bank";
@@ -352,7 +436,7 @@ const SendMoney = () => {
     if (transferMode === "tag") {
       return recipientData?.found;
     } else {
-      return accountNumber.length === 10 && selectedBank && accountVerified;
+      return transferAvailable && accountNumber.length === 10 && selectedBank && accountVerified;
     }
   };
 
@@ -392,6 +476,19 @@ const SendMoney = () => {
                 <p className="text-muted-foreground text-sm mt-1">Transfer funds instantly</p>
               </div>
 
+              {prefilledFromLink && recipientTag && amount && (
+                <div className="rounded-xl bg-primary/10 border border-primary/20 p-3 text-sm text-foreground">
+                  <span className="font-medium">Paying @{recipientTag.startsWith("@") ? recipientTag.slice(1) : recipientTag} ₦{Number(amount).toLocaleString()}</span>
+                </div>
+              )}
+
+              {!sendToBankAvailable && (
+                <p className="text-sm text-muted-foreground rounded-lg bg-muted/50 p-3">Send to bank is not available right now. Use <strong>@tag</strong> to send to other Vura users.</p>
+              )}
+              {sendToBankAvailable && !transferAvailable && (
+                <p className="text-sm text-muted-foreground rounded-lg bg-amber-500/10 border border-amber-500/20 p-3">Bank transfer is coming soon. You can choose a bank and add details below; for now use <strong>@tag</strong> to send to other Vura users.</p>
+              )}
+
               <div className="rounded-xl bg-gradient-to-r from-primary/10 to-primary/5 border border-primary/20 p-4">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-sm font-medium text-foreground">Daily Limit</span>
@@ -408,9 +505,11 @@ const SendMoney = () => {
                   <button onClick={() => setTransferMode("tag")} className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-sm font-medium transition-all ${transferMode === "tag" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>
                     <User className="h-4 w-4" /> @tag
                   </button>
-                  <button onClick={() => setTransferMode("bank")} className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-sm font-medium transition-all ${transferMode === "bank" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>
-                    <Building2 className="h-4 w-4" /> Bank
-                  </button>
+                  {sendToBankAvailable && (
+                    <button onClick={() => setTransferMode("bank")} className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-sm font-medium transition-all ${transferMode === "bank" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>
+                      <Building2 className="h-4 w-4" /> Bank
+                    </button>
+                  )}
                   <button onClick={() => setShowQRScanner(true)} className="flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-sm font-medium text-muted-foreground hover:text-foreground transition-all">
                     <QrCode className="h-4 w-4" />
                   </button>
@@ -520,20 +619,9 @@ const SendMoney = () => {
                 </div>
 
                 <div className="space-y-3">
-                  <button onClick={() => setShowScheduleOptions(!showScheduleOptions)} className="flex items-center gap-2 text-sm font-medium text-foreground hover:text-primary transition-colors">
-                    <Clock className="h-4 w-4" /> {scheduleType === "now" ? "Send Now" : scheduleType === "later" ? `Schedule: ${scheduleDate}` : `Recurring: ${recurringFrequency}`} <ChevronDown className={`h-4 w-4 transition-transform ${showScheduleOptions ? "rotate-180" : ""}`} />
-                  </button>
-                  {showScheduleOptions && (
-                    <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} className="p-4 rounded-xl bg-secondary space-y-3">
-                      <div className="flex gap-1.5 sm:gap-2">
-                        <button onClick={() => setScheduleType("now")} className={`flex-1 py-2 px-2 sm:px-3 rounded-lg text-xs sm:text-sm font-medium transition-colors ${scheduleType === "now" ? "bg-primary text-primary-foreground" : "bg-background text-foreground"}`}>Now</button>
-                        <button onClick={() => setScheduleType("later")} className={`flex-1 py-2 px-2 sm:px-3 rounded-lg text-xs sm:text-sm font-medium transition-colors ${scheduleType === "later" ? "bg-primary text-primary-foreground" : "bg-background text-foreground"}`}><Calendar className="h-3.5 w-3.5 sm:h-4 sm:w-4 inline mr-0.5 sm:mr-1" /> Schedule</button>
-                        <button onClick={() => setScheduleType("recurring")} className={`flex-1 py-2 px-2 sm:px-3 rounded-lg text-xs sm:text-sm font-medium transition-colors ${scheduleType === "recurring" ? "bg-primary text-primary-foreground" : "bg-background text-foreground"}`}><Repeat className="h-3.5 w-3.5 sm:h-4 sm:w-4 inline mr-0.5 sm:mr-1" /> Recurring</button>
-                      </div>
-                      {scheduleType === "later" && <div><Label className="text-xs text-muted-foreground">Select Date</Label><Input type="date" value={scheduleDate} min={new Date().toISOString().split("T")[0]} onChange={(e) => setScheduleDate(e.target.value)} className="mt-1" /></div>}
-                      {scheduleType === "recurring" && <div className="space-y-2"><Label className="text-xs text-muted-foreground">Frequency</Label><div className="flex gap-2">{["daily", "weekly", "monthly"].map((freq) => <button key={freq} onClick={() => setRecurringFrequency(freq as RecurringFrequency)} className={`flex-1 py-2 rounded-lg text-xs font-medium capitalize transition-colors ${recurringFrequency === freq ? "bg-primary text-primary-foreground" : "bg-background text-foreground"}`}>{freq}</button>)}</div></div>}
-                    </motion.div>
-                  )}
+                  <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                    <Clock className="h-3.5 w-3.5" /> Send now. Scheduled & recurring transfers coming later.
+                  </p>
                 </div>
 
                 {amount && Number(amount) > 0 && (

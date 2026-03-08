@@ -8,6 +8,7 @@ import { PrismaService } from '../prisma.service';
 import { LimitsService } from '../limits/limits.service';
 import { HoldsService } from '../holds/holds.service';
 import { PaystackService } from '../services/paystack.service';
+import { VpayService } from '../services/vpay.service';
 import { v4 as uuidv4 } from 'uuid';
 import * as bcrypt from 'bcrypt';
 import Decimal from 'decimal.js';
@@ -19,6 +20,7 @@ export class TransactionsService {
     private limitsService: LimitsService,
     private holdsService: HoldsService,
     private paystackService: PaystackService,
+    private vpayService: VpayService,
   ) {}
 
   async initiatePayment(
@@ -385,6 +387,20 @@ export class TransactionsService {
     return this.initiatePayment(senderId, recipient, amount, description, pin);
   }
 
+  /**
+   * Resolve bank account name for send-to-bank. VPay only (nuban lookup).
+   * No Paystack in send flow.
+   */
+  async verifyBankAccount(
+    accountNumber: string,
+    bankCode: string,
+  ): Promise<{ accountName: string }> {
+    if (!this.vpayService.isConfigured()) {
+      throw new BadRequestException('Send to bank is not available.');
+    }
+    return this.vpayService.nubanLookup(accountNumber, bankCode);
+  }
+
   async getAccountBalance(userId: string) {
     const balances = await this.prisma.balance.findMany({
       where: { userId },
@@ -395,5 +411,148 @@ export class TransactionsService {
       ngn: ngn ? Number(ngn.amount) : 0,
       usdt: usdt ? Number(usdt.amount) : 0,
     };
+  }
+
+  /**
+   * Send to bank (VPay outbound transfer). Requires VPAY_PUBLIC_KEY and VPAY_SECRET_KEY.
+   */
+  async sendToBank(
+    senderId: string,
+    accountNumber: string,
+    bankCode: string,
+    accountName: string,
+    amount: number,
+    description?: string,
+    pin?: string,
+  ) {
+    if (!this.vpayService.isConfigured()) {
+      throw new BadRequestException('Send to bank is not available.');
+    }
+
+    const nuban = accountNumber.replace(/\D/g, '');
+    if (nuban.length !== 10) {
+      throw new BadRequestException('Invalid account number (must be 10 digits).');
+    }
+    if (!bankCode?.trim()) {
+      throw new BadRequestException('Bank is required.');
+    }
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new BadRequestException('Invalid amount.');
+    }
+
+    await this.limitsService.checkSendLimit(
+      senderId,
+      new Decimal(amount),
+      'NGN',
+    );
+    await this.holdsService.checkHeldFunds(senderId, new Decimal(amount));
+
+    if (pin) {
+      const user = await this.prisma.user.findUnique({
+        where: { id: senderId },
+        select: { hashedPin: true },
+      });
+      if (!user?.hashedPin) {
+        throw new UnauthorizedException('Set your PIN in Settings.');
+      }
+      const pinValid = await bcrypt.compare(pin, user.hashedPin);
+      if (!pinValid) {
+        throw new UnauthorizedException('Invalid PIN');
+      }
+    }
+
+    const senderBalance = await this.prisma.balance.findUnique({
+      where: { userId_currency: { userId: senderId, currency: 'NGN' } },
+    });
+    if (!senderBalance) {
+      throw new BadRequestException('Insufficient balance.');
+    }
+
+    const fee = amount <= 5000 ? 10 : amount <= 50000 ? 25 : 50;
+    const total = amount + fee;
+    const beforeBalance = Number(senderBalance.amount);
+    if (beforeBalance < total) {
+      throw new BadRequestException('Insufficient balance.');
+    }
+
+    const reference = `VUR-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const idempotencyKey = uuidv4();
+
+    const transaction = await this.prisma.$transaction(async (tx) => {
+      const t = await tx.transaction.create({
+        data: {
+          senderId,
+          amount,
+          currency: 'NGN',
+          type: 'external_transfer',
+          status: 'PENDING',
+          idempotencyKey,
+          reference,
+          beforeBalance: beforeBalance,
+          afterBalance: beforeBalance - total,
+          metadata: {
+            description,
+            fee,
+            accountNumber: nuban,
+            bankCode,
+            accountName,
+            provider: 'vpay',
+          },
+        },
+      });
+
+      await tx.balance.update({
+        where: { id: senderBalance.id },
+        data: {
+          amount: beforeBalance - total,
+          lastUpdatedBy: 'user',
+        },
+      });
+
+      return t;
+    });
+
+    try {
+      const result = await this.vpayService.outboundTransfer({
+        nuban,
+        bank_code: bankCode,
+        amount,
+        remark: description || 'Vura transfer',
+        transaction_ref: reference,
+      });
+
+      await this.prisma.transaction.update({
+        where: { id: transaction.id },
+        data: {
+          providerTxId: result.reference || reference,
+          status: 'SUCCESS',
+        },
+      });
+
+      return {
+        success: true,
+        reference: result.reference || reference,
+        amount,
+        fee,
+        totalDeduction: total,
+        accountName,
+        transactionId: transaction.id,
+      };
+    } catch (err) {
+      await this.prisma.$transaction(async (tx) => {
+        await tx.balance.update({
+          where: { id: senderBalance.id },
+          data: {
+            amount: beforeBalance,
+            lastUpdatedBy: 'user',
+          },
+        });
+        await tx.transaction.update({
+          where: { id: transaction.id },
+          data: { status: 'FAILED' },
+        });
+      });
+      throw err;
+    }
   }
 }

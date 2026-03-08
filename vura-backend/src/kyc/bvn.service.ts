@@ -54,7 +54,7 @@ export class BVNService {
       );
     }
 
-    let provider: 'korapay' | 'prembly' = 'prembly';
+    let provider: 'prembly' = 'prembly';
     let fName = '';
     let lName = '';
 

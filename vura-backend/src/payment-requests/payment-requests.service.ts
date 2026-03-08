@@ -2,15 +2,18 @@ import {
   Injectable,
   BadRequestException,
   NotFoundException,
-  UnauthorizedException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
 import { Decimal } from '@prisma/client/runtime/library';
 import { randomBytes } from 'crypto';
+import { TransactionsService } from '../transactions/transactions.service';
 
 @Injectable()
 export class PaymentRequestsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private transactionsService: TransactionsService,
+  ) {}
 
   /**
    * Create a payment request
@@ -182,7 +185,6 @@ export class PaymentRequestsService {
     }
 
     if (new Date() > request.expiresAt) {
-      // Expire the request
       await this.prisma.paymentRequest.update({
         where: { id: requestId },
         data: { status: 'expired' },
@@ -190,16 +192,29 @@ export class PaymentRequestsService {
       throw new BadRequestException('Payment request has expired');
     }
 
-    // Return data for transaction processing
+    const requesterVuraTag = request.requester.vuraTag;
+    const amount = Number(request.amount);
+    const description = request.description || 'Payment request';
+
+    // Perform the transfer
+    await this.transactionsService.sendMoney(
+      userId,
+      requesterVuraTag,
+      amount,
+      description,
+      pin,
+    );
+
+    await this.completeRequest(requestId);
+
     return {
       success: true,
+      message: `₦${amount.toLocaleString()} sent to @${requesterVuraTag}`,
       request: {
         id: request.id,
         reference: request.reference,
-        recipientId: request.requester.id,
-        recipientVuraTag: request.requester.vuraTag,
-        amount: Number(request.amount),
-        description: request.description,
+        amount,
+        recipientVuraTag: requesterVuraTag,
       },
     };
   }

@@ -9,7 +9,6 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Bell, Check, X, Loader2, User, Wallet } from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 import { SecurityCountdownModal } from './SecurityCountdownModal';
 
@@ -54,10 +53,10 @@ export const PaymentRequestNotification: React.FC<PaymentRequestNotificationProp
   };
 
   const handleAcceptClick = () => {
-    if (!pin || pin.length < 4) {
+    if (!pin || pin.length !== 6) {
       toast({
         title: 'PIN Required',
-        description: 'Please enter your 4-digit PIN',
+        description: 'Please enter your 6-digit PIN',
         variant: 'destructive',
       });
       return;
@@ -129,15 +128,15 @@ export const PaymentRequestNotification: React.FC<PaymentRequestNotificationProp
             {/* PIN Input */}
             <div className="space-y-2">
               <label className="text-sm font-medium text-gray-700">
-                Enter your PIN to accept:
+                Enter your 6-digit PIN to accept:
               </label>
               <Input
                 type="password"
                 inputMode="numeric"
-                maxLength={4}
-                placeholder="••••"
+                maxLength={6}
+                placeholder="••••••"
                 value={pin}
-                onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))}
+                onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 6))}
                 className="text-center text-2xl tracking-widest"
               />
             </div>
@@ -168,7 +167,7 @@ export const PaymentRequestNotification: React.FC<PaymentRequestNotificationProp
               <Button
                 className="flex-1 bg-green-600 hover:bg-green-700"
                 onClick={handleAcceptClick}
-                disabled={isLoading || pin.length < 4}
+                disabled={isLoading || pin.length !== 6}
               >
                 {isLoading ? (
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />

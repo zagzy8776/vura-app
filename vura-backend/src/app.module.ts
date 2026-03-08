@@ -7,8 +7,7 @@ import { AppService } from './app.service';
 import { PrismaService } from './prisma.service';
 import { AuthModule } from './auth/auth.module';
 import { OTPModule } from './otp/otp.module';
-import { TransactionsController } from './transactions/transactions.controller';
-import { TransactionsService } from './transactions/transactions.service';
+import { TransactionsModule } from './transactions/transactions.module';
 import { CryptoModule } from './crypto/crypto.module';
 import { LimitsModule } from './limits/limits.module';
 import { HoldsModule } from './holds/holds.module';
@@ -25,8 +24,8 @@ import { PaymentRequestsModule } from './payment-requests/payment-requests.modul
 import { BankCodesModule } from './bank-codes/bank-codes.module';
 import { VirtualAccountsModule } from './virtual-accounts/virtual-accounts.module';
 import { FundingModule } from './funding/funding.module';
+import { VpayModule } from './vpay/vpay.module';
 import { PaystackService } from './services/paystack.service';
-import { KorapayService } from './services/korapay.service';
 import { BankCodesService } from './services/bank-codes.service';
 import { CloudinaryService } from './services/cloudinary.service';
 import { EmailService } from './services/email.service';
@@ -50,6 +49,7 @@ import { SecurityMiddleware } from './middleware/security.middleware';
     }),
     AuthModule,
     OTPModule,
+    TransactionsModule,
     CryptoModule,
     LimitsModule,
     HoldsModule,
@@ -66,10 +66,10 @@ import { SecurityMiddleware } from './middleware/security.middleware';
     BankCodesModule,
     VirtualAccountsModule,
     FundingModule,
+    VpayModule,
   ],
   controllers: [
     AppController,
-    TransactionsController,
     WebhookController,
     AdminController,
     KYCUploadController,
@@ -77,9 +77,7 @@ import { SecurityMiddleware } from './middleware/security.middleware';
   providers: [
     AppService,
     PrismaService,
-    TransactionsService,
     PaystackService,
-    KorapayService,
     BankCodesService,
     CloudinaryService,
     EmailService,

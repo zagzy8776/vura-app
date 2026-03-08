@@ -20,20 +20,21 @@ const FundWallet = () => {
   const [searchParams] = useSearchParams();
   const refParam = searchParams.get("ref");
 
+  const loadBalance = async () => {
+    try {
+      const res = await apiFetch("/transactions/balance");
+      if (!res.ok) return;
+      const json = await res.json();
+      const ngn = Array.isArray(json)
+        ? json.find((b: { currency: string }) => b.currency === "NGN")?.amount
+        : json.data?.NGN ?? json.data?.ngn;
+      setBalance(ngn != null ? String(ngn) : null);
+    } catch {
+      /* silent */
+    }
+  };
+
   useEffect(() => {
-    const loadBalance = async () => {
-      try {
-        const res = await apiFetch("/transactions/balance");
-        if (!res.ok) return;
-        const json = await res.json();
-        const ngn = Array.isArray(json)
-          ? json.find((b: { currency: string }) => b.currency === "NGN")?.amount
-          : json.data?.NGN ?? json.data?.ngn;
-        setBalance(ngn != null ? String(ngn) : null);
-      } catch {
-        /* silent */
-      }
-    };
     loadBalance();
   }, [funded]);
 
@@ -114,7 +115,7 @@ const FundWallet = () => {
             <Button onClick={() => navigate("/")} className="rounded-xl gradient-brand text-primary-foreground font-semibold">
               <Wallet className="h-4 w-4 mr-2" /> Go to Wallet
             </Button>
-            <Button onClick={() => { setFunded(false); setAmount(""); }} variant="outline" className="rounded-xl">
+            <Button onClick={() => { setFunded(false); setAmount(""); loadBalance(); }} variant="outline" className="rounded-xl">
               Fund Again
             </Button>
           </div>

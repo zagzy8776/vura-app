@@ -51,7 +51,7 @@ export class AdminController {
   }
 
   /**
-   * Get this server's public IP (for whitelisting in Paystack/Korapay). Requires admin secret.
+   * Get this server's public IP (for whitelisting in Paystack). Requires admin secret.
    */
   @Get('server-ip')
   async getServerIp(@Headers('authorization') authHeader: string) {
@@ -61,7 +61,7 @@ export class AdminController {
       const data = (await res.json()) as { ip?: string };
       const ip = data?.ip?.trim();
       if (!ip) throw new Error('No IP in response');
-      return { ip, hint: 'Add this IP in Paystack (Settings → API Keys and Webhook) and Korapay (Settings → API configuration) if you use send-to-bank.' };
+      return { ip, hint: 'Add this IP in Paystack (Settings → API Keys and Webhook) if needed for webhooks.' };
     } catch (e) {
       this.logger.warn('getServerIp failed: ' + (e instanceof Error ? e.message : String(e)));
       throw new BadRequestException('Could not fetch server IP. Try https://api.ipify.org from your server or check Render dashboard for outbound IP.');
@@ -529,7 +529,7 @@ export class AdminController {
 
   /**
    * Manually set user to Tier 2 (BVN-equivalent) so they can receive money and get higher limits.
-   * Use when BVN API (Korapay/Prembly) is failing but you have verified the user (e.g. offline).
+   * Use when BVN API (Prembly) is failing but you have verified the user (e.g. offline).
    * Sets kycTier=2, bvnVerified=true, legalFirstName, legalLastName so virtual account creation works.
    */
   @Post('users/:id/set-tier-2')

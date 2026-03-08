@@ -33,7 +33,13 @@ const getIcon = (type: string) => {
 const TransactionList = ({ transactions = [] }: TransactionListProps) => {
   const navigate = useNavigate();
 
-  const formatDate = (dateStr: string) => {
+  const formatCounterparty = (counterparty: string, direction: string) => {
+    if (!counterparty) return direction === "received" ? "From —" : "To —";
+    const systemLabels = ["Bills", "Airtime", "Data", "Electricity", "deposit", "external_transfer"];
+    const isSystem = systemLabels.some((l) => counterparty.toLowerCase().includes(l.toLowerCase()));
+    const prefix = direction === "received" ? "From " : "To ";
+    return prefix + (isSystem || counterparty.startsWith("@") ? counterparty : `@${counterparty}`);
+  };
     if (!dateStr) return "Invalid date";
     try {
       const date = new Date(dateStr);
@@ -92,7 +98,7 @@ const TransactionList = ({ transactions = [] }: TransactionListProps) => {
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-foreground truncate">
-                  {tx.direction === "received" ? "From " : "To "}@{tx.counterparty}
+                  {formatCounterparty(tx.counterparty || "", tx.direction)}
                 </p>
                 <p className="text-xs text-muted-foreground">{formatDate(tx.createdAt)}</p>
               </div>

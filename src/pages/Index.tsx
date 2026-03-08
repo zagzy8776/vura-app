@@ -7,7 +7,12 @@ import StatsCards from "@/components/StatsCards";
 import TransactionList from "@/components/TransactionList";
 import SpendingChart from "@/components/SpendingChart";
 import LoadingSpinner from "@/components/LoadingSpinner";
+import { PaymentRequestNotification } from "@/components/PaymentRequestNotification";
 import { useAuth, apiFetch } from "@/hooks/useAuth";
+import { toast } from "@/hooks/use-toast";
+import { useNavigate } from "react-router-dom";
+import { Button } from "@/components/ui/button";
+import { Bell, Check, X, Loader2 } from "lucide-react";
 
 interface Balance {
   currency: string;
@@ -26,12 +31,41 @@ interface Transaction {
   direction: string;
 }
 
+interface PendingRequest {
+  id: string;
+  reference: string;
+  amount: number;
+  description: string;
+  requesterVuraTag: string;
+  requesterKycTier: number;
+  createdAt: string;
+  expiresAt: string;
+}
+
 const Index = () => {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [balances, setBalances] = useState<Balance[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [pendingRequests, setPendingRequests] = useState<PendingRequest[]>([]);
+  const [selectedRequest, setSelectedRequest] = useState<PendingRequest | null>(null);
+  const [limits, setLimits] = useState<{ remainingDaily?: number; dailyLimit?: number }>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const fetchPendingRequests = async () => {
+    try {
+      const res = await apiFetch("/payment-requests/pending");
+      if (res.ok) {
+        const data = await res.json();
+        setPendingRequests(Array.isArray(data) ? data : []);
+      } else {
+        setPendingRequests([]);
+      }
+    } catch {
+      setPendingRequests([]);
+    }
+  };
 
   useEffect(() => {
     const fetchData = async () => {
@@ -42,15 +76,12 @@ const Index = () => {
         const balanceRes = await apiFetch("/transactions/balance");
         if (balanceRes.ok) {
           const balanceData = await balanceRes.json();
-          // Validate that balanceData is an array
           if (Array.isArray(balanceData)) {
             setBalances(balanceData);
           } else {
-            console.warn("Balance data is not an array:", balanceData);
             setBalances([]);
           }
         } else {
-          console.warn("Failed to fetch balances:", balanceRes.status);
           setBalances([]);
         }
 
@@ -58,16 +89,21 @@ const Index = () => {
         const txRes = await apiFetch("/transactions?limit=10");
         if (txRes.ok) {
           const txData = await txRes.json();
-          // Validate that txData is an array
           if (Array.isArray(txData)) {
             setTransactions(txData);
           } else {
-            console.warn("Transaction data is not an array:", txData);
             setTransactions([]);
           }
         } else {
-          console.warn("Failed to fetch transactions:", txRes.status);
           setTransactions([]);
+        }
+
+        await fetchPendingRequests();
+
+        const limitsRes = await apiFetch("/limits");
+        if (limitsRes.ok) {
+          const lim = await limitsRes.json().catch(() => ({}));
+          setLimits({ remainingDaily: lim?.remainingDaily, dailyLimit: lim?.dailyLimit });
         }
       } catch (error) {
         console.error("Failed to fetch data:", error);
@@ -84,9 +120,50 @@ const Index = () => {
     }
   }, [user]);
 
+  const handleAcceptRequest = async (requestId: string, pin: string) => {
+    try {
+      const res = await apiFetch(`/payment-requests/${requestId}/accept`, {
+        method: "POST",
+        body: JSON.stringify({ pin }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast({ title: "Payment failed", description: data.message || "Could not complete payment", variant: "destructive" });
+        return;
+      }
+      toast({ title: "Payment sent", description: data.message || `₦${data.request?.amount} sent.` });
+      setSelectedRequest(null);
+      setPendingRequests((prev) => prev.filter((r) => r.id !== requestId));
+      const balanceRes = await apiFetch("/transactions/balance");
+      if (balanceRes.ok) {
+        const balanceData = await balanceRes.json();
+        if (Array.isArray(balanceData)) setBalances(balanceData);
+      }
+      const txRes = await apiFetch("/transactions?limit=10");
+      if (txRes.ok) {
+        const txData = await txRes.json();
+        if (Array.isArray(txData)) setTransactions(txData);
+      }
+    } catch (e) {
+      toast({ title: "Error", description: e instanceof Error ? e.message : "Request failed", variant: "destructive" });
+    }
+  };
+
+  const handleDeclineRequest = async (requestId: string) => {
+    try {
+      await apiFetch(`/payment-requests/${requestId}/decline`, { method: "POST" });
+      setSelectedRequest(null);
+      setPendingRequests((prev) => prev.filter((r) => r.id !== requestId));
+    } catch {
+      toast({ title: "Error", description: "Could not decline request", variant: "destructive" });
+    }
+  };
+
   // Get NGN and USDT balances with fallback
   const ngnBalance = balances.find(b => b.currency === "NGN")?.amount || 0;
   const usdtBalance = balances.find(b => b.currency === "USDT")?.amount || 0;
+  const remainingToSend = Number(limits.remainingDaily);
+  const hasRemaining = Number.isFinite(remainingToSend) && remainingToSend > 0;
 
   return (
     <div className="flex min-h-screen bg-background">
@@ -108,7 +185,45 @@ const Index = () => {
               usdtBalance={usdtBalance} 
               loading={loading} 
             />
+            {!loading && hasRemaining && (
+              <div className="mt-2 flex items-center gap-2 flex-wrap">
+                <p className="text-sm text-muted-foreground">
+                  You have <span className="font-semibold text-foreground">₦{remainingToSend.toLocaleString()}</span> left to send today.
+                </p>
+                <Button size="sm" className="rounded-xl h-8" onClick={() => navigate("/send")}>
+                  Send
+                </Button>
+              </div>
+            )}
           </div>
+
+          {/* Pending payment requests */}
+          {pendingRequests.length > 0 && (
+            <div className="rounded-2xl bg-card border border-border p-4 shadow-card">
+              <h3 className="text-lg font-semibold text-foreground flex items-center gap-2 mb-3">
+                <Bell className="h-5 w-5 text-primary" />
+                Payment requests ({pendingRequests.length})
+              </h3>
+              <ul className="space-y-2">
+                {pendingRequests.map((req) => (
+                  <li key={req.id} className="flex items-center justify-between gap-3 py-2 border-b border-border last:border-0">
+                    <div className="min-w-0">
+                      <p className="font-medium text-foreground">@{req.requesterVuraTag}</p>
+                      <p className="text-sm text-muted-foreground">{req.description || "Payment request"} · ₦{Number(req.amount).toLocaleString()}</p>
+                    </div>
+                    <div className="flex gap-2 shrink-0">
+                      <Button size="sm" variant="outline" className="rounded-lg" onClick={() => handleDeclineRequest(req.id)}>
+                        <X className="h-4 w-4" />
+                      </Button>
+                      <Button size="sm" className="rounded-lg bg-primary text-primary-foreground hover:opacity-90" onClick={() => setSelectedRequest(req)}>
+                        <Check className="h-4 w-4 mr-1" /> Pay
+                      </Button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           {/* Quick Actions - Moved up after Balance */}
           <div>
@@ -130,6 +245,14 @@ const Index = () => {
             <SpendingChart transactions={transactions} />
           </div>
         </div>
+
+        <PaymentRequestNotification
+          isOpen={!!selectedRequest}
+          onClose={() => setSelectedRequest(null)}
+          request={selectedRequest}
+          onAccept={handleAcceptRequest}
+          onDecline={handleDeclineRequest}
+        />
       </main>
     </div>
   );

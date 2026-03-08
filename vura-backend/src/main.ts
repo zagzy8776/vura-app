@@ -55,9 +55,6 @@ async function bootstrap() {
       'Authorization',
       'X-Requested-With',
       'X-Device-Fingerprint',
-      // Korapay webhook headers
-      'x-korapay-signature',
-      'x-korapay-timestamp',
       // Paystack webhook headers
       'x-paystack-signature',
     ],

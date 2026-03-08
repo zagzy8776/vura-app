@@ -65,9 +65,42 @@ const Transactions = () => {
     return type === "received" ? ArrowDownLeft : ArrowUpRight;
   };
 
+  const formatCounterparty = (counterparty: string, direction: string) => {
+    if (!counterparty) return direction === "received" ? "From —" : "To —";
+    const systemLabels = ["Bills", "Airtime", "Data", "Electricity", "deposit", "external_transfer"];
+    const isSystem = systemLabels.some((l) => counterparty.toLowerCase().includes(l.toLowerCase()));
+    const prefix = direction === "received" ? "From " : "To ";
+    return prefix + (isSystem || counterparty.startsWith("@") ? counterparty : `@${counterparty}`);
+  };
+
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr);
     return date.toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  };
+
+  const exportCsv = () => {
+    if (filtered.length === 0) {
+      toast({ title: "No data", description: "Nothing to export.", variant: "destructive" });
+      return;
+    }
+    const headers = ["Date", "Direction", "Counterparty", "Amount (₦)", "Status", "Reference"];
+    const rows = filtered.map((tx) => [
+      formatDate(tx.createdAt),
+      tx.direction,
+      (tx.counterparty || "").replace(/"/g, '""'),
+      tx.amount,
+      tx.status,
+      (tx.reference || "").replace(/"/g, '""'),
+    ]);
+    const csvContent = [headers.join(","), ...rows.map((r) => r.map((c) => `"${c}"`).join(","))].join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `vura-transactions-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast({ title: "Exported", description: "CSV downloaded." });
   };
 
   return (
@@ -81,7 +114,7 @@ const Transactions = () => {
               <h2 className="text-xl sm:text-2xl font-bold text-foreground">Transactions</h2>
               <p className="text-muted-foreground text-sm mt-1">Your complete transaction history</p>
             </div>
-            <Button variant="outline" className="rounded-xl shrink-0" size="sm" onClick={() => toast({ title: "Coming soon", description: "Export to CSV will be available soon." })}>
+            <Button variant="outline" className="rounded-xl shrink-0" size="sm" onClick={exportCsv}>
               <Download className="h-4 w-4 mr-1" /> Export
             </Button>
           </div>
@@ -137,7 +170,7 @@ const Transactions = () => {
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-foreground truncate">
-                        {tx.direction === "received" ? "From " : "To "}@{tx.counterparty}
+                        {formatCounterparty(tx.counterparty || "", tx.direction)}
                       </p>
                       <p className="text-xs text-muted-foreground">{formatDate(tx.createdAt)}</p>
                     </div>

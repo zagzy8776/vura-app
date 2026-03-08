@@ -2,16 +2,13 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma.service';
 import { PaystackService } from '../services/paystack.service';
-import { KorapayService } from '../services/korapay.service';
 import { decrypt } from '../utils/encryption';
-import { decryptFromColumns } from '../utils/field-encryption';
 
 @Injectable()
 export class VirtualAccountsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly paystackService: PaystackService,
-    private readonly korapayService: KorapayService,
     private readonly config: ConfigService,
   ) {}
 
@@ -88,55 +85,7 @@ export class VirtualAccountsService {
 
     const accountName = `${effectiveFirstName} ${effectiveLastName}`.trim() || `${user.vuraTag || 'Vura'} Account`;
 
-    // Prefer Korapay when configured AND user has BVN on file (Korapay requires BVN). Otherwise fall back to Paystack.
-    if (this.korapayService.isConfigured() && user.bvnEncrypted && user.bvnIv) {
-      let bvn: string;
-      try {
-        bvn = decryptFromColumns(user.bvnEncrypted, user.bvnIv);
-      } catch {
-        throw new BadRequestException(
-          'Could not verify your details. Please complete identity verification again in Settings.',
-        );
-      }
-      const bankCode =
-        this.config.get<string>('KORAPAY_VBA_BANK_CODE') || '035';
-      const korapayResult = await this.korapayService.createVirtualBankAccount({
-        account_name: accountName,
-        account_reference: user.id,
-        permanent: true,
-        bank_code: bankCode,
-        customer: {
-          name: accountName,
-          email: user.emailEncrypted ? decrypt(user.emailEncrypted) : undefined,
-        },
-        kyc: { bvn },
-      });
-      if (!korapayResult.success) {
-        throw new BadRequestException(
-          korapayResult.error || 'Failed to create virtual account',
-        );
-      }
-      const k = korapayResult.data;
-      await this.prisma.user.update({
-        where: { id: user.id },
-        data: {
-          reservedAccountNumber: k.account_number,
-          reservedAccountBankName: k.bank_name,
-          korapayReference: k.unique_id,
-        },
-      });
-      return {
-        success: true,
-        data: {
-          accountNumber: k.account_number,
-          bankName: k.bank_name,
-          accountName: k.account_name,
-          orderRef: k.unique_id,
-        },
-      };
-    }
-
-    // Fallback: Paystack Dedicated Virtual Account
+    // Paystack Dedicated Virtual Account
     const email = user.emailEncrypted ? decrypt(user.emailEncrypted) : '';
     if (!email) {
       throw new BadRequestException(
@@ -187,12 +136,9 @@ export class VirtualAccountsService {
         raw.includes('nuban') ||
         raw.includes('not available') ||
         raw.includes('not available for this business');
-      let message = isPaystackDvaDisabled
+      const message = isPaystackDvaDisabled
         ? 'Bank account generation is temporarily unavailable. Please try again later or contact support.'
         : result.error || 'Failed to create virtual account';
-      if (isPaystackDvaDisabled && this.korapayService.isConfigured()) {
-        message += ' You can add your BVN in Settings to get a dedicated account.';
-      }
       throw new BadRequestException(message);
     }
     await this.prisma.user.update({
