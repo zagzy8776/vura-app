@@ -58,7 +58,7 @@ export class VpayService {
 
     const url = `${this.baseUrl}/api/service/v1/query/merchant/login`;
     try {
-      const res = await axios.post<{ status?: boolean; token?: string; message?: string }>(
+      const res = await axios.post(
         url,
         { username: this.username, password: this.password },
         {
@@ -70,10 +70,15 @@ export class VpayService {
         },
       );
 
-      const token = res.data?.token;
+      const data = res.data as Record<string, unknown> | undefined;
+      const token =
+        (data?.token as string) ??
+        (data?.accessToken as string) ??
+        ((data?.data as Record<string, unknown>)?.token as string) ??
+        ((data?.data as Record<string, unknown>)?.accessToken as string);
       if (!token || typeof token !== 'string') {
         throw new BadRequestException(
-          res.data?.message || 'VPay login did not return a token',
+          (data?.message as string) || 'VPay login did not return a token',
         );
       }
 
@@ -89,6 +94,16 @@ export class VpayService {
     }
   }
 
+  /** Build headers for authenticated VPay requests. Try both b-access-token and Authorization in case only one is accepted. */
+  private authHeaders(token: string): Record<string, string> {
+    return {
+      'Content-Type': 'application/json',
+      publicKey: this.publicKey,
+      'b-access-token': token,
+      Authorization: `Bearer ${token}`,
+    };
+  }
+
   /**
    * Get list of banks for send-to-bank.
    * VPay: GET /api/service/v1/query/bank/list/show, throttle 1 per 60s. Cached 10 min.
@@ -99,15 +114,17 @@ export class VpayService {
       return this.bankListCache.banks;
     }
 
-    const token = await this.getAccessToken();
+    let token: string;
+    try {
+      token = await this.getAccessToken();
+    } catch (e) {
+      this.bankListCache = null;
+      throw e;
+    }
     const url = `${this.baseUrl}/api/service/v1/query/bank/list/show`;
     try {
       const res = await axios.get(url, {
-        headers: {
-          'Content-Type': 'application/json',
-          publicKey: this.publicKey,
-          'b-access-token': token,
-        },
+        headers: this.authHeaders(token),
         timeout: 15000,
       });
 
@@ -146,6 +163,10 @@ export class VpayService {
       return banks;
     } catch (error: unknown) {
       const msg = this.getErrorMessage(error);
+      if (msg?.toLowerCase().includes('invalid authentication') || msg?.toLowerCase().includes('unauthorized')) {
+        this.tokenCache = null;
+        this.bankListCache = null;
+      }
       if (msg) throw new BadRequestException(`VPay bank list failed: ${msg}`);
       throw new BadRequestException('VPay bank list failed');
     }
@@ -168,11 +189,7 @@ export class VpayService {
         url,
         { nuban: nuban.replace(/\D/g, ''), bank_code },
         {
-          headers: {
-            'Content-Type': 'application/json',
-            publicKey: this.publicKey,
-            'b-access-token': token,
-          },
+          headers: this.authHeaders(token),
           timeout: 15000,
         },
       );
@@ -191,6 +208,9 @@ export class VpayService {
       return { accountName: String(accountName).trim() };
     } catch (error: unknown) {
       const msg = this.getErrorMessage(error);
+      if (msg?.toLowerCase().includes('invalid authentication') || msg?.toLowerCase().includes('unauthorized')) {
+        this.tokenCache = null;
+      }
       if (msg) throw new BadRequestException(`VPay lookup failed: ${msg}`);
       throw new BadRequestException('VPay lookup failed');
     }
@@ -225,11 +245,7 @@ export class VpayService {
         data?: { transaction_ref?: string; reference?: string };
         message?: string;
       }>(url, body, {
-        headers: {
-          'Content-Type': 'application/json',
-          publicKey: this.publicKey,
-          'b-access-token': token,
-        },
+        headers: this.authHeaders(token),
         timeout: 30000,
       });
 

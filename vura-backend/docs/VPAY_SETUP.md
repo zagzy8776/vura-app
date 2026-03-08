@@ -34,7 +34,11 @@ Examples:
 
 The backend accepts `POST`, logs the body, and returns `200` with `{ "received": true }`. You can later extend this to update transaction status when VPay sends transfer success/failure (payload format from VPay docs).
 
-## 3. Quick check
+## 3. "Invalid Authentication" from VPay
+
+If you see **VPay bank list failed: Invalid Authentication**, check: (1) Credentials on the server – `VPAY_PUBLIC_KEY` (exact, no spaces), `VPAY_USERNAME`, `VPAY_PASSWORD`. (2) We send the token in both `b-access-token` and `Authorization: Bearer`; confirm with VPay the exact header. (3) Redeploy after changing env vars.
+
+## 4. Quick check
 
 - **Bank list not loading:** Ensure `VPAY_PUBLIC_KEY`, `VPAY_USERNAME`, `VPAY_PASSWORD` are set on the backend and redeploy. Then open Send → Bank or click “Try again”.
 - **Webhook:** In VPay dashboard set Webhook URL to `https://YOUR-BACKEND-URL/api/webhooks/vpay`.
