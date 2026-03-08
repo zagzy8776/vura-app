@@ -253,6 +253,41 @@ export class WebhookController {
   }
 
   // ============================================
+  // VPAY WEBHOOK
+  // ============================================
+
+  /**
+   * VPay Africa webhook – transfer status callbacks.
+   * Set this URL in VPay dashboard (e.g. https://your-backend.onrender.com/api/webhooks/vpay).
+   * VPay may send transfer success/failure; we log and return 200. Optionally update transaction status when payload format is known.
+   */
+  @Post('vpay')
+  @HttpCode(200)
+  async handleVpayWebhook(@Body() payload: any, @Req() req: Request) {
+    const ref =
+      payload?.reference ??
+      payload?.transaction_ref ??
+      payload?.data?.reference ??
+      `vpay_${Date.now()}_${Math.random().toString(36).slice(2, 12)}`;
+    try {
+      await this.prisma.processedWebhook.create({
+        data: {
+          provider: 'vpay',
+          providerTxId: String(ref),
+          eventType: payload?.event ?? payload?.status ?? 'unknown',
+          rawPayload: payload ?? {},
+          signatureValid: false,
+        },
+      });
+    } catch (e) {
+      // Duplicate ref – already processed
+      if ((e as { code?: string })?.code !== 'P2002') throw e;
+    }
+    this.logger.log('VPay webhook received', { ref, ip: req.ip });
+    return { received: true };
+  }
+
+  // ============================================
   // PAYSTACK WEBHOOK
   // ============================================
 

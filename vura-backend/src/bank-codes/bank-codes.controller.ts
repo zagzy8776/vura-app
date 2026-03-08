@@ -26,8 +26,8 @@ export class BankCodesController {
 
   /**
    * Banks for send-to-bank. VPay only: when configured returns VPay bank list and enables transfer.
-   * When VPay is not configured: success true, empty banks, transferAvailable false.
-   * When VPay fails (e.g. login/network): success false, message for retry.
+   * When VPay is not configured: success true, empty banks, transferAvailable false, reason: 'not_configured'.
+   * When VPay fails (e.g. login/network): success false, reason: 'vpay_error', message for retry.
    */
   @Get('for-send-to-bank')
   async getBanksForSendToBank() {
@@ -37,6 +37,7 @@ export class BankCodesController {
         banks: [],
         transferAvailable: false,
         provider: null,
+        reason: 'not_configured',
         message: 'Bank transfer is not available. Use @tag to send to other Vura users.',
       };
     }
@@ -47,6 +48,7 @@ export class BankCodesController {
         banks,
         transferAvailable: true,
         provider: 'vpay',
+        reason: undefined,
         message: undefined,
       };
     } catch (err: unknown) {
@@ -56,6 +58,7 @@ export class BankCodesController {
         banks: [],
         transferAvailable: false,
         provider: null,
+        reason: 'vpay_error',
         message: message.includes('login') ? 'Bank service is temporarily unavailable. Please try again in a moment.' : 'Could not load banks. Please try again.',
       };
     }

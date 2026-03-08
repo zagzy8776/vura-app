@@ -183,6 +183,11 @@ const SendMoney = () => {
     loadBanks();
   }, []);
 
+  // Refetch banks when user switches to Bank tab (so API is called again if first load failed or env was just set)
+  useEffect(() => {
+    if (transferMode === 'bank') loadBanks();
+  }, [transferMode]);
+
   // Prefill from payment link: /send?to=emeka&amount=5000&note=...
   useEffect(() => {
     const to = searchParams.get("to");
