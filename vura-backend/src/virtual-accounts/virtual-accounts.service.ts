@@ -70,13 +70,8 @@ export class VirtualAccountsService {
 
     const accountName = `${effectiveFirstName} ${effectiveLastName}`.trim() || `${user.vuraTag || 'Vura'} Account`;
 
-    // Prefer Korapay when configured (no Paystack DVA required)
-    if (this.korapayService.isConfigured()) {
-      if (!user.bvnEncrypted || !user.bvnIv) {
-        throw new BadRequestException(
-          'BVN is required to generate your virtual account. Complete identity verification in Settings.',
-        );
-      }
+    // Prefer Korapay when configured AND user has BVN on file (Korapay requires BVN). Otherwise fall back to Paystack.
+    if (this.korapayService.isConfigured() && user.bvnEncrypted && user.bvnIv) {
       let bvn: string;
       try {
         bvn = decryptFromColumns(user.bvnEncrypted, user.bvnIv);
