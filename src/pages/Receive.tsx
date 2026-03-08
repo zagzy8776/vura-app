@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Copy, CheckCircle, QrCode, Share2, Link2, Sparkles, Loader2 } from "lucide-react";
+import { Copy, CheckCircle, QrCode, Share2, Link2, Sparkles, Loader2, CreditCard } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -247,8 +247,28 @@ const Receive = () => {
         <div className="max-w-lg mx-auto space-y-6">
           <div>
             <h2 className="text-2xl font-bold text-foreground">Receive Money</h2>
-            <p className="text-muted-foreground text-sm mt-1">Share your tag or request payment</p>
+            <p className="text-muted-foreground text-sm mt-1">Share your tag or add money instantly</p>
           </div>
+
+          {/* Add money with card - immediate funding (no VA needed) */}
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="rounded-2xl border-2 border-primary/30 bg-primary/5 p-4"
+          >
+            <div className="flex items-center gap-4">
+              <div className="h-12 w-12 rounded-xl bg-primary/20 flex items-center justify-center shrink-0">
+                <CreditCard className="h-6 w-6 text-primary" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-foreground">Add money with card</p>
+                <p className="text-sm text-muted-foreground">Pay with card, bank transfer or USSD. Credited instantly.</p>
+              </div>
+              <Button onClick={() => navigate("/fund-wallet")} className="rounded-xl shrink-0">
+                Add Money
+              </Button>
+            </div>
+          </motion.div>
 
           {/* QR / Tag Card */}
           <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="rounded-2xl gradient-card p-5 sm:p-8 text-center text-primary-foreground shadow-elevated">
