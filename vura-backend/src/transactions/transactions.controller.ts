@@ -12,7 +12,6 @@ import {
 import { TransactionsService } from './transactions.service';
 import { AuthGuard } from '../auth/auth.guard';
 import { BankCodesService } from '../services/bank-codes.service';
-import { PaystackService } from '../services/paystack.service';
 import { KorapayService } from '../services/korapay.service';
 import { PrismaService } from '../prisma.service';
 import { LimitsService } from '../limits/limits.service';
@@ -25,7 +24,6 @@ export class TransactionsController {
   constructor(
     private transactionsService: TransactionsService,
     private bankCodesService: BankCodesService,
-    private paystackService: PaystackService,
     private korapayService: KorapayService,
     private prisma: PrismaService,
     private limitsService: LimitsService,
@@ -106,25 +104,17 @@ export class TransactionsController {
     const totalDeduction = amount + fee;
     await this.limitsService.checkSendLimit(userId, new Decimal(totalDeduction), 'NGN');
 
-    const useKorapay =
-      this.korapayService.isConfigured() &&
-      (await this.korapayService.listBanks()).length >= 15;
-    const provider = useKorapay ? 'korapay' : 'paystack';
-
-    let resolvedAccountName: string;
-    if (useKorapay) {
-      const resolveResult = await this.korapayService.resolveBankAccount(accountNumber, bankCode);
-      if (!resolveResult.success) {
-        throw new BadRequestException(resolveResult.error || 'Could not verify account');
-      }
-      resolvedAccountName = accountName || resolveResult.accountName;
-    } else {
-      const verificationResult = await this.paystackService.verifyAccount(
-        accountNumber,
-        bankCode,
+    if (!this.korapayService.isConfigured()) {
+      throw new BadRequestException(
+        'Send to bank is only available with Korapay. Set KORAPAY_SECRET_KEY in your server environment.',
       );
-      resolvedAccountName = accountName || verificationResult.accountName;
     }
+
+    const resolveResult = await this.korapayService.resolveBankAccount(accountNumber, bankCode);
+    if (!resolveResult.success) {
+      throw new BadRequestException(resolveResult.error || 'Could not verify account');
+    }
+    const resolvedAccountName = accountName || resolveResult.accountName;
 
     const reference = `BANK-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
@@ -164,7 +154,7 @@ export class TransactionsController {
             accountName: resolvedAccountName,
             transferAmount: amount,
             fee,
-            provider,
+            provider: 'korapay',
           },
         },
       });
@@ -173,55 +163,37 @@ export class TransactionsController {
     });
 
     try {
-      let transferReference: string;
-      let transferStatus: string;
-
-      if (useKorapay) {
-        const senderEmail =
-          (user?.emailEncrypted && decrypt(user.emailEncrypted)) ||
-          `user-${userId}@vura.local`;
-        const result = await this.korapayService.disburse({
-          reference,
-          accountNumber,
-          bankCode,
-          accountName: resolvedAccountName,
-          amount,
-          narration: description,
-          customerEmail: senderEmail,
-          customerName: resolvedAccountName,
-        });
-        if (!result.success) {
-          throw new BadRequestException(result.error);
-        }
-        transferReference = result.reference;
-        transferStatus = result.status;
-      } else {
-        const transferResult = await this.paystackService.initiateTransfer(
-          accountNumber,
-          bankCode,
-          resolvedAccountName,
-          amount,
-          reference,
-          description,
-        );
-        transferReference = transferResult.reference;
-        transferStatus = transferResult.status;
+      const senderEmail =
+        (user?.emailEncrypted && decrypt(user.emailEncrypted)) ||
+        `user-${userId}@vura.local`;
+      const result = await this.korapayService.disburse({
+        reference,
+        accountNumber,
+        bankCode,
+        accountName: resolvedAccountName,
+        amount,
+        narration: description,
+        customerEmail: senderEmail,
+        customerName: resolvedAccountName,
+      });
+      if (!result.success) {
+        throw new BadRequestException(result.error);
       }
 
       await this.prisma.transaction.update({
         where: { id: tx.transaction.id },
-        data: { providerTxId: transferReference },
+        data: { providerTxId: result.reference },
       });
 
       return {
         success: true,
-        reference: transferReference,
-        status: transferStatus,
+        reference: result.reference,
+        status: result.status,
         accountName: resolvedAccountName,
         amount,
         fee,
         totalDeduction,
-        provider,
+        provider: 'korapay',
       };
     } catch (err: any) {
       await this.prisma.$transaction(async (prisma) => {
@@ -245,26 +217,12 @@ export class TransactionsController {
       };
       const rawMessage =
         errObj?.response?.data?.message || errObj?.message || '';
-      const isStarterError =
-        typeof rawMessage === 'string' &&
-        /starter|cannot initiate/i.test(rawMessage);
       const isIpAuthError =
         typeof rawMessage === 'string' &&
         /not authorized|authorized to use this resource|whitelist|invalid ip|ip address is not allowed|not allowed to make this call/i.test(rawMessage);
-      let message: string;
-      if (isStarterError) {
-        message =
-          'Bank transfer is not available on your current Paystack plan (Starter). Upgrade to a Registered Business in Paystack Dashboard (Compliance > Profile), or ensure Korapay is configured for send-to-bank.';
-      } else if (isIpAuthError) {
-        const where =
-          provider === 'korapay'
-            ? 'Korapay (merchant.korapay.com → Settings → API configuration → IP whitelist)'
-            : 'Paystack (dashboard.paystack.com → Settings → API Keys and Webhook → Add IP address)';
-        message =
-          `Bank transfer was rejected: server IP not whitelisted. Add your server's public IP in ${where}. Get the IP: GET https://vura-app.onrender.com/api/admin/server-ip with header Authorization: Bearer YOUR_ADMIN_SECRET. Your balance has been refunded.`;
-      } else {
-        message = rawMessage || 'Transfer failed. Your balance has been refunded.';
-      }
+      const message = isIpAuthError
+        ? `Bank transfer was rejected: server IP not whitelisted. Add your server's public IP in Korapay (merchant.korapay.com → Settings → API configuration → IP whitelist), or disable IP whitelist. Get the IP: GET https://vura-app.onrender.com/api/admin/server-ip with header Authorization: Bearer YOUR_ADMIN_SECRET. Your balance has been refunded.`
+        : rawMessage || 'Transfer failed. Your balance has been refunded.';
       throw new BadRequestException(message);
     }
   }
@@ -303,32 +261,23 @@ export class TransactionsController {
     @Query('accountNumber') accountNumber: string,
     @Query('bankCode') bankCode: string,
   ) {
+    if (!this.korapayService.isConfigured()) {
+      throw new BadRequestException(
+        'Account verification for send-to-bank requires Korapay. Set KORAPAY_SECRET_KEY in your server environment.',
+      );
+    }
     try {
-      const useKorapay =
-        this.korapayService.isConfigured() &&
-        (await this.korapayService.listBanks()).length >= 15;
-      if (useKorapay) {
-        const result = await this.korapayService.resolveBankAccount(
-          accountNumber,
-          bankCode,
-        );
-        if (!result.success) {
-          throw new BadRequestException(result.error || 'Could not verify account');
-        }
-        return {
-          success: true,
-          accountName: result.accountName,
-          provider: 'korapay',
-        };
-      }
-      const result = await this.paystackService.verifyAccount(
+      const result = await this.korapayService.resolveBankAccount(
         accountNumber,
         bankCode,
       );
+      if (!result.success) {
+        throw new BadRequestException(result.error || 'Could not verify account');
+      }
       return {
         success: true,
         accountName: result.accountName,
-        provider: 'paystack',
+        provider: 'korapay',
       };
     } catch (error: unknown) {
       if (error instanceof BadRequestException) throw error;

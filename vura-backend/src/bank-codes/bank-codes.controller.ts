@@ -17,34 +17,24 @@ export class BankCodesController {
   }
 
   /**
-   * Banks for send-to-bank form. When Korapay is configured, use its list (250+ banks) so codes match verify/transfer.
-   * If Korapay returns very few banks (e.g. test mode), fall back to Paystack so users get the full list.
+   * Banks for send-to-bank form. Send-to-bank uses only Korapay.
+   * When Korapay is not configured, returns empty banks so the UI does not offer send-to-bank.
    */
   @Get('for-send-to-bank')
   async getBanksForSendToBank() {
     if (this.korapayService.isConfigured()) {
-      const korapayBanks = await this.korapayService.listBanks();
-      const minBanksForKorapay = 15;
-      if (korapayBanks.length >= minBanksForKorapay) {
-        return {
-          success: true,
-          banks: korapayBanks,
-          provider: 'korapay',
-        };
-      }
-      // Korapay returned few banks (e.g. test/sandbox); use Paystack list so users see full bank list
-      const paystackBanks = await this.paystackService.listBanks();
+      const banks = await this.korapayService.listBanks();
       return {
         success: true,
-        banks: paystackBanks.map((b) => ({ code: b.code, name: b.name })),
-        provider: 'paystack',
+        banks,
+        provider: 'korapay',
       };
     }
-    const result = await this.paystackService.listBanks();
     return {
       success: true,
-      banks: result.map((b) => ({ code: b.code, name: b.name })),
-      provider: 'paystack',
+      banks: [],
+      provider: null,
+      message: 'Send to bank requires Korapay. Set KORAPAY_SECRET_KEY in your server environment.',
     };
   }
 
