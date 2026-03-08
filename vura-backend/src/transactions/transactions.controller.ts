@@ -11,7 +11,6 @@ import {
 } from '@nestjs/common';
 import { TransactionsService } from './transactions.service';
 import { AuthGuard } from '../auth/auth.guard';
-import { BankCodesService } from '../services/bank-codes.service';
 import { PrismaService } from '../prisma.service';
 import { LimitsService } from '../limits/limits.service';
 import * as bcrypt from 'bcrypt';
@@ -20,7 +19,6 @@ import * as bcrypt from 'bcrypt';
 export class TransactionsController {
   constructor(
     private transactionsService: TransactionsService,
-    private bankCodesService: BankCodesService,
     private prisma: PrismaService,
     private limitsService: LimitsService,
   ) {}
