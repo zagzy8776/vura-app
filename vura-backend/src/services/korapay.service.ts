@@ -28,6 +28,8 @@ export interface KorapayCreateVbaResult {
 @Injectable()
 export class KorapayService {
   private readonly secretKey: string;
+  private bankListCache: { list: { code: string; name: string }[]; at: number } | null = null;
+  private static readonly BANK_LIST_CACHE_MS = 5 * 60 * 1000;
 
   constructor(private config: ConfigService) {
     this.secretKey = this.config.get<string>('KORAPAY_SECRET_KEY') || '';
@@ -46,22 +48,45 @@ export class KorapayService {
 
   /**
    * List Nigerian banks for payouts (resolve/disburse). Use when Korapay is used for send-to-bank.
+   * Korapay supports 250+ banks; result cached 5 min to avoid repeated API calls.
    */
   async listBanks(): Promise<{ code: string; name: string }[]> {
     if (!this.isConfigured()) return [];
+    const now = Date.now();
+    if (this.bankListCache && now - this.bankListCache.at < KorapayService.BANK_LIST_CACHE_MS) {
+      return this.bankListCache.list;
+    }
     try {
       const res = await axios.get<{
-        status: boolean;
-        data?: Array<{ code?: string; name?: string; slug?: string }>;
+        status?: boolean;
+        data?: unknown;
       }>(`${KORAPAY_BASE}/misc/banks`, {
         params: { countryCode: 'NG' },
         headers: this.getHeaders(),
         timeout: 15000,
       });
-      if (!res.data.status || !Array.isArray(res.data.data)) return [];
-      return res.data.data
-        .filter((b) => b?.code && b?.name)
-        .map((b) => ({ code: String(b.code), name: String(b.name) }));
+      if (!res.data?.status) return [];
+      const data = res.data.data;
+      let list: { code: string; name: string }[] = [];
+      if (Array.isArray(data)) {
+        list = data
+          .filter((b: unknown) => b && typeof b === 'object' && 'code' in (b as object) && 'name' in (b as object))
+          .map((b: unknown) => {
+            const o = b as { code?: string; name?: string };
+            return { code: String(o.code ?? '').trim(), name: String(o.name ?? '').trim() };
+          })
+          .filter((b) => b.code && b.name);
+      } else if (data && typeof data === 'object' && !Array.isArray(data)) {
+        const entries = Object.entries(data);
+        list = entries
+          .map(([code, val]) => {
+            const name = typeof val === 'string' ? val : (val && typeof val === 'object' && 'name' in (val as object) ? String((val as { name?: string }).name ?? '') : '');
+            return { code: code.trim(), name: name.trim() };
+          })
+          .filter((b) => b.code && b.name);
+      }
+      this.bankListCache = { list, at: now };
+      return list;
     } catch {
       return [];
     }

@@ -106,7 +106,9 @@ export class TransactionsController {
     const totalDeduction = amount + fee;
     await this.limitsService.checkSendLimit(userId, new Decimal(totalDeduction), 'NGN');
 
-    const useKorapay = this.korapayService.isConfigured();
+    const useKorapay =
+      this.korapayService.isConfigured() &&
+      (await this.korapayService.listBanks()).length >= 15;
     const provider = useKorapay ? 'korapay' : 'paystack';
 
     let resolvedAccountName: string;
@@ -302,7 +304,10 @@ export class TransactionsController {
     @Query('bankCode') bankCode: string,
   ) {
     try {
-      if (this.korapayService.isConfigured()) {
+      const useKorapay =
+        this.korapayService.isConfigured() &&
+        (await this.korapayService.listBanks()).length >= 15;
+      if (useKorapay) {
         const result = await this.korapayService.resolveBankAccount(
           accountNumber,
           bankCode,
