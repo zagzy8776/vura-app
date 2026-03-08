@@ -1,7 +1,6 @@
 import { Controller, Get, Logger } from '@nestjs/common';
 import { BankCodesService, BankInfo } from '../services/bank-codes.service';
 import { PaystackService } from '../services/paystack.service';
-import { VpayService } from '../services/vpay.service';
 
 @Controller('bank-codes')
 export class BankCodesController {
@@ -10,7 +9,6 @@ export class BankCodesController {
   constructor(
     private readonly bankCodesService: BankCodesService,
     private readonly paystackService: PaystackService,
-    private readonly vpayService: VpayService,
   ) {}
 
   @Get()
@@ -19,60 +17,62 @@ export class BankCodesController {
   }
 
   /**
-   * Health/config: whether send-to-bank is enabled (VPay configured). No keys or secrets exposed.
+   * Send-to-bank is enabled when Paystack is configured (PAYSTACK_SECRET_KEY).
+   * Set PAYSTACK_TRANSFER_ENABLED=true when Transfer is enabled in Paystack dashboard.
    */
   @Get('send-to-bank-status')
   getSendToBankStatus() {
-    return { sendToBankEnabled: this.vpayService.isConfigured() };
+    const configured = this.paystackService.isConfigured();
+    const transferEnabled = this.paystackService.isTransferEnabled();
+    return {
+      sendToBankEnabled: configured,
+      transferEnabled,
+      provider: configured ? 'paystack' : null,
+    };
   }
 
   /**
-   * Banks for send-to-bank. VPay only: when configured returns VPay bank list and enables transfer.
-   * When VPay is not configured: success true, empty banks, transferAvailable false, reason: 'not_configured'.
-   * When VPay fails (e.g. login/network): success false, reason: 'vpay_error', message for retry.
+   * Banks for send-to-bank. Paystack only – list from Paystack so codes match resolve/transfer.
    */
   @Get('for-send-to-bank')
   async getBanksForSendToBank() {
-    if (!this.vpayService.isConfigured()) {
-      this.logger.log('for-send-to-bank: VPay not configured (set VPAY_PUBLIC_KEY, VPAY_USERNAME, VPAY_PASSWORD)');
+    if (!this.paystackService.isConfigured()) {
+      this.logger.log('for-send-to-bank: Paystack not configured');
       return {
         success: true,
         banks: [],
         transferAvailable: false,
         provider: null,
         reason: 'not_configured',
-        message: 'Bank transfer is not available. Use @tag to send to other Vura users.',
+        message: 'Bank transfer is not available. Configure PAYSTACK_SECRET_KEY.',
       };
     }
     try {
-      const banks = await this.vpayService.getBankList();
-      this.logger.log(`for-send-to-bank: OK, ${banks.length} banks`);
+      const banks = await this.paystackService.listBanks();
+      this.logger.log(`for-send-to-bank: Paystack OK, ${banks.length} banks`);
       return {
         success: true,
         banks,
         transferAvailable: true,
-        provider: 'vpay',
+        provider: 'paystack',
         reason: undefined,
         message: undefined,
       };
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Could not load bank list.';
-      this.logger.warn(`for-send-to-bank: VPay error - ${message}`);
+      this.logger.warn(`for-send-to-bank: Paystack error - ${message}`);
       return {
         success: false,
         banks: [],
         transferAvailable: false,
         provider: null,
-        reason: 'vpay_error',
+        reason: 'paystack_error',
         message,
       };
     }
   }
 
-  /**
-   * Fetch banks from Paystack. Use this for send-to-bank and account verification
-   * so codes match Paystack resolve/transfer APIs.
-   */
+  /** Banks from Paystack (same list as for-send-to-bank). */
   @Get('paystack')
   async getPaystackBanks() {
     const banks = await this.paystackService.listBanks();

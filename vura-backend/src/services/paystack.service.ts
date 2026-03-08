@@ -85,6 +85,20 @@ export class PaystackService {
     this.secretKey = this.configService.get<string>('PAYSTACK_SECRET_KEY', '');
   }
 
+  /**
+   * Whether Paystack Transfer (payout) is enabled for this app.
+   * Set PAYSTACK_TRANSFER_ENABLED=true when Transfer is enabled in Paystack dashboard.
+   */
+  isTransferEnabled(): boolean {
+    if (!this.secretKey?.trim()) return false;
+    return this.configService.get<string>('PAYSTACK_TRANSFER_ENABLED', '') === 'true';
+  }
+
+  /** True when Paystack secret key is set (used to enable send-to-bank and test Transfer). */
+  isConfigured(): boolean {
+    return Boolean(this.secretKey?.trim());
+  }
+
   private getHeaders() {
     return {
       Authorization: `Bearer ${this.secretKey}`,

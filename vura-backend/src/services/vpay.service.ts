@@ -2,7 +2,7 @@ import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios, { AxiosError } from 'axios';
 
-/** Fallback Nigerian banks (CBN 3-digit codes) when VPay API fails – so users always see a list. */
+/** Fallback Nigerian banks + fintechs when VPay API fails – so users always see a full list. */
 const FALLBACK_BANKS: { code: string; name: string }[] = [
   { code: '044', name: 'Access Bank' },
   { code: '063', name: 'Access Bank (Diamond)' },
@@ -15,6 +15,10 @@ const FALLBACK_BANKS: { code: string; name: string }[] = [
   { code: '030', name: 'Heritage Bank' },
   { code: '301', name: 'Jaiz Bank' },
   { code: '082', name: 'Keystone Bank' },
+  { code: '090267', name: 'Kuda Microfinance Bank' },
+  { code: '090405', name: 'Moniepoint Microfinance Bank' },
+  { code: '100004', name: 'OPay' },
+  { code: '100033', name: 'PalmPay' },
   { code: '526', name: 'Parallex Bank' },
   { code: '076', name: 'Polaris Bank' },
   { code: '101', name: 'Providus Bank' },
@@ -92,7 +96,7 @@ export class VpayService {
     }
     if (Date.now() < this.loginThrottleUntil) {
       throw new BadRequestException(
-        'VPay login is temporarily throttled. Please try again in a few minutes.',
+        'Service is busy. Please try again in a minute.',
       );
     }
 
@@ -118,11 +122,12 @@ export class VpayService {
       );
 
       const data = res.data as Record<string, unknown> | undefined;
+      // VPay returns accessToken (confirmed from API); fallback to token / data.accessToken
       const token =
-        (data?.token as string) ??
         (data?.accessToken as string) ??
-        ((data?.data as Record<string, unknown>)?.token as string) ??
-        ((data?.data as Record<string, unknown>)?.accessToken as string);
+        (data?.token as string) ??
+        ((data?.data as Record<string, unknown>)?.accessToken as string) ??
+        ((data?.data as Record<string, unknown>)?.token as string);
       if (!token || typeof token !== 'string') {
         throw new BadRequestException(
           (data?.message as string) || 'VPay login did not return a token',
@@ -142,9 +147,9 @@ export class VpayService {
         msg?.toLowerCase().includes('try again');
       if (isThrottle) {
         this.loginThrottleUntil = Date.now() + VpayService.LOGIN_THROTTLE_BACKOFF_MS;
-        this.tokenCache = null;
+        // Keep existing token – don't clear it. Other users can keep using it until it expires.
         throw new BadRequestException(
-          'VPay is temporarily limiting login requests. Please try again in a few minutes.',
+          'Service is busy. Please try again in a minute.',
         );
       }
       if (msg) throw new BadRequestException(`VPay login failed: ${msg}`);

@@ -8,7 +8,6 @@ import { PrismaService } from '../prisma.service';
 import { LimitsService } from '../limits/limits.service';
 import { HoldsService } from '../holds/holds.service';
 import { PaystackService } from '../services/paystack.service';
-import { VpayService } from '../services/vpay.service';
 import { v4 as uuidv4 } from 'uuid';
 import * as bcrypt from 'bcrypt';
 import Decimal from 'decimal.js';
@@ -20,7 +19,6 @@ export class TransactionsService {
     private limitsService: LimitsService,
     private holdsService: HoldsService,
     private paystackService: PaystackService,
-    private vpayService: VpayService,
   ) {}
 
   async initiatePayment(
@@ -388,17 +386,16 @@ export class TransactionsService {
   }
 
   /**
-   * Resolve bank account name for send-to-bank. VPay only (nuban lookup).
-   * No Paystack in send flow.
+   * Resolve bank account name for send-to-bank. Paystack only.
    */
   async verifyBankAccount(
     accountNumber: string,
     bankCode: string,
   ): Promise<{ accountName: string }> {
-    if (!this.vpayService.isConfigured()) {
+    if (!this.paystackService.isConfigured()) {
       throw new BadRequestException('Send to bank is not available.');
     }
-    return await this.vpayService.nubanLookup(accountNumber, bankCode);
+    return await this.paystackService.verifyAccount(accountNumber, bankCode);
   }
 
   async getAccountBalance(userId: string) {
@@ -414,7 +411,7 @@ export class TransactionsService {
   }
 
   /**
-   * Send to bank (VPay outbound transfer). Requires VPAY_PUBLIC_KEY, VPAY_USERNAME, VPAY_PASSWORD.
+   * Send to bank (Paystack Transfer). Requires PAYSTACK_SECRET_KEY; set PAYSTACK_TRANSFER_ENABLED=true when Transfer is enabled.
    * Optional idempotencyKey: duplicate requests with same key return cached success without re-debiting.
    */
   async sendToBank(
@@ -427,7 +424,7 @@ export class TransactionsService {
     pin?: string,
     idempotencyKey?: string,
   ) {
-    if (!this.vpayService.isConfigured()) {
+    if (!this.paystackService.isConfigured()) {
       throw new BadRequestException('Send to bank is not available.');
     }
 
@@ -531,7 +528,7 @@ export class TransactionsService {
             accountNumber: nuban,
             bankCode,
             accountName,
-            provider: 'vpay',
+            provider: 'paystack',
           },
         },
       });
@@ -548,19 +545,20 @@ export class TransactionsService {
     });
 
     try {
-      const result = await this.vpayService.outboundTransfer({
+      const result = await this.paystackService.initiateTransfer(
         nuban,
-        bank_code: bankCode,
+        bankCode,
+        accountName,
         amount,
-        remark: description || 'Vura transfer',
-        transaction_ref: reference,
-      });
+        reference,
+        description || 'Vura transfer',
+      );
 
       await this.prisma.transaction.update({
         where: { id: transaction.id },
         data: {
           providerTxId: result.reference || reference,
-          status: 'SUCCESS',
+          status: 'PENDING',
         },
       });
 

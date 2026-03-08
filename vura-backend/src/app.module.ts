@@ -24,7 +24,6 @@ import { PaymentRequestsModule } from './payment-requests/payment-requests.modul
 import { BankCodesModule } from './bank-codes/bank-codes.module';
 import { VirtualAccountsModule } from './virtual-accounts/virtual-accounts.module';
 import { FundingModule } from './funding/funding.module';
-import { VpayModule } from './vpay/vpay.module';
 import { PaystackService } from './services/paystack.service';
 import { BankCodesService } from './services/bank-codes.service';
 import { CloudinaryService } from './services/cloudinary.service';
@@ -66,7 +65,6 @@ import { SecurityMiddleware } from './middleware/security.middleware';
     BankCodesModule,
     VirtualAccountsModule,
     FundingModule,
-    VpayModule,
   ],
   controllers: [
     AppController,
