@@ -82,6 +82,9 @@ This guide covers deploying the VURA backend to production using Railway with Ne
 2. Add webhook URL: `https://your-app.up.railway.app/api/webhooks/paystack`
 3. Copy the webhook secret to `PAYSTACK_WEBHOOK_SECRET`
 
+#### Paystack Dedicated Virtual Accounts (DVA) – “Generate my Vura bank account”
+If users see “Bank account generation is temporarily unavailable” or Paystack returns “Dedicated NUBAN is not available for this business”, your Paystack business does not have **Dedicated Virtual Accounts** enabled. Contact Paystack support or check Paystack Dashboard → Settings / Product to request DVA for your business. Once enabled, users can generate their unique NUBAN on the Receive page.
+
 #### Prembly (BVN) API Setup
 1. Get your API key from Prembly
 2. Set `PREMBLY_API_KEY` in environment variables

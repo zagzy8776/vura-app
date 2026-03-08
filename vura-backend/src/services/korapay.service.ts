@@ -1,0 +1,135 @@
+import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import axios from 'axios';
+
+const KORAPAY_BASE = 'https://api.korapay.com/merchant/api/v1';
+
+export interface KorapayCreateVbaInput {
+  account_name: string;
+  account_reference: string;
+  permanent: boolean;
+  bank_code: string;
+  customer: { name: string; email?: string };
+  kyc: { bvn: string; nin?: string };
+}
+
+export interface KorapayCreateVbaResult {
+  success: true;
+  account_name: string;
+  account_number: string;
+  bank_code: string;
+  bank_name: string;
+  account_reference: string;
+  unique_id: string;
+  account_status: string;
+  currency: string;
+}
+
+@Injectable()
+export class KorapayService {
+  private readonly secretKey: string;
+
+  constructor(private config: ConfigService) {
+    this.secretKey = this.config.get<string>('KORAPAY_SECRET_KEY') || '';
+  }
+
+  isConfigured(): boolean {
+    return !!this.secretKey.trim();
+  }
+
+  private getHeaders(): Record<string, string> {
+    return {
+      Authorization: `Bearer ${this.secretKey}`,
+      'Content-Type': 'application/json',
+    };
+  }
+
+  /**
+   * Create an NGN Virtual Bank Account (Korapay VBA).
+   * Requires BVN in kyc. Bank code: 035 Wema, 070 Fidelity, 214 FCMB, 103 Globus, 107 Optimus, 104 Parallex. Sandbox: 000.
+   */
+  async createVirtualBankAccount(
+    input: KorapayCreateVbaInput,
+  ): Promise<
+    | { success: true; data: KorapayCreateVbaResult }
+    | { success: false; error: string }
+  > {
+    if (!this.isConfigured()) {
+      return {
+        success: false,
+        error: 'Korapay is not configured. Set KORAPAY_SECRET_KEY.',
+      };
+    }
+    try {
+      const res = await axios.post<{
+        status: boolean;
+        message?: string;
+        data?: KorapayCreateVbaResult;
+      }>(`${KORAPAY_BASE}/virtual-bank-account`, input, {
+        headers: this.getHeaders(),
+        timeout: 20000,
+      });
+      if (!res.data.status || !res.data.data?.account_number) {
+        return {
+          success: false,
+          error:
+            res.data.message || 'Failed to create virtual bank account',
+        };
+      }
+      return { success: true, data: res.data.data };
+    } catch (err: unknown) {
+      if (axios.isAxiosError(err)) {
+        const msg =
+          (err.response?.data as { message?: string })?.message ||
+          err.message;
+        return { success: false, error: String(msg) };
+      }
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : 'Unknown error',
+      };
+    }
+  }
+
+  /**
+   * Get Virtual Bank Account by account_reference (e.g. userId).
+   */
+  async getVirtualBankAccount(
+    accountReference: string,
+  ): Promise<
+    | { success: true; data: KorapayCreateVbaResult }
+    | { success: false; error: string }
+  > {
+    if (!this.isConfigured()) {
+      return { success: false, error: 'Korapay is not configured.' };
+    }
+    try {
+      const res = await axios.get<{
+        status: boolean;
+        message?: string;
+        data?: KorapayCreateVbaResult;
+      }>(`${KORAPAY_BASE}/virtual-bank-account/${encodeURIComponent(accountReference)}`, {
+        headers: this.getHeaders(),
+        timeout: 10000,
+      });
+      if (!res.data.status || !res.data.data) {
+        return {
+          success: false,
+          error: res.data.message || 'Virtual account not found',
+        };
+      }
+      return { success: true, data: res.data.data };
+    } catch (err: unknown) {
+      if (axios.isAxiosError(err)) {
+        const msg =
+          (err.response?.data as { message?: string })?.message ||
+          err.message;
+        return { success: false, error: String(msg) };
+      }
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : 'Unknown error',
+      };
+    }
+  }
+}

@@ -723,6 +723,135 @@ export class WebhookController {
     return { status: 'ok', tier: 2 };
   }
 
+  // ============================================
+  // KORAPAY VIRTUAL BANK ACCOUNT WEBHOOK (charge.success)
+  // ============================================
+
+  @Post('korapay')
+  @HttpCode(200)
+  async handleKorapayWebhook(@Body() payload: any, @Req() req: Request) {
+    const event = payload?.event;
+    const data = payload?.data;
+    if (event !== 'charge.success' || !data) {
+      return { status: 'ignored', reason: 'event_not_handled' };
+    }
+    const reference = data.reference;
+    const amountRaw = data.amount;
+    const vba = data.virtual_bank_account_details?.virtual_bank_account;
+    const accountReference = vba?.account_reference; // we set this to user.id
+    if (!reference || amountRaw == null || !accountReference) {
+      this.logger.warn('Korapay webhook missing reference/amount/account_reference', {
+        ip: req.ip,
+      });
+      return { status: 'ignored', reason: 'missing_data' };
+    }
+    const amount = new Decimal(amountRaw);
+    if (amount.lte(0)) return { status: 'ignored', reason: 'invalid_amount' };
+
+    const existing = await this.prisma.processedWebhook.findUnique({
+      where: { providerTxId: reference },
+    });
+    if (existing) return { status: 'already_processed' };
+
+    await this.prisma.processedWebhook.create({
+      data: {
+        provider: 'korapay',
+        providerTxId: reference,
+        eventType: 'charge.success',
+        rawPayload: payload,
+        signatureValid: true,
+      },
+    });
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: accountReference },
+      select: { id: true },
+    });
+    if (!user) {
+      this.logger.warn('Korapay webhook user not found', { accountReference });
+      return { status: 'user_not_found' };
+    }
+
+    const existingTx = await this.prisma.transaction.findUnique({
+      where: { idempotencyKey: reference },
+    });
+    if (existingTx) return { status: 'already_processed' };
+
+    try {
+      await this.limitsService.checkMaxBalance(user.id, amount, 'NGN');
+    } catch {
+      this.logger.warn(
+        'Korapay deposit would exceed max balance limit; crediting anyway and flagging',
+        { userId: user.id, reference, amount: amount.toString() },
+      );
+      await this.prisma.auditLog.create({
+        data: {
+          action: 'BALANCE_LIMIT_EXCEEDED_CREDIT',
+          userId: user.id,
+          actorType: 'system',
+          metadata: {
+            reference,
+            amount: amount.toString(),
+            provider: 'korapay',
+          } as any,
+        },
+      });
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      const balance = await tx.balance.findUnique({
+        where: {
+          userId_currency: { userId: user.id, currency: 'NGN' },
+        },
+      });
+      const beforeBalance = balance
+        ? new Decimal(balance.amount.toString())
+        : new Decimal(0);
+      const afterBalance = beforeBalance.add(amount);
+      await tx.balance.upsert({
+        where: {
+          userId_currency: { userId: user.id, currency: 'NGN' },
+        },
+        create: {
+          userId: user.id,
+          currency: 'NGN',
+          amount: afterBalance.toNumber(),
+          lastUpdatedBy: 'korapay_vba',
+        },
+        update: {
+          amount: afterBalance.toNumber(),
+          lastUpdatedBy: 'korapay_vba',
+        },
+      });
+      await tx.transaction.create({
+        data: {
+          receiverId: user.id,
+          amount: amount.toNumber(),
+          currency: 'NGN',
+          type: 'deposit',
+          status: 'SUCCESS',
+          idempotencyKey: reference,
+          providerTxId: reference,
+          beforeBalance: beforeBalance.toNumber(),
+          afterBalance: afterBalance.toNumber(),
+          reference: `KPY-${reference}`,
+          metadata: {
+            provider: 'korapay',
+            vbaAccountNumber: vba?.account_number,
+            vbaBankName: vba?.bank_name,
+          } as any,
+        },
+      });
+    });
+
+    this.logger.log('Korapay VBA deposit credited', {
+      userId: user.id,
+      reference,
+      amount: amount.toString(),
+    });
+    return { status: 'ok' };
+  }
+
   /**
    * Extract document and selfie from Prembly webhook (biometric_results) and upload to Cloudinary,
    * then set User.idCardUrl and User.selfieUrl so admin dashboard can display them.
