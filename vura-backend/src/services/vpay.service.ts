@@ -1,21 +1,52 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios, { AxiosError } from 'axios';
 
+/** Fallback Nigerian banks (CBN 3-digit codes) when VPay API fails – so users always see a list. */
+const FALLBACK_BANKS: { code: string; name: string }[] = [
+  { code: '044', name: 'Access Bank' },
+  { code: '063', name: 'Access Bank (Diamond)' },
+  { code: '050', name: 'Ecobank Nigeria' },
+  { code: '084', name: 'Enterprise Bank' },
+  { code: '070', name: 'Fidelity Bank' },
+  { code: '011', name: 'First Bank of Nigeria' },
+  { code: '214', name: 'First City Monument Bank' },
+  { code: '058', name: 'Guaranty Trust Bank' },
+  { code: '030', name: 'Heritage Bank' },
+  { code: '301', name: 'Jaiz Bank' },
+  { code: '082', name: 'Keystone Bank' },
+  { code: '526', name: 'Parallex Bank' },
+  { code: '076', name: 'Polaris Bank' },
+  { code: '101', name: 'Providus Bank' },
+  { code: '221', name: 'Stanbic IBTC Bank' },
+  { code: '068', name: 'Standard Chartered Bank' },
+  { code: '232', name: 'Sterling Bank' },
+  { code: '100', name: 'Suntrust Bank' },
+  { code: '032', name: 'Union Bank of Nigeria' },
+  { code: '033', name: 'United Bank for Africa' },
+  { code: '215', name: 'Unity Bank' },
+  { code: '035', name: 'Wema Bank' },
+  { code: '057', name: 'Zenith Bank' },
+];
+
 /**
  * VPay Africa API – send-to-bank only (bank list, nuban lookup, outbound transfer).
- * Docs: https://docs.vpay.africa
- * Base URL: https://services2.vpay.africa (production). accessToken from merchant login.
+ * Docs: https://docs.vpay.africa | Base URL: https://services2.vpay.africa
  */
 @Injectable()
 export class VpayService {
+  private readonly logger = new Logger(VpayService.name);
   private readonly baseUrl: string;
   private readonly publicKey: string;
   private readonly username: string;
   private readonly password: string;
 
   private tokenCache: { token: string; expiresAt: number } | null = null;
-  private static readonly TOKEN_TTL_MS = 4 * 60 * 1000; // 4 min (login throttle 270s)
+  /** VPay login throttle: 1 request per 270s. Cache token 4 min to stay under limit. */
+  private static readonly TOKEN_TTL_MS = 4 * 60 * 1000;
+  /** After login throttle error, don't retry login for 5 min. */
+  private loginThrottleUntil = 0;
+  private static readonly LOGIN_THROTTLE_BACKOFF_MS = 5 * 60 * 1000;
   /** Bank list: static per VPay docs, throttle 1 per 60s – cache 10 min */
   private bankListCache: { banks: { code: string; name: string }[]; expiresAt: number } | null = null;
   private static readonly BANK_LIST_CACHE_MS = 10 * 60 * 1000;
@@ -38,12 +69,16 @@ export class VpayService {
 
   private getErrorMessage(error: unknown): string | null {
     if (!axios.isAxiosError(error)) return null;
-    const err = error as AxiosError<{ message?: string; error?: string }>;
+    const err = error as AxiosError<Record<string, unknown> & { message?: string; error?: string }>;
     const data = err.response?.data;
-    if (data?.message) return String(data.message);
-    if (data?.error) return String(data.error);
-    if (err.message) return err.message;
-    return null;
+    if (data && typeof data === 'object') {
+      if (typeof data.message === 'string') return data.message;
+      if (typeof data.error === 'string') return data.error;
+      if (typeof data.msg === 'string') return data.msg;
+    }
+    if (err.response?.status === 401) return 'Invalid Authentication';
+    if (err.response?.status === 403) return 'Forbidden';
+    return err.message || null;
   }
 
   /**
@@ -55,12 +90,24 @@ export class VpayService {
     if (this.tokenCache && Date.now() < this.tokenCache.expiresAt) {
       return this.tokenCache.token;
     }
+    if (Date.now() < this.loginThrottleUntil) {
+      throw new BadRequestException(
+        'VPay login is temporarily throttled. Please try again in a few minutes.',
+      );
+    }
 
     const url = `${this.baseUrl}/api/service/v1/query/merchant/login`;
+    const loginBody: Record<string, string> = {
+      username: this.username,
+      password: this.password,
+    };
+    if (this.username.includes('@')) {
+      loginBody.email = this.username;
+    }
     try {
       const res = await axios.post(
         url,
-        { username: this.username, password: this.password },
+        loginBody,
         {
           headers: {
             'Content-Type': 'application/json',
@@ -89,25 +136,34 @@ export class VpayService {
       return token;
     } catch (error: unknown) {
       const msg = this.getErrorMessage(error);
+      const isThrottle =
+        msg?.toLowerCase().includes('wait') ||
+        msg?.toLowerCase().includes('little while') ||
+        msg?.toLowerCase().includes('try again');
+      if (isThrottle) {
+        this.loginThrottleUntil = Date.now() + VpayService.LOGIN_THROTTLE_BACKOFF_MS;
+        this.tokenCache = null;
+        throw new BadRequestException(
+          'VPay is temporarily limiting login requests. Please try again in a few minutes.',
+        );
+      }
       if (msg) throw new BadRequestException(`VPay login failed: ${msg}`);
       throw new BadRequestException('VPay login failed');
     }
   }
 
-  /** Build headers for authenticated VPay requests. Try both b-access-token and Authorization in case only one is accepted. */
+  /** Headers for authenticated VPay requests. Docs: publicKey + b-access-token (token from login). */
   private authHeaders(token: string): Record<string, string> {
     return {
       'Content-Type': 'application/json',
       publicKey: this.publicKey,
       'b-access-token': token,
-      Authorization: `Bearer ${token}`,
     };
   }
 
   /**
    * Get list of banks for send-to-bank.
-   * VPay: GET /api/service/v1/query/bank/list/show, throttle 1 per 60s. Cached 10 min.
-   * Headers: Content-Type, publicKey, b-access-token.
+   * VPay: GET /api/service/v1/query/bank/list/show. On failure returns fallback list so users always see banks.
    */
   async getBankList(): Promise<{ code: string; name: string }[]> {
     if (this.bankListCache && Date.now() < this.bankListCache.expiresAt) {
@@ -119,8 +175,10 @@ export class VpayService {
       token = await this.getAccessToken();
     } catch (e) {
       this.bankListCache = null;
-      throw e;
+      this.logger.warn('VPay bank list: login failed, using fallback list');
+      return FALLBACK_BANKS;
     }
+
     const url = `${this.baseUrl}/api/service/v1/query/bank/list/show`;
     try {
       const res = await axios.get(url, {
@@ -130,10 +188,10 @@ export class VpayService {
 
       const data = res.data;
       if (!data || typeof data !== 'object') {
-        throw new BadRequestException('VPay bank list: invalid response');
+        this.logger.warn('VPay bank list: invalid response shape, using fallback');
+        return this.setBankListCache(FALLBACK_BANKS);
       }
 
-      // VPay may return { status, data: [...] } or { banks: [...] } or array at top level
       let rawList: unknown[] = [];
       if (Array.isArray(data)) {
         rawList = data;
@@ -142,9 +200,9 @@ export class VpayService {
       } else if (Array.isArray(data.banks)) {
         rawList = data.banks;
       } else if (data.status === false || data.success === false) {
-        throw new BadRequestException(
-          (data.message || data.error || 'Failed to fetch bank list') as string,
-        );
+        const msg = (data.message || data.error) as string;
+        this.logger.warn(`VPay bank list: API returned error "${msg}", using fallback`);
+        return this.setBankListCache(FALLBACK_BANKS);
       }
 
       const banks = rawList
@@ -156,20 +214,36 @@ export class VpayService {
         })
         .filter((b) => b.code && b.name);
 
-      this.bankListCache = {
-        banks,
-        expiresAt: Date.now() + VpayService.BANK_LIST_CACHE_MS,
-      };
-      return banks;
+      if (banks.length === 0) {
+        this.logger.warn('VPay bank list: empty list, using fallback');
+        return this.setBankListCache(FALLBACK_BANKS);
+      }
+
+      this.logger.log(`VPay bank list: OK, ${banks.length} banks`);
+      return this.setBankListCache(banks);
     } catch (error: unknown) {
       const msg = this.getErrorMessage(error);
       if (msg?.toLowerCase().includes('invalid authentication') || msg?.toLowerCase().includes('unauthorized')) {
         this.tokenCache = null;
         this.bankListCache = null;
       }
-      if (msg) throw new BadRequestException(`VPay bank list failed: ${msg}`);
-      throw new BadRequestException('VPay bank list failed');
+      if (axios.isAxiosError(error) && error.response) {
+        this.logger.warn(
+          `VPay bank list failed: ${error.response.status} ${JSON.stringify(error.response.data)}`,
+        );
+      } else {
+        this.logger.warn(`VPay bank list failed: ${msg}`);
+      }
+      return this.setBankListCache(FALLBACK_BANKS);
     }
+  }
+
+  private setBankListCache(banks: { code: string; name: string }[]): { code: string; name: string }[] {
+    this.bankListCache = {
+      banks,
+      expiresAt: Date.now() + VpayService.BANK_LIST_CACHE_MS,
+    };
+    return banks;
   }
 
   /**

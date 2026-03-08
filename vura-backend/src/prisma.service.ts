@@ -14,6 +14,7 @@ export class PrismaService
   private readonly logger = new Logger(PrismaService.name);
   private readonly maxRetries = 5;
   private readonly retryDelay = 3000;
+  private static connectedOnce = false;
 
   constructor() {
     const isProduction = process.env.NODE_ENV === 'production';
@@ -38,11 +39,16 @@ export class PrismaService
   private async connectWithRetry(): Promise<void> {
     for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
       try {
-        this.logger.log(
-          `Database connection attempt ${attempt}/${this.maxRetries}...`,
-        );
+        if (!PrismaService.connectedOnce) {
+          this.logger.log(
+            `Database connection attempt ${attempt}/${this.maxRetries}...`,
+          );
+        }
         await this.$connect();
-        this.logger.log('Database connected successfully');
+        if (!PrismaService.connectedOnce) {
+          this.logger.log('Database connected successfully');
+          PrismaService.connectedOnce = true;
+        }
         return;
       } catch (error) {
         const errorMessage =
