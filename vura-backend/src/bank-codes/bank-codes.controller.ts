@@ -1,10 +1,12 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, Logger } from '@nestjs/common';
 import { BankCodesService, BankInfo } from '../services/bank-codes.service';
 import { PaystackService } from '../services/paystack.service';
 import { VpayService } from '../services/vpay.service';
 
 @Controller('bank-codes')
 export class BankCodesController {
+  private readonly logger = new Logger(BankCodesController.name);
+
   constructor(
     private readonly bankCodesService: BankCodesService,
     private readonly paystackService: PaystackService,
@@ -32,6 +34,7 @@ export class BankCodesController {
   @Get('for-send-to-bank')
   async getBanksForSendToBank() {
     if (!this.vpayService.isConfigured()) {
+      this.logger.log('for-send-to-bank: VPay not configured (set VPAY_PUBLIC_KEY, VPAY_USERNAME, VPAY_PASSWORD)');
       return {
         success: true,
         banks: [],
@@ -43,6 +46,7 @@ export class BankCodesController {
     }
     try {
       const banks = await this.vpayService.getBankList();
+      this.logger.log(`for-send-to-bank: OK, ${banks.length} banks`);
       return {
         success: true,
         banks,
@@ -53,13 +57,14 @@ export class BankCodesController {
       };
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Could not load bank list.';
+      this.logger.warn(`for-send-to-bank: VPay error - ${message}`);
       return {
         success: false,
         banks: [],
         transferAvailable: false,
         provider: null,
         reason: 'vpay_error',
-        message: message.includes('login') ? 'Bank service is temporarily unavailable. Please try again in a moment.' : 'Could not load banks. Please try again.',
+        message,
       };
     }
   }

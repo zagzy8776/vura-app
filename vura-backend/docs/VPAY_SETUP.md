@@ -15,7 +15,7 @@ So the backend **must** have these env vars set (e.g. on Render):
 
 Optional:
 
-- `VPAY_BASE_URL` – default `https://kola.vpay.africa` (live) or use `https://zander.vpay.africa` for sandbox.
+- `VPAY_BASE_URL` – default `https://services2.vpay.africa` (production).
 
 If any of the three required vars are missing, the backend returns “bank transfer not available” and the frontend shows “Bank transfer is temporarily unavailable”. After you set them, **redeploy** the backend and use “Try again” or switch to the Bank tab (the app refetches the bank list).
 

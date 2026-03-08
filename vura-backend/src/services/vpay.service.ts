@@ -5,7 +5,7 @@ import axios, { AxiosError } from 'axios';
 /**
  * VPay Africa API – send-to-bank only (bank list, nuban lookup, outbound transfer).
  * Docs: https://docs.vpay.africa
- * Live: https://kola.vpay.africa | Sandbox: https://zander.vpay.africa
+ * Base URL: https://services2.vpay.africa (production). accessToken from merchant login.
  */
 @Injectable()
 export class VpayService {
@@ -16,11 +16,14 @@ export class VpayService {
 
   private tokenCache: { token: string; expiresAt: number } | null = null;
   private static readonly TOKEN_TTL_MS = 4 * 60 * 1000; // 4 min (login throttle 270s)
+  /** Bank list: static per VPay docs, throttle 1 per 60s – cache 10 min */
+  private bankListCache: { banks: { code: string; name: string }[]; expiresAt: number } | null = null;
+  private static readonly BANK_LIST_CACHE_MS = 10 * 60 * 1000;
 
   constructor(private configService: ConfigService) {
     this.baseUrl = this.configService.get<string>(
       'VPAY_BASE_URL',
-      'https://kola.vpay.africa',
+      'https://services2.vpay.africa',
     );
     this.publicKey = this.configService.get<string>('VPAY_PUBLIC_KEY', '');
     this.username = this.configService.get<string>('VPAY_USERNAME', '');
@@ -88,18 +91,18 @@ export class VpayService {
 
   /**
    * Get list of banks for send-to-bank.
-   * GET /api/service/v1/query/bank/list/show
-   * Header: Content-Type, publicKey, b-access-token.
+   * VPay: GET /api/service/v1/query/bank/list/show, throttle 1 per 60s. Cached 10 min.
+   * Headers: Content-Type, publicKey, b-access-token.
    */
   async getBankList(): Promise<{ code: string; name: string }[]> {
+    if (this.bankListCache && Date.now() < this.bankListCache.expiresAt) {
+      return this.bankListCache.banks;
+    }
+
     const token = await this.getAccessToken();
     const url = `${this.baseUrl}/api/service/v1/query/bank/list/show`;
     try {
-      const res = await axios.get<{
-        status?: boolean;
-        data?: Array<{ code?: string; name?: string; bank_code?: string; bank_name?: string }>;
-        message?: string;
-      }>(url, {
+      const res = await axios.get(url, {
         headers: {
           'Content-Type': 'application/json',
           publicKey: this.publicKey,
@@ -108,16 +111,39 @@ export class VpayService {
         timeout: 15000,
       });
 
-      if (!res.data?.status || !Array.isArray(res.data?.data)) {
-        throw new BadRequestException(res.data?.message || 'Failed to fetch bank list');
+      const data = res.data;
+      if (!data || typeof data !== 'object') {
+        throw new BadRequestException('VPay bank list: invalid response');
       }
 
-      return res.data.data
-        .map((b) => ({
-          code: String(b?.code ?? b?.bank_code ?? '').trim(),
-          name: String(b?.name ?? b?.bank_name ?? '').trim(),
-        }))
+      // VPay may return { status, data: [...] } or { banks: [...] } or array at top level
+      let rawList: unknown[] = [];
+      if (Array.isArray(data)) {
+        rawList = data;
+      } else if (Array.isArray(data.data)) {
+        rawList = data.data;
+      } else if (Array.isArray(data.banks)) {
+        rawList = data.banks;
+      } else if (data.status === false || data.success === false) {
+        throw new BadRequestException(
+          (data.message || data.error || 'Failed to fetch bank list') as string,
+        );
+      }
+
+      const banks = rawList
+        .map((b: unknown) => {
+          const o = b as Record<string, unknown>;
+          const code = String(o?.code ?? o?.bank_code ?? '').trim();
+          const name = String(o?.name ?? o?.bank_name ?? '').trim();
+          return { code, name };
+        })
         .filter((b) => b.code && b.name);
+
+      this.bankListCache = {
+        banks,
+        expiresAt: Date.now() + VpayService.BANK_LIST_CACHE_MS,
+      };
+      return banks;
     } catch (error: unknown) {
       const msg = this.getErrorMessage(error);
       if (msg) throw new BadRequestException(`VPay bank list failed: ${msg}`);

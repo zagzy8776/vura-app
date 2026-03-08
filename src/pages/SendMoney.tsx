@@ -72,6 +72,7 @@ const SendMoney = () => {
   const [prefilledFromLink, setPrefilledFromLink] = useState(false);
   const [banksLoadError, setBanksLoadError] = useState(false);
   const [banksLoading, setBanksLoading] = useState(true);
+  const [banksErrorMessage, setBanksErrorMessage] = useState<string | null>(null);
   const bankDropdownRef = useRef<HTMLDivElement>(null);
   const verifyRequestIdRef = useRef(0);
   const sendIdempotencyKeyRef = useRef<string | null>(null);
@@ -152,6 +153,7 @@ const SendMoney = () => {
 
   const loadBanks = async () => {
     setBanksLoadError(false);
+    setBanksErrorMessage(null);
     setBanksLoading(true);
     try {
       const res = await apiFetch('/bank-codes/for-send-to-bank');
@@ -167,13 +169,16 @@ const SendMoney = () => {
         setBanks(mapped.length > 0 ? mapped : []);
       } else {
         setBanks([]);
+        if (data?.reason === 'vpay_error' && data?.message) setBanksErrorMessage(data.message);
+        if (data?.reason === 'not_configured') setBanksErrorMessage('VPay is not configured on the server. Add VPAY_PUBLIC_KEY, VPAY_USERNAME, VPAY_PASSWORD and redeploy.');
         if (res.ok && data?.success === false) setBanksLoadError(true);
       }
-    } catch {
+    } catch (e) {
       setSendToBankAvailable(false);
       setTransferAvailable(false);
       setBanks([]);
       setBanksLoadError(true);
+      setBanksErrorMessage(e instanceof Error ? e.message : 'Network error. Check your connection.');
     } finally {
       setBanksLoading(false);
     }
@@ -598,6 +603,7 @@ const SendMoney = () => {
                       {!banksLoading && !sendToBankAvailable && (
                         <div className="rounded-xl bg-muted/50 border border-border p-4 space-y-3">
                           <p className="text-sm text-foreground">Bank transfer is temporarily unavailable. You can send to any Vura user with <strong>@tag</strong> above, or try again in a moment.</p>
+                          {banksErrorMessage && <p className="text-xs text-muted-foreground">{banksErrorMessage}</p>}
                           <Button type="button" variant="outline" size="sm" className="rounded-lg" onClick={loadBanks}>Try again</Button>
                         </div>
                       )}
