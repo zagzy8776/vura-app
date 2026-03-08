@@ -40,15 +40,15 @@ const TransactionList = ({ transactions = [] }: TransactionListProps) => {
     const prefix = direction === "received" ? "From " : "To ";
     return prefix + (isSystem || counterparty.startsWith("@") ? counterparty : `@${counterparty}`);
   };
+
+  const formatDate = (dateStr: string) => {
     if (!dateStr) return "Invalid date";
     try {
       const date = new Date(dateStr);
       if (isNaN(date.getTime())) return "Invalid date";
-      
       const now = new Date();
       const diff = now.getTime() - date.getTime();
       const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-      
       if (days === 0) return "Today";
       if (days === 1) return "Yesterday";
       return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
