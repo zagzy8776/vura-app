@@ -4,6 +4,33 @@ import axios from 'axios';
 
 const KORAPAY_BASE = 'https://api.korapay.com/merchant/api/v1';
 
+/** Fallback Nigerian banks when Korapay returns very few (e.g. test mode). Codes match Korapay/payout docs. */
+const FALLBACK_NG_BANKS: { code: string; name: string }[] = [
+  { code: '044', name: 'Access Bank' },
+  { code: '023', name: 'Citibank Nigeria' },
+  { code: '050', name: 'Ecobank Nigeria' },
+  { code: '084', name: 'Enterprise Bank' },
+  { code: '070', name: 'Fidelity Bank' },
+  { code: '011', name: 'First Bank of Nigeria' },
+  { code: '214', name: 'First City Monument Bank' },
+  { code: '058', name: 'Guaranty Trust Bank' },
+  { code: '030', name: 'Heritage Bank' },
+  { code: '301', name: 'Jaiz Bank' },
+  { code: '082', name: 'Keystone Bank' },
+  { code: '526', name: 'Parallex Bank' },
+  { code: '076', name: 'Polaris Bank' },
+  { code: '101', name: 'Providus Bank' },
+  { code: '221', name: 'Stanbic IBTC Bank' },
+  { code: '068', name: 'Standard Chartered Bank' },
+  { code: '232', name: 'Sterling Bank' },
+  { code: '100', name: 'Suntrust Bank' },
+  { code: '032', name: 'Union Bank of Nigeria' },
+  { code: '033', name: 'United Bank for Africa' },
+  { code: '215', name: 'Unity Bank' },
+  { code: '035', name: 'Wema Bank' },
+  { code: '057', name: 'Zenith Bank' },
+];
+
 export interface KorapayCreateVbaInput {
   account_name: string;
   account_reference: string;
@@ -48,7 +75,7 @@ export class KorapayService {
 
   /**
    * List Nigerian banks for payouts (resolve/disburse). Use when Korapay is used for send-to-bank.
-   * Korapay supports 250+ banks; result cached 5 min to avoid repeated API calls.
+   * Accepts name or slug from API. If Korapay returns very few banks, merges with a fallback list.
    */
   async listBanks(): Promise<{ code: string; name: string }[]> {
     if (!this.isConfigured()) return [];
@@ -56,6 +83,7 @@ export class KorapayService {
     if (this.bankListCache && now - this.bankListCache.at < KorapayService.BANK_LIST_CACHE_MS) {
       return this.bankListCache.list;
     }
+    let list: { code: string; name: string }[] = [];
     try {
       const res = await axios.get<{
         status?: boolean;
@@ -65,31 +93,44 @@ export class KorapayService {
         headers: this.getHeaders(),
         timeout: 15000,
       });
-      if (!res.data?.status) return [];
-      const data = res.data.data;
-      let list: { code: string; name: string }[] = [];
-      if (Array.isArray(data)) {
-        list = data
-          .filter((b: unknown) => b && typeof b === 'object' && 'code' in (b as object) && 'name' in (b as object))
-          .map((b: unknown) => {
-            const o = b as { code?: string; name?: string };
-            return { code: String(o.code ?? '').trim(), name: String(o.name ?? '').trim() };
-          })
-          .filter((b) => b.code && b.name);
-      } else if (data && typeof data === 'object' && !Array.isArray(data)) {
-        const entries = Object.entries(data);
-        list = entries
-          .map(([code, val]) => {
-            const name = typeof val === 'string' ? val : (val && typeof val === 'object' && 'name' in (val as object) ? String((val as { name?: string }).name ?? '') : '');
-            return { code: code.trim(), name: name.trim() };
-          })
-          .filter((b) => b.code && b.name);
+      if (res.data?.status) {
+        const data = res.data.data;
+        const raw = this.normalizeBanksResponse(data);
+        list = raw.length > 0 ? raw : [...FALLBACK_NG_BANKS];
       }
-      this.bankListCache = { list, at: now };
-      return list;
     } catch {
-      return [];
+      list = [...FALLBACK_NG_BANKS];
     }
+    if (list.length < 15) {
+      const byCode = new Map(list.map((b) => [b.code, b]));
+      for (const b of FALLBACK_NG_BANKS) {
+        if (!byCode.has(b.code)) byCode.set(b.code, b);
+      }
+      list = Array.from(byCode.values()).sort((a, b) => a.name.localeCompare(b.name));
+    }
+    this.bankListCache = { list, at: now };
+    return list;
+  }
+
+  private normalizeBanksResponse(data: unknown): { code: string; name: string }[] {
+    let arr: unknown[] = [];
+    if (Array.isArray(data)) {
+      arr = data;
+    } else if (data && typeof data === 'object' && !Array.isArray(data)) {
+      const d = data as Record<string, unknown>;
+      if (Array.isArray(d.banks)) arr = d.banks;
+      else if (Array.isArray(d.data)) arr = d.data;
+      else arr = Object.entries(d).map(([code, val]) => (typeof val === 'object' && val && 'name' in (val as object) ? { ...(val as object), code } : { code, name: String(val ?? '') }));
+    }
+    return arr
+      .filter((b: unknown) => b && typeof b === 'object' && 'code' in (b as object))
+      .map((b: unknown) => {
+        const o = b as { code?: string; name?: string; slug?: string };
+        const code = String(o.code ?? '').trim();
+        const name = String(o.name ?? o.slug ?? '').trim() || code;
+        return { code, name };
+      })
+      .filter((b) => b.code);
   }
 
   /**
@@ -265,34 +306,60 @@ export class KorapayService {
       const res = await axios.post<{
         status: boolean;
         message?: string;
-        data?: { account_name?: string; bank_code?: string; account_number?: string };
+        data?: {
+          account_name?: string;
+          accountName?: string;
+          bank_code?: string;
+          account_number?: string;
+        };
       }>(
         `${KORAPAY_BASE}/misc/banks/resolve`,
         { bank: bankCode, account: accountNumber, currency: 'NG' },
         { headers: this.getHeaders(), timeout: 15000 },
       );
-      if (!res.data.status || !res.data.data?.account_name) {
+      const data = res.data?.data;
+      const accountName =
+        data && (data.account_name ?? data.accountName);
+      const nameStr =
+        typeof accountName === 'string' ? accountName.trim() : '';
+      if (!res.data?.status || !nameStr) {
+        const msg = this.getKorapayErrorMessage(res.data, res.data?.message);
         return {
           success: false,
-          error: res.data.message || 'Could not resolve account',
+          error: msg || 'Could not resolve account',
         };
       }
-      return {
-        success: true,
-        accountName: String(res.data.data.account_name).trim(),
-      };
+      return { success: true, accountName: nameStr };
     } catch (err: unknown) {
-      if (axios.isAxiosError(err)) {
-        const msg =
-          (err.response?.data as { message?: string })?.message ||
-          err.message;
-        return { success: false, error: String(msg) };
-      }
-      return {
-        success: false,
-        error: err instanceof Error ? err.message : 'Unknown error',
-      };
+      const msg = this.getKorapayErrorFromException(err);
+      return { success: false, error: msg };
     }
+  }
+
+  private getKorapayErrorMessage(
+    body: unknown,
+    fallback?: string,
+  ): string {
+    if (!body || typeof body !== 'object') return fallback ?? '';
+    const o = body as Record<string, unknown>;
+    if (typeof o.message === 'string' && o.message) return o.message;
+    const errors = o.errors;
+    if (Array.isArray(errors) && errors.length > 0) {
+      const first = errors[0];
+      if (typeof first === 'string') return first;
+      if (first && typeof first === 'object' && 'message' in (first as object))
+        return String((first as { message?: string }).message ?? '');
+    }
+    return fallback ?? '';
+  }
+
+  private getKorapayErrorFromException(err: unknown): string {
+    if (axios.isAxiosError(err) && err.response?.data) {
+      const data = err.response.data as Record<string, unknown>;
+      const msg = this.getKorapayErrorMessage(data, String(data?.message ?? err.message));
+      if (msg) return msg;
+    }
+    return err instanceof Error ? err.message : 'Unknown error';
   }
 
   /**
