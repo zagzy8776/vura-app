@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { 
   ArrowUpRight, CheckCircle, AlertTriangle, Search, Building2, User, 
   ChevronDown, Check, QrCode, Clock, Calendar, Repeat, Share2, Star,
-  History, Wallet, ArrowLeft
+  History, Wallet, ArrowLeft, Loader2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -511,16 +511,6 @@ const SendMoney = () => {
                 </div>
               )}
 
-              {!banksLoading && !sendToBankAvailable && !banksLoadError && (
-                <p className="text-sm text-muted-foreground rounded-lg bg-muted/50 p-3">Send to bank is not available right now. Use <strong>@tag</strong> to send to other Vura users.</p>
-              )}
-              {banksLoadError && (
-                <div className="text-sm rounded-lg bg-amber-500/10 border border-amber-500/20 p-3">
-                  <p className="text-foreground">Couldn&apos;t load banks. Please try again.</p>
-                  <Button type="button" variant="outline" size="sm" className="mt-2 rounded-lg" onClick={loadBanks}>Try again</Button>
-                </div>
-              )}
-
               <div className="rounded-xl bg-gradient-to-r from-primary/10 to-primary/5 border border-primary/20 p-4">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-sm font-medium text-foreground">Daily Limit</span>
@@ -537,11 +527,9 @@ const SendMoney = () => {
                   <button onClick={() => setTransferMode("tag")} className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-sm font-medium transition-all ${transferMode === "tag" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>
                     <User className="h-4 w-4" /> @tag
                   </button>
-                  {sendToBankAvailable && (
-                    <button onClick={() => setTransferMode("bank")} className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-sm font-medium transition-all ${transferMode === "bank" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>
-                      <Building2 className="h-4 w-4" /> Bank
-                    </button>
-                  )}
+                  <button onClick={() => setTransferMode("bank")} className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-sm font-medium transition-all ${transferMode === "bank" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>
+                    <Building2 className="h-4 w-4" /> Bank
+                  </button>
                   <button onClick={() => setShowQRScanner(true)} className="flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-sm font-medium text-muted-foreground hover:text-foreground transition-all">
                     <QrCode className="h-4 w-4" />
                   </button>
@@ -596,6 +584,20 @@ const SendMoney = () => {
                     </motion.div>
                   ) : (
                     <motion.div key="bank" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-5">
+                      {banksLoading && (
+                        <div className="rounded-xl bg-muted/50 border border-border p-5 flex items-center justify-center gap-3">
+                          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground shrink-0" />
+                          <p className="text-sm text-muted-foreground">Loading banks…</p>
+                        </div>
+                      )}
+                      {!banksLoading && !sendToBankAvailable && (
+                        <div className="rounded-xl bg-muted/50 border border-border p-4 space-y-3">
+                          <p className="text-sm text-foreground">Bank transfer is temporarily unavailable. You can send to any Vura user with <strong>@tag</strong> above, or try again in a moment.</p>
+                          <Button type="button" variant="outline" size="sm" className="rounded-lg" onClick={loadBanks}>Try again</Button>
+                        </div>
+                      )}
+                      {!banksLoading && sendToBankAvailable && (
+                        <>
                       <div>
                         <Label className="text-sm font-medium text-foreground mb-1.5 block">Bank</Label>
                         <div className="relative" ref={bankDropdownRef}>
@@ -636,6 +638,8 @@ const SendMoney = () => {
                         {verifyingAccount && <p className="text-xs text-muted-foreground mt-1">Verifying...</p>}
                         {accountVerified && accountName && <div className="mt-2 p-2 rounded-lg bg-green-50 text-green-700 text-sm">✓ {accountName}</div>}
                       </div>
+                        </>
+                      )}
                     </motion.div>
                   )}
                 </AnimatePresence>
