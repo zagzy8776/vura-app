@@ -204,6 +204,77 @@ export class KorapayService {
   }
 
   /**
+   * Disburse (payout) to a Nigerian bank account. Amount in Naira (NGN).
+   * Requires a funded Korapay merchant balance.
+   */
+  async disburse(params: {
+    reference: string;
+    accountNumber: string;
+    bankCode: string;
+    accountName: string;
+    amount: number;
+    narration?: string;
+    customerEmail: string;
+    customerName?: string;
+  }): Promise<
+    | { success: true; reference: string; status: string }
+    | { success: false; error: string }
+  > {
+    if (!this.isConfigured()) {
+      return { success: false, error: 'Korapay is not configured.' };
+    }
+    try {
+      const res = await axios.post<{
+        status: boolean;
+        message?: string;
+        data?: { reference: string; status: string };
+      }>(
+        `${KORAPAY_BASE}/transactions/disburse`,
+        {
+          reference: params.reference,
+          destination: {
+            type: 'bank_account',
+            amount: params.amount,
+            currency: 'NGN',
+            narration: params.narration || 'Vura Transfer',
+            bank_account: {
+              bank: params.bankCode,
+              account: params.accountNumber,
+            },
+            customer: {
+              name: params.customerName || params.accountName,
+              email: params.customerEmail,
+            },
+          },
+        },
+        { headers: this.getHeaders(), timeout: 20000 },
+      );
+      if (!res.data.status || !res.data.data?.reference) {
+        return {
+          success: false,
+          error: res.data.message || 'Payout failed',
+        };
+      }
+      return {
+        success: true,
+        reference: res.data.data.reference,
+        status: res.data.data.status || 'processing',
+      };
+    } catch (err: unknown) {
+      if (axios.isAxiosError(err)) {
+        const msg =
+          (err.response?.data as { message?: string })?.message ||
+          err.message;
+        return { success: false, error: String(msg) };
+      }
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : 'Unknown error',
+      };
+    }
+  }
+
+  /**
    * Get Virtual Bank Account by account_reference (e.g. userId).
    */
   async getVirtualBankAccount(

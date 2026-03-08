@@ -26,6 +26,7 @@ import { BankCodesModule } from './bank-codes/bank-codes.module';
 import { VirtualAccountsModule } from './virtual-accounts/virtual-accounts.module';
 import { FundingModule } from './funding/funding.module';
 import { PaystackService } from './services/paystack.service';
+import { KorapayService } from './services/korapay.service';
 import { BankCodesService } from './services/bank-codes.service';
 import { CloudinaryService } from './services/cloudinary.service';
 import { EmailService } from './services/email.service';
@@ -78,6 +79,7 @@ import { SecurityMiddleware } from './middleware/security.middleware';
     PrismaService,
     TransactionsService,
     PaystackService,
+    KorapayService,
     BankCodesService,
     CloudinaryService,
     EmailService,

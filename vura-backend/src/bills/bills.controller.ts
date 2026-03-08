@@ -6,6 +6,7 @@ import {
   Query,
   UseGuards,
   Request,
+  BadRequestException,
 } from '@nestjs/common';
 import { BillsService } from './bills.service';
 import { AuthGuard } from '../auth/auth.guard';
@@ -77,12 +78,21 @@ export class BillsController {
 
   @Post('electricity/validate')
   async validateMeter(
-    @Body() body: { meterNumber: string; itemCode: string; billerCode: string },
+    @Body() body: { meterNumber?: string; itemCode?: string; billerCode?: string },
   ) {
+    const meterNumber = typeof body?.meterNumber === 'string' ? body.meterNumber.trim() : '';
+    const itemCode = typeof body?.itemCode === 'string' ? body.itemCode.trim() : '';
+    const billerCode = typeof body?.billerCode === 'string' ? body.billerCode.trim() : '';
+    if (!meterNumber || meterNumber.length < 6) {
+      throw new BadRequestException('Enter a valid meter number');
+    }
+    if (!billerCode) {
+      throw new BadRequestException('Select a disco first');
+    }
     return this.billsService.validateMeter({
-      meterNumber: body.meterNumber,
-      itemCode: body.itemCode,
-      billerCode: body.billerCode,
+      meterNumber,
+      itemCode: itemCode || `${billerCode}-prepaid`,
+      billerCode,
     });
   }
 
@@ -90,22 +100,44 @@ export class BillsController {
   async buyElectricity(
     @Body()
     body: {
-      meterNumber: string;
-      amount: number;
-      disco: string;
-      type: string;
-      itemName: string;
-      itemCode: string;
+      meterNumber?: string;
+      amount?: number;
+      disco?: string;
+      type?: string;
+      itemName?: string;
+      itemCode?: string;
+      fee?: number;
+      phoneNumber?: string;
     },
     @Request() req: any,
   ) {
+    const meterNumber = typeof body?.meterNumber === 'string' ? body.meterNumber.trim() : '';
+    const amount = typeof body?.amount === 'number' ? body.amount : parseFloat(String(body?.amount ?? ''));
+    const disco = typeof body?.disco === 'string' ? body.disco.trim() : '';
+    const type = typeof body?.type === 'string' ? body.type.trim() : 'prepaid';
+    const itemCode = typeof body?.itemCode === 'string' ? body.itemCode.trim() : '';
+    const itemName = typeof body?.itemName === 'string' ? body.itemName.trim() : type;
+    if (!meterNumber || meterNumber.length < 6) {
+      throw new BadRequestException('Enter a valid meter number');
+    }
+    if (!disco) {
+      throw new BadRequestException('Select a disco');
+    }
+    if (!Number.isFinite(amount) || amount < 500) {
+      throw new BadRequestException('Minimum electricity purchase is ₦500');
+    }
+    if (amount > 500000) {
+      throw new BadRequestException('Maximum electricity purchase is ₦500,000');
+    }
     return this.billsService.buyElectricity(req.user.userId, {
-      meterNumber: body.meterNumber,
-      amount: body.amount,
-      disco: body.disco,
-      type: body.type,
-      itemName: body.itemName,
-      itemCode: body.itemCode,
+      meterNumber,
+      amount,
+      disco,
+      type,
+      itemName,
+      itemCode: itemCode || `${disco}-${type}`,
+      fee: body?.fee,
+      phoneNumber: body?.phoneNumber,
     });
   }
 
@@ -125,21 +157,32 @@ export class BillsController {
 
   @Post('cable/validate')
   async validateCableSmartcard(
-    @Body() body: { cableTv: string; smartCardNo: string },
+    @Body() body: { cableTv?: string; smartCardNo?: string },
   ) {
-    return this.billsService.validateCableSmartcard(body.cableTv, body.smartCardNo);
+    const cableTv = typeof body?.cableTv === 'string' ? body.cableTv.trim() : '';
+    const smartCardNo = typeof body?.smartCardNo === 'string' ? body.smartCardNo.trim() : '';
+    return this.billsService.validateCableSmartcard(cableTv || 'dstv', smartCardNo);
   }
 
   @Post('cable')
   async buyCableTV(
-    @Body() body: { cableTv: string; packageCode: string; smartCardNo: string; phoneNumber?: string },
+    @Body() body: { cableTv?: string; packageCode?: string; smartCardNo?: string; phoneNumber?: string },
     @Request() req: any,
   ) {
+    const cableTv = typeof body?.cableTv === 'string' ? body.cableTv.trim() : 'dstv';
+    const packageCode = typeof body?.packageCode === 'string' ? body.packageCode.trim() : '';
+    const smartCardNo = typeof body?.smartCardNo === 'string' ? body.smartCardNo.trim() : '';
+    if (!packageCode) {
+      throw new BadRequestException('Select a package');
+    }
+    if (!smartCardNo || smartCardNo.length < 5) {
+      throw new BadRequestException('Enter a valid smartcard number');
+    }
     return this.billsService.buyCableTV(req.user.userId, {
-      cableTv: body.cableTv,
-      packageCode: body.packageCode,
-      smartCardNo: body.smartCardNo,
-      phoneNumber: body.phoneNumber || '08000000000',
+      cableTv,
+      packageCode,
+      smartCardNo,
+      phoneNumber: body?.phoneNumber || '08000000000',
     });
   }
 
@@ -153,20 +196,41 @@ export class BillsController {
 
   @Post('betting/validate')
   async validateBettingCustomer(
-    @Body() body: { company: string; customerId: string },
+    @Body() body: { company?: string; customerId?: string },
   ) {
-    return this.billsService.validateBettingCustomer(body.company, body.customerId);
+    const company = typeof body?.company === 'string' ? body.company.trim() : '';
+    const customerId = typeof body?.customerId === 'string' ? body.customerId.trim() : '';
+    return this.billsService.validateBettingCustomer(company, customerId);
   }
 
   @Post('betting')
   async buyBetting(
-    @Body() body: { company: string; customerId: string; amount: number },
+    @Body() body: { company?: string; customerId?: string; amount?: number },
     @Request() req: any,
   ) {
+    const company = typeof body?.company === 'string' ? body.company.trim() : '';
+    const customerId = typeof body?.customerId === 'string' ? body.customerId.trim() : '';
+    const amount =
+      typeof body?.amount === 'number'
+        ? body.amount
+        : typeof body?.amount === 'string'
+          ? parseFloat(String(body.amount))
+          : NaN;
+
+    if (!company) {
+      throw new BadRequestException('Select a betting company');
+    }
+    if (!customerId || customerId.length < 3) {
+      throw new BadRequestException('Enter your betting account ID (at least 3 characters)');
+    }
+    if (!Number.isFinite(amount) || amount < 100) {
+      throw new BadRequestException('Minimum betting amount is ₦100');
+    }
+
     return this.billsService.buyBetting(req.user.userId, {
-      company: body.company,
-      customerId: body.customerId,
-      amount: body.amount,
+      company,
+      customerId,
+      amount,
     });
   }
 }

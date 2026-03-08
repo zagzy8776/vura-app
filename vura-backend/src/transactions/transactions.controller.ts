@@ -13,8 +13,10 @@ import { TransactionsService } from './transactions.service';
 import { AuthGuard } from '../auth/auth.guard';
 import { BankCodesService } from '../services/bank-codes.service';
 import { PaystackService } from '../services/paystack.service';
+import { KorapayService } from '../services/korapay.service';
 import { PrismaService } from '../prisma.service';
 import { LimitsService } from '../limits/limits.service';
+import { decrypt } from '../utils/encryption';
 import Decimal from 'decimal.js';
 import * as bcrypt from 'bcrypt';
 
@@ -24,6 +26,7 @@ export class TransactionsController {
     private transactionsService: TransactionsService,
     private bankCodesService: BankCodesService,
     private paystackService: PaystackService,
+    private korapayService: KorapayService,
     private prisma: PrismaService,
     private limitsService: LimitsService,
   ) {}
@@ -89,7 +92,7 @@ export class TransactionsController {
     }
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { hashedPin: true },
+      select: { hashedPin: true, emailEncrypted: true },
     });
     if (!user?.hashedPin) {
       throw new UnauthorizedException('Account not ready. Set your PIN in Settings.');
@@ -108,6 +111,9 @@ export class TransactionsController {
       bankCode,
     );
     const reference = `BANK-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const resolvedAccountName = accountName || verificationResult.accountName;
+    const useKorapay = this.korapayService.isConfigured();
+    const provider = useKorapay ? 'korapay' : 'paystack';
 
     const tx = await this.prisma.$transaction(async (prisma) => {
       const balance = await prisma.balance.findUnique({
@@ -142,10 +148,10 @@ export class TransactionsController {
           metadata: {
             accountNumber,
             bankCode,
-            accountName: accountName || verificationResult.accountName,
+            accountName: resolvedAccountName,
             transferAmount: amount,
             fee,
-            provider: 'paystack',
+            provider,
           },
         },
       });
@@ -154,29 +160,55 @@ export class TransactionsController {
     });
 
     try {
-      const transferResult = await this.paystackService.initiateTransfer(
-        accountNumber,
-        bankCode,
-        accountName || verificationResult.accountName,
-        amount,
-        reference,
-        description,
-      );
+      let transferReference: string;
+      let transferStatus: string;
+
+      if (useKorapay) {
+        const senderEmail =
+          (user?.emailEncrypted && decrypt(user.emailEncrypted)) ||
+          `user-${userId}@vura.local`;
+        const result = await this.korapayService.disburse({
+          reference,
+          accountNumber,
+          bankCode,
+          accountName: resolvedAccountName,
+          amount,
+          narration: description,
+          customerEmail: senderEmail,
+          customerName: resolvedAccountName,
+        });
+        if (!result.success) {
+          throw new BadRequestException(result.error);
+        }
+        transferReference = result.reference;
+        transferStatus = result.status;
+      } else {
+        const transferResult = await this.paystackService.initiateTransfer(
+          accountNumber,
+          bankCode,
+          resolvedAccountName,
+          amount,
+          reference,
+          description,
+        );
+        transferReference = transferResult.reference;
+        transferStatus = transferResult.status;
+      }
 
       await this.prisma.transaction.update({
         where: { id: tx.transaction.id },
-        data: { providerTxId: transferResult.reference },
+        data: { providerTxId: transferReference },
       });
 
       return {
         success: true,
-        reference: transferResult.reference,
-        status: transferResult.status,
-        accountName: verificationResult.accountName,
+        reference: transferReference,
+        status: transferStatus,
+        accountName: resolvedAccountName,
         amount,
         fee,
         totalDeduction,
-        provider: 'paystack',
+        provider,
       };
     } catch (err: any) {
       await this.prisma.$transaction(async (prisma) => {
@@ -194,10 +226,18 @@ export class TransactionsController {
           data: { status: 'FAILED' },
         });
       });
-      const message =
-        (err as { response?: { data?: { message?: string } }; message?: string })?.response?.data?.message ||
-        (err as Error).message ||
-        'Transfer failed. Your balance has been refunded.';
+      const errObj = err as {
+        response?: { data?: { message?: string } };
+        message?: string;
+      };
+      const rawMessage =
+        errObj?.response?.data?.message || errObj?.message || '';
+      const isStarterError =
+        typeof rawMessage === 'string' &&
+        /starter|cannot initiate/i.test(rawMessage);
+      const message = isStarterError
+        ? 'Bank transfer is not available on your current Paystack plan (Starter). Upgrade to a Registered Business in Paystack Dashboard (Compliance > Profile), or ensure Korapay is configured for send-to-bank.'
+        : rawMessage || 'Transfer failed. Your balance has been refunded.';
       throw new BadRequestException(message);
     }
   }

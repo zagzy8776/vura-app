@@ -144,70 +144,96 @@ export class NellobyteService {
     if (!this.enabled) return this.getStaticDataPlans(toNellobyteNetwork(network));
     const networkCode = toNellobyteNetwork(network);
     try {
-      const data = await this.get<any>('APIDatabundlePlansV2.asp', {});
-      if (!data || typeof data !== 'object') return this.getStaticDataPlans(networkCode);
-
-      const plans: { plan_code: string; name: string; price: number }[] = [];
-      const seen = new Set<string>();
-
-      const pushPlan = (item: any) => {
-        if (!item || typeof item !== 'object') return;
-        const code = item?.code ?? item?.id ?? item?.plan_code ?? item?.DataPlan ?? item?.Plan ?? '';
-        const name = typeof item?.name === 'string' ? item.name : (typeof item?.description === 'string' ? item.description : (typeof item?.Product === 'string' ? item.Product : String(code)));
-        const price = Number(item?.price ?? item?.amount ?? item?.Amount ?? 0);
-        if (!code || !name || String(name).includes('[object')) return;
-        const key = `${String(code)}-${price}`;
-        if (seen.has(key)) return;
-        seen.add(key);
-        plans.push({ plan_code: String(code), name: String(name), price });
-      };
-
-      const isForNetwork = (key: string): boolean => {
-        const k = String(key).toLowerCase().trim();
-        if (k === networkCode || k === networkCode.padStart(2, '0')) return true;
-        if (networkCode === '01' && (k.includes('mtn') || k === '1')) return true;
-        if (networkCode === '02' && (k.includes('glo') || k === '2')) return true;
-        if (networkCode === '04' && (k.includes('airtel') || k === '4')) return true;
-        if (networkCode === '03' && (k.includes('9mobile') || k.includes('etisalat') || k === '3')) return true;
-        return false;
-      };
-
-      const collectFrom = (raw: any) => {
-        if (Array.isArray(raw)) for (const item of raw) pushPlan(item);
-        else if (raw && typeof raw === 'object') for (const item of Object.values(raw)) pushPlan(item);
-      };
-
-      if (Array.isArray(data)) {
-        for (const item of data) {
-          const net = item?.network ?? item?.Network ?? item?.mobileNetwork ?? item?.MobileNetwork ?? item?.biller_id ?? '';
-          if (isForNetwork(String(net))) pushPlan(item);
-        }
-        if (plans.length > 0) return this.sortPlans(plans);
-        for (const item of data) pushPlan(item);
-      } else {
-        for (const [key, items] of Object.entries(data)) {
-          if (isForNetwork(key)) {
-            const arr = Array.isArray(items) ? items : (items && typeof items === 'object' ? Object.values(items) : []);
-            for (const item of arr) pushPlan(item);
-          }
-        }
-        if (plans.length > 0) return this.sortPlans(plans);
-        for (const [, items] of Object.entries(data)) {
-          const arr = Array.isArray(items) ? items : (items && typeof items === 'object' ? Object.values(items) : []);
-          for (const item of arr) pushPlan(item);
-        }
-        const wrapKeys = ['data', 'plans', 'Plans', 'databundle', 'Databundle', 'result', 'Result'];
-        for (const w of wrapKeys) {
-          if (data[w] != null) collectFrom(data[w]);
-          if (plans.length > 0) return this.sortPlans(plans);
-        }
-      }
-
+      // Try with MobileNetwork first so ClubKonnect returns network-specific plans (01=MTN, 02=GLO, etc.)
+      let data = await this.get<any>('APIDatabundlePlansV2.asp', {
+        MobileNetwork: networkCode,
+      });
+      let plans = this.parseDataPlansResponse(data, networkCode);
+      if (plans.length > 0) return this.sortPlans(plans);
+      // Fallback: fetch without network param (some API versions may not support it) and filter
+      data = await this.get<any>('APIDatabundlePlansV2.asp', {});
+      plans = this.parseDataPlansResponse(data, networkCode);
       if (plans.length > 0) return this.sortPlans(plans);
     } catch (e: any) {
       this.logger.warn(`getDataPlans: ${e.message}`);
+      try {
+        const data = await this.get<any>('APIDatabundlePlansV2.asp', {});
+        const plans = this.parseDataPlansResponse(data, networkCode);
+        if (plans.length > 0) return this.sortPlans(plans);
+      } catch {
+        // use static
+      }
     }
     return this.getStaticDataPlans(networkCode);
+  }
+
+  private parseDataPlansResponse(data: any, networkCode: string): { plan_code: string; name: string; price: number }[] {
+    if (!data || typeof data !== 'object') return [];
+    const plans: { plan_code: string; name: string; price: number }[] = [];
+    const seen = new Set<string>();
+
+    const pushPlan = (item: any) => {
+      if (!item || typeof item !== 'object') return;
+      const code =
+        item?.DataPlan ??
+        item?.code ??
+        item?.id ??
+        item?.plan_code ??
+        item?.Plan ??
+        item?.ProductCode ??
+        item?.bundle_code ??
+        item?.bundleCode ??
+        '';
+      const name = typeof item?.name === 'string' ? item.name : (typeof item?.description === 'string' ? item.description : (typeof item?.Product === 'string' ? item.Product : (typeof item?.plan_name === 'string' ? item.plan_name : String(code))));
+      const price = Number(item?.price ?? item?.amount ?? item?.Amount ?? item?.ProductAmount ?? 0);
+      if (!code || !name || String(name).includes('[object')) return;
+      const key = `${String(code)}-${price}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      plans.push({ plan_code: String(code), name: String(name), price });
+    };
+
+    const isForNetwork = (key: string): boolean => {
+      const k = String(key).toLowerCase().trim();
+      if (k === networkCode || k === networkCode.padStart(2, '0')) return true;
+      if (networkCode === '01' && (k.includes('mtn') || k === '1')) return true;
+      if (networkCode === '02' && (k.includes('glo') || k === '2')) return true;
+      if (networkCode === '04' && (k.includes('airtel') || k === '4')) return true;
+      if (networkCode === '03' && (k.includes('9mobile') || k.includes('etisalat') || k === '3')) return true;
+      return false;
+    };
+
+    const collectFrom = (raw: any) => {
+      if (Array.isArray(raw)) for (const item of raw) pushPlan(item);
+      else if (raw && typeof raw === 'object') for (const item of Object.values(raw)) pushPlan(item);
+    };
+
+    if (Array.isArray(data)) {
+      for (const item of data) {
+        const net = item?.network ?? item?.Network ?? item?.mobileNetwork ?? item?.MobileNetwork ?? item?.biller_id ?? item?.networkCode ?? '';
+        if (isForNetwork(String(net))) pushPlan(item);
+      }
+      if (plans.length > 0) return plans;
+      for (const item of data) pushPlan(item);
+    } else {
+      for (const [key, items] of Object.entries(data)) {
+        if (isForNetwork(key)) {
+          const arr = Array.isArray(items) ? items : (items && typeof items === 'object' ? Object.values(items) : []);
+          for (const item of arr) pushPlan(item);
+        }
+      }
+      if (plans.length > 0) return plans;
+      for (const [, items] of Object.entries(data)) {
+        const arr = Array.isArray(items) ? items : (items && typeof items === 'object' ? Object.values(items) : []);
+        for (const item of arr) pushPlan(item);
+      }
+      const wrapKeys = ['data', 'plans', 'Plans', 'databundle', 'Databundle', 'result', 'Result', 'Bundles', 'bundles'];
+      for (const w of wrapKeys) {
+        if (data[w] != null) collectFrom(data[w]);
+        if (plans.length > 0) return plans;
+      }
+    }
+    return plans;
   }
 
   private sortPlans(plans: { plan_code: string; name: string; price: number }[]): { plan_code: string; name: string; price: number }[] {
@@ -565,12 +591,12 @@ export class NellobyteService {
           for (const item of data) {
             const id = item?.id ?? item?.code ?? item?.biller_id ?? '';
             const name = item?.name ?? item?.description ?? item?.biller_name ?? '';
-            if (id && name) arr.push({ id: String(id), name: String(name) });
+            if (id && name) arr.push({ id: String(id).toUpperCase(), name: String(name) });
           }
         } else {
           for (const [code, val] of Object.entries(data)) {
             const name = typeof val === 'string' ? val : (val && typeof val === 'object' ? (val as any).name ?? (val as any).description ?? '' : String(val));
-            if (code && name) arr.push({ id: String(code), name: String(name) });
+            if (code && name) arr.push({ id: String(code).toUpperCase(), name: String(name) });
           }
         }
         if (arr.length > 0) return arr;

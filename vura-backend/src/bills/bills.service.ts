@@ -182,6 +182,22 @@ export class BillsService {
     }));
   }
 
+  /** Normalize network for consistent plan lookup (e.g. MTN -> 01 for Nellobyte) */
+  private normalizeNetworkForPlans(network: string): string {
+    const n = (network || '').trim().toLowerCase();
+    const map: Record<string, string> = {
+      mtn: '01',
+      glo: '02',
+      '9mobile': '03',
+      airtel: '04',
+      '01': '01',
+      '02': '02',
+      '03': '03',
+      '04': '04',
+    };
+    return map[n] ?? n;
+  }
+
   async buyData(
     userId: string,
     data: { phoneNumber: string; planCode: string; network: string },
@@ -190,13 +206,22 @@ export class BillsService {
       throw new BadRequestException('Enter a valid Nigerian phone number');
     }
 
-    const plans = await this.getDataPlans(data.network);
+    // Fetch plans with normalized network so we get the same list as the frontend (01, 02, mtn, etc.)
+    const networkNorm = this.nellobyte.isEnabled()
+      ? this.normalizeNetworkForPlans(data.network)
+      : data.network;
+    const plans = await this.getDataPlans(networkNorm);
     const planCodeNorm = String(data.planCode ?? '').trim();
-    const plan = plans.find((p: any) => String(p.plan_code ?? '').trim() === planCodeNorm);
+    const plan = plans.find(
+      (p: any) =>
+        String(p.plan_code ?? '').trim().toLowerCase() === planCodeNorm.toLowerCase() ||
+        String(p.plan_code ?? '').trim() === planCodeNorm,
+    );
 
     if (!plan) {
+      this.logger.warn(`buyData: plan not found. network=${data.network} (norm=${networkNorm}), planCode=${planCodeNorm}, plansCount=${plans.length}`);
       throw new BadRequestException(
-        'Invalid data plan selected. Please choose a plan from the list and try again.',
+        `Invalid data plan selected. Please choose a plan from the list (network: ${data.network}, plan code: ${planCodeNorm}).`,
       );
     }
 
@@ -549,15 +574,29 @@ export class BillsService {
 
   async getCablePackages(provider: string) {
     if (!this.nellobyte.isEnabled()) return [];
-    const plans = await this.nellobyte.getCablePackages(provider);
-    return plans.map((p: any) => ({ plan_code: p.package_code, name: p.name, price: p.price }));
+    const prov = (provider || '').trim().toLowerCase();
+    const plans = await this.nellobyte.getCablePackages(prov || 'dstv');
+    return plans.map((p: any) => ({
+      plan_code: p.package_code ?? p.plan_code ?? p.code,
+      name: p.name ?? p.description ?? '',
+      price: p.price ?? 0,
+    }));
   }
 
   async validateCableSmartcard(cableTv: string, smartCardNo: string) {
     if (!this.nellobyte.isEnabled()) {
-      return { success: false, message: 'Cable TV requires Nellobyte (ClubKonnect). Set NELLOBYTE_USERID and NELLOBYTE_API_KEY.' };
+      return {
+        success: false,
+        message:
+          'Cable TV is not available yet. Please contact support.',
+      };
     }
-    return this.nellobyte.verifyCableSmartcard(cableTv, smartCardNo);
+    const cable = (cableTv || 'dstv').trim().toLowerCase();
+    const card = (smartCardNo || '').trim();
+    if (!card || card.length < 5) {
+      return { success: false, message: 'Enter a valid smartcard number' };
+    }
+    return this.nellobyte.verifyCableSmartcard(cable, card);
   }
 
   async buyCableTV(
@@ -565,12 +604,23 @@ export class BillsService {
     data: { cableTv: string; packageCode: string; smartCardNo: string; phoneNumber: string },
   ) {
     if (!this.nellobyte.isEnabled()) {
-      throw new BadRequestException('Cable TV requires Nellobyte. Set NELLOBYTE_USERID and NELLOBYTE_API_KEY.');
+      throw new BadRequestException(
+        'Cable TV subscriptions are not available yet. Please contact support.',
+      );
     }
-    const plans = await this.nellobyte.getCablePackages(data.cableTv);
-    const plan = plans.find((p: any) => p.package_code === data.packageCode);
+    const cableTv = (data.cableTv || 'dstv').trim().toLowerCase();
+    const packageCode = (data.packageCode || '').trim();
+    const smartCardNo = (data.smartCardNo || '').trim();
+    if (!packageCode || !smartCardNo || smartCardNo.length < 5) {
+      throw new BadRequestException('Select a package and enter a valid smartcard number');
+    }
+    const plans = await this.nellobyte.getCablePackages(cableTv);
+    const plan = plans.find(
+      (p: any) =>
+        (p.package_code ?? p.plan_code ?? p.code) === packageCode,
+    );
     if (!plan) {
-      throw new BadRequestException('Invalid package selected');
+      throw new BadRequestException('Invalid package selected. Please choose from the list.');
     }
     const amount = new Decimal(plan.price ?? 0);
     const reference = `CABLETV-${uuid()}`;
@@ -601,9 +651,9 @@ export class BillsService {
           afterBalance: afterBalance.toNumber(),
           metadata: {
             billType: 'cable',
-            cableTv: data.cableTv,
-            packageCode: data.packageCode,
-            smartCardNo: data.smartCardNo,
+            cableTv,
+            packageCode,
+            smartCardNo,
             provider: 'nellobyte',
           },
         },
@@ -612,9 +662,9 @@ export class BillsService {
     });
 
     const result = await this.nellobyte.buyCableTV({
-      cableTv: data.cableTv,
-      packageCode: data.packageCode,
-      smartCardNo: data.smartCardNo,
+      cableTv,
+      packageCode,
+      smartCardNo,
       phoneNumber: data.phoneNumber || '08000000000',
     });
 
@@ -633,16 +683,16 @@ export class BillsService {
         action: 'CABLETV_PURCHASE',
         userId,
         actorType: 'user',
-        metadata: { reference, cableTv: data.cableTv, packageCode: data.packageCode, amount: amount.toString(), provider: 'nellobyte' },
+        metadata: { reference, cableTv, packageCode, amount: amount.toString(), provider: 'nellobyte' },
       },
     });
 
-    this.logger.log(`Cable TV: ${data.cableTv} ${data.packageCode} → ${data.smartCardNo} by ${userId} via nellobyte`);
+    this.logger.log(`Cable TV: ${cableTv} ${packageCode} → ${smartCardNo} by ${userId} via nellobyte`);
 
     return {
       success: true,
-      data: { reference, cableTv: data.cableTv, packageCode: data.packageCode, amount: amount.toNumber(), balanceAfter: tx.afterBalance.toFixed(2) },
-      message: `Cable TV subscription successful for ${data.smartCardNo}`,
+      data: { reference, cableTv, packageCode, amount: amount.toNumber(), balanceAfter: tx.afterBalance.toFixed(2) },
+      message: `Cable TV subscription successful for ${smartCardNo}`,
     };
   }
 
@@ -655,14 +705,30 @@ export class BillsService {
 
   async validateBettingCustomer(company: string, customerId: string) {
     if (!this.nellobyte.isEnabled()) {
-      return { success: false, message: 'Betting requires Nellobyte. Set NELLOBYTE_USERID and NELLOBYTE_API_KEY.' };
+      return {
+        success: false,
+        message:
+          'Sports betting is not available yet. Please contact support.',
+      };
     }
-    return this.nellobyte.verifyBettingCustomer(company, customerId);
+    const companyNorm = (company || '').trim().toUpperCase();
+    const customerIdNorm = (customerId || '').trim();
+    if (!companyNorm || !customerIdNorm || customerIdNorm.length < 3) {
+      return { success: false, message: 'Enter a valid company and customer ID' };
+    }
+    return this.nellobyte.verifyBettingCustomer(companyNorm, customerIdNorm);
   }
 
   async buyBetting(userId: string, data: { company: string; customerId: string; amount: number }) {
     if (!this.nellobyte.isEnabled()) {
-      throw new BadRequestException('Betting requires Nellobyte. Set NELLOBYTE_USERID and NELLOBYTE_API_KEY.');
+      throw new BadRequestException(
+        'Sports betting funding is not available yet. Please contact support or try again later.',
+      );
+    }
+    const company = (data.company || '').trim().toUpperCase();
+    const customerId = (data.customerId || '').trim();
+    if (!company || !customerId) {
+      throw new BadRequestException('Company and customer ID are required');
     }
     if (data.amount < 100) {
       throw new BadRequestException('Minimum betting amount is ₦100');
@@ -696,8 +762,8 @@ export class BillsService {
           afterBalance: afterBalance.toNumber(),
           metadata: {
             billType: 'betting',
-            company: data.company,
-            customerId: data.customerId,
+            company,
+            customerId,
             provider: 'nellobyte',
           },
         },
@@ -706,8 +772,8 @@ export class BillsService {
     });
 
     const result = await this.nellobyte.buyBetting({
-      company: data.company,
-      customerId: data.customerId,
+      company,
+      customerId,
       amount: data.amount,
     });
 
@@ -730,11 +796,11 @@ export class BillsService {
       },
     });
 
-    this.logger.log(`Betting: ₦${data.amount} → ${data.company} ${data.customerId} by ${userId} via nellobyte`);
+    this.logger.log(`Betting: ₦${data.amount} → ${company} ${customerId} by ${userId} via nellobyte`);
 
     return {
       success: true,
-      data: { reference, company: data.company, amount: data.amount, balanceAfter: tx.afterBalance.toFixed(2) },
+      data: { reference, company, amount: data.amount, balanceAfter: tx.afterBalance.toFixed(2) },
       message: `₦${data.amount} funded to ${data.company} account`,
     };
   }
