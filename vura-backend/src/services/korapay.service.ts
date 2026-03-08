@@ -204,6 +204,50 @@ export class KorapayService {
   }
 
   /**
+   * Resolve (verify) a Nigerian bank account and get account name. Use for send-to-bank.
+   */
+  async resolveBankAccount(
+    accountNumber: string,
+    bankCode: string,
+  ): Promise<{ success: true; accountName: string } | { success: false; error: string }> {
+    if (!this.isConfigured()) {
+      return { success: false, error: 'Korapay is not configured.' };
+    }
+    try {
+      const res = await axios.post<{
+        status: boolean;
+        message?: string;
+        data?: { account_name?: string; bank_code?: string; account_number?: string };
+      }>(
+        `${KORAPAY_BASE}/misc/banks/resolve`,
+        { bank: bankCode, account: accountNumber, currency: 'NG' },
+        { headers: this.getHeaders(), timeout: 15000 },
+      );
+      if (!res.data.status || !res.data.data?.account_name) {
+        return {
+          success: false,
+          error: res.data.message || 'Could not resolve account',
+        };
+      }
+      return {
+        success: true,
+        accountName: String(res.data.data.account_name).trim(),
+      };
+    } catch (err: unknown) {
+      if (axios.isAxiosError(err)) {
+        const msg =
+          (err.response?.data as { message?: string })?.message ||
+          err.message;
+        return { success: false, error: String(msg) };
+      }
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : 'Unknown error',
+      };
+    }
+  }
+
+  /**
    * Disburse (payout) to a Nigerian bank account. Amount in Naira (NGN).
    * Requires a funded Korapay merchant balance.
    */

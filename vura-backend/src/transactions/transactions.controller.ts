@@ -106,14 +106,25 @@ export class TransactionsController {
     const totalDeduction = amount + fee;
     await this.limitsService.checkSendLimit(userId, new Decimal(totalDeduction), 'NGN');
 
-    const verificationResult = await this.paystackService.verifyAccount(
-      accountNumber,
-      bankCode,
-    );
-    const reference = `BANK-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    const resolvedAccountName = accountName || verificationResult.accountName;
     const useKorapay = this.korapayService.isConfigured();
     const provider = useKorapay ? 'korapay' : 'paystack';
+
+    let resolvedAccountName: string;
+    if (useKorapay) {
+      const resolveResult = await this.korapayService.resolveBankAccount(accountNumber, bankCode);
+      if (!resolveResult.success) {
+        throw new BadRequestException(resolveResult.error || 'Could not verify account');
+      }
+      resolvedAccountName = accountName || resolveResult.accountName;
+    } else {
+      const verificationResult = await this.paystackService.verifyAccount(
+        accountNumber,
+        bankCode,
+      );
+      resolvedAccountName = accountName || verificationResult.accountName;
+    }
+
+    const reference = `BANK-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
     const tx = await this.prisma.$transaction(async (prisma) => {
       const balance = await prisma.balance.findUnique({
@@ -243,8 +254,12 @@ export class TransactionsController {
         message =
           'Bank transfer is not available on your current Paystack plan (Starter). Upgrade to a Registered Business in Paystack Dashboard (Compliance > Profile), or ensure Korapay is configured for send-to-bank.';
       } else if (isIpAuthError) {
+        const where =
+          provider === 'korapay'
+            ? 'Korapay (merchant.korapay.com → Settings → API configuration → IP whitelist)'
+            : 'Paystack (dashboard.paystack.com → Settings → API Keys and Webhook → Add IP address)';
         message =
-          'Bank transfer was rejected: your server IP is not whitelisted. Add your server’s public IP in Paystack (Settings → API Keys and Webhook → Add IP) and in Korapay (Settings → API configuration → IP whitelist) if you use it. Get the IP by calling GET /api/admin/server-ip with header Authorization: Bearer YOUR_ADMIN_SECRET. Your balance has been refunded.';
+          `Bank transfer was rejected: server IP not whitelisted. Add your server's public IP in ${where}. Get the IP: GET https://vura-app.onrender.com/api/admin/server-ip with header Authorization: Bearer YOUR_ADMIN_SECRET. Your balance has been refunded.`;
       } else {
         message = rawMessage || 'Transfer failed. Your balance has been refunded.';
       }
@@ -287,18 +302,31 @@ export class TransactionsController {
     @Query('bankCode') bankCode: string,
   ) {
     try {
+      if (this.korapayService.isConfigured()) {
+        const result = await this.korapayService.resolveBankAccount(
+          accountNumber,
+          bankCode,
+        );
+        if (!result.success) {
+          throw new BadRequestException(result.error || 'Could not verify account');
+        }
+        return {
+          success: true,
+          accountName: result.accountName,
+          provider: 'korapay',
+        };
+      }
       const result = await this.paystackService.verifyAccount(
         accountNumber,
         bankCode,
       );
-
       return {
         success: true,
         accountName: result.accountName,
         provider: 'paystack',
       };
-    } catch (error: any) {
-      console.error('verify-account failed', { bankCode, error: error.message });
+    } catch (error: unknown) {
+      if (error instanceof BadRequestException) throw error;
       throw new BadRequestException(
         'We could not verify this account. Please confirm the bank and account number and try again.',
       );
