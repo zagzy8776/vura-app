@@ -173,6 +173,7 @@ export class VpayService {
   /**
    * Outbound transfer to a Nigerian bank account.
    * POST /api/service/v1/query/transfer/outbound
+   * Amount: in Naira (NGN). Confirm with VPay docs if they expect kobo and convert here.
    */
   async outboundTransfer(params: {
     nuban: string;
@@ -187,7 +188,7 @@ export class VpayService {
     const body = {
       nuban: params.nuban,
       bank_code: params.bank_code,
-      amount: params.amount,
+      amount: params.amount, // Naira
       remark: params.remark ?? '',
       transaction_ref: params.transaction_ref,
     };

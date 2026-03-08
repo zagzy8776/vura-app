@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
@@ -17,14 +17,6 @@ import { toast } from "@/hooks/use-toast";
 
 type BankOption = { code: string; name: string };
 type BankOptionResponse = { code: string; name: string };
-
-const FALLBACK_BANKS: BankOption[] = [
-  // Minimal fallback list (codes may not match Flutterwave; only used if API fails)
-  { code: "044", name: "Access Bank" },
-  { code: "058", name: "Guaranty Trust Bank (GTB)" },
-  { code: "033", name: "United Bank for Africa (UBA)" },
-  { code: "057", name: "Zenith Bank" },
-];
 
 type TransferMode = "tag" | "bank";
 type ScheduleType = "now" | "later" | "recurring";
@@ -75,9 +67,14 @@ const SendMoney = () => {
   const [showAccountSuggestion, setShowAccountSuggestion] = useState(false);
   const [showSecurityModal, setShowSecurityModal] = useState(false);
 
-  const [banks, setBanks] = useState<BankOption[]>(FALLBACK_BANKS);
+  const [banks, setBanks] = useState<BankOption[]>([]);
   const [bankSearch, setBankSearch] = useState("");
   const [prefilledFromLink, setPrefilledFromLink] = useState(false);
+  const [banksLoadError, setBanksLoadError] = useState(false);
+  const [banksLoading, setBanksLoading] = useState(true);
+  const bankDropdownRef = useRef<HTMLDivElement>(null);
+  const verifyRequestIdRef = useRef(0);
+  const sendIdempotencyKeyRef = useRef<string | null>(null);
 
   const [feeBreakdown, setFeeBreakdown] = useState<
     | null
@@ -88,14 +85,17 @@ const SendMoney = () => {
       }
   >(null);
 
+  const flatBankFee = (amt: number) => (amt <= 5000 ? 10 : amt <= 50000 ? 25 : 50);
   const localFee = amount
     ? transferMode === 'tag'
       ? 0
-      : Math.max(10, Number(amount) * 0.015)
+      : flatBankFee(Number(amount))
     : 0;
 
   const fee =
-    transferMode === "bank" && feeBreakdown ? feeBreakdown.totalFee : localFee;
+    transferMode === "bank"
+      ? (feeBreakdown ? feeBreakdown.totalFee : localFee)
+      : 0;
   const total = Number(amount) + fee;
   const isOverLimit = Number(amount) + fee > userLimits.remaining;
 
@@ -150,25 +150,36 @@ const SendMoney = () => {
     loadLimits();
   }, []);
 
-  useEffect(() => {
-    const loadBanks = async () => {
-      try {
-        const res = await apiFetch('/bank-codes/for-send-to-bank');
-        if (!res.ok) return;
-        const data = await res.json();
-        const available = data?.success && Array.isArray(data.banks) && data.banks.length > 0;
-        setSendToBankAvailable(!!available);
-        setTransferAvailable(data?.transferAvailable === true);
-        if (available) {
-          const mapped: BankOption[] = (data.banks as BankOptionResponse[])
-            .filter((b) => b?.code != null && b?.name)
-            .map((b) => ({ code: String(b.code), name: String(b.name) }));
-          if (mapped.length > 0) setBanks(mapped);
-        }
-      } catch {
-        setSendToBankAvailable(false);
+  const loadBanks = async () => {
+    setBanksLoadError(false);
+    setBanksLoading(true);
+    try {
+      const res = await apiFetch('/bank-codes/for-send-to-bank');
+      const data = await res.json().catch(() => ({}));
+      const ok = res.ok && data?.success === true && Array.isArray(data.banks);
+      const available = ok && data.banks.length > 0;
+      setSendToBankAvailable(!!available);
+      setTransferAvailable(data?.transferAvailable === true);
+      if (available) {
+        const mapped: BankOption[] = (data.banks as BankOptionResponse[])
+          .filter((b) => b?.code != null && b?.name)
+          .map((b) => ({ code: String(b.code), name: String(b.name) }));
+        setBanks(mapped.length > 0 ? mapped : []);
+      } else {
+        setBanks([]);
+        if (res.ok && data?.success === false) setBanksLoadError(true);
       }
-    };
+    } catch {
+      setSendToBankAvailable(false);
+      setTransferAvailable(false);
+      setBanks([]);
+      setBanksLoadError(true);
+    } finally {
+      setBanksLoading(false);
+    }
+  };
+
+  useEffect(() => {
     loadBanks();
   }, []);
 
@@ -225,26 +236,39 @@ const SendMoney = () => {
     }
   }, [recipientTag]);
 
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (bankDropdownRef.current && !bankDropdownRef.current.contains(e.target as Node)) setShowBankDropdown(false);
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
   const verifyBankAccount = async () => {
     if (accountNumber.length !== 10 || !selectedBank) return;
+    const requestId = ++verifyRequestIdRef.current;
     setVerifyingAccount(true);
     try {
-      // Let backend auto-determine the provider based on bank code
       const res = await apiFetch(`/transactions/verify-account?accountNumber=${accountNumber}&bankCode=${selectedBank}`);
-      if (res.ok) {
-        const data = await res.json();
+      if (requestId !== verifyRequestIdRef.current) return;
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data?.accountName) {
         setAccountName(data.accountName);
         setAccountVerified(true);
-        toast({ title: "Account Verified", description: `Account name: ${data.accountName}` });
+        toast({ title: "Account verified", description: data.accountName });
       } else {
-        const errorData = await res.json();
-        toast({ title: "Verification Failed", description: errorData.message || "Could not verify account", variant: "destructive" });
+        setAccountName("");
+        setAccountVerified(false);
+        const msg = data?.message || "Could not verify account. Check number and bank.";
+        toast({ title: "Verification failed", description: msg, variant: "destructive" });
       }
     } catch (error) {
-      console.error("Account verification failed:", error);
-      toast({ title: "Verification Failed", description: "Could not verify account", variant: "destructive" });
+      if (requestId !== verifyRequestIdRef.current) return;
+      setAccountName("");
+      setAccountVerified(false);
+      toast({ title: "Verification failed", description: "Network error. Try again.", variant: "destructive" });
     } finally {
-      setVerifyingAccount(false);
+      if (requestId === verifyRequestIdRef.current) setVerifyingAccount(false);
     }
   };
 
@@ -281,15 +305,18 @@ const SendMoney = () => {
   };
 
   useEffect(() => {
-    if (accountNumber.length === 10 && selectedBank && !accountVerified) {
-      const debounce = setTimeout(verifyBankAccount, 1000);
-      return () => clearTimeout(debounce);
-    }
+    if (accountNumber.length !== 10 || !selectedBank) return;
+    setAccountVerified(false);
+    setAccountName("");
+    const t = setTimeout(verifyBankAccount, 800);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- run only when account/bank change
   }, [accountNumber, selectedBank]);
 
   useEffect(() => {
     const debounce = setTimeout(fetchTransferFee, 500);
     return () => clearTimeout(debounce);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- run only when amount/mode change
   }, [amount, transferMode]);
 
   const handleSecurityConfirm = () => {
@@ -332,12 +359,13 @@ const SendMoney = () => {
             description,
             pin,
             scheduleType: "now",
+            idempotencyKey: sendIdempotencyKeyRef.current || crypto.randomUUID(),
           }),
         });
       }
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        throw new Error(data.message || "Transfer failed");
+        throw new Error(data?.message || "Transfer failed. Please try again.");
       }
       setReference(data.reference || `VUR${Date.now()}`);
       const displayName = transferMode === "tag" ? `@${recipientData?.vuraTag || recipientTag}` : accountName;
@@ -379,10 +407,11 @@ const SendMoney = () => {
         // already exists or network; ignore
       }
       setStep("success");
-      toast({ title: "Transfer successful!", description: `₦${Number(amount).toLocaleString()} sent` });
+      toast({ title: "Transfer successful", description: `You sent ₦${Number(amount).toLocaleString()} to ${getRecipientDisplay()}` });
     } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : "Transfer failed";
-      toast({ title: "Transfer failed", description: errorMessage, variant: "destructive" });
+      let msg = "Transfer failed. Please try again.";
+      if (error instanceof Error && error.message) msg = error.message;
+      toast({ title: "Transfer failed", description: msg, variant: "destructive" });
     } finally {
       setSending(false);
     }
@@ -482,11 +511,14 @@ const SendMoney = () => {
                 </div>
               )}
 
-              {!sendToBankAvailable && (
+              {!banksLoading && !sendToBankAvailable && !banksLoadError && (
                 <p className="text-sm text-muted-foreground rounded-lg bg-muted/50 p-3">Send to bank is not available right now. Use <strong>@tag</strong> to send to other Vura users.</p>
               )}
-              {sendToBankAvailable && !transferAvailable && (
-                <p className="text-sm text-muted-foreground rounded-lg bg-amber-500/10 border border-amber-500/20 p-3">Bank transfer is coming soon. You can choose a bank and add details below; for now use <strong>@tag</strong> to send to other Vura users.</p>
+              {banksLoadError && (
+                <div className="text-sm rounded-lg bg-amber-500/10 border border-amber-500/20 p-3">
+                  <p className="text-foreground">Couldn&apos;t load banks. Please try again.</p>
+                  <Button type="button" variant="outline" size="sm" className="mt-2 rounded-lg" onClick={loadBanks}>Try again</Button>
+                </div>
               )}
 
               <div className="rounded-xl bg-gradient-to-r from-primary/10 to-primary/5 border border-primary/20 p-4">
@@ -566,8 +598,8 @@ const SendMoney = () => {
                     <motion.div key="bank" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-5">
                       <div>
                         <Label className="text-sm font-medium text-foreground mb-1.5 block">Bank</Label>
-                        <div className="relative">
-                          <button onClick={() => setShowBankDropdown(!showBankDropdown)} className="w-full h-12 px-4 rounded-xl border border-input bg-background text-left flex items-center justify-between hover:bg-accent transition-colors">
+                        <div className="relative" ref={bankDropdownRef}>
+                          <button type="button" onClick={() => setShowBankDropdown(!showBankDropdown)} className="w-full h-12 px-4 rounded-xl border border-input bg-background text-left flex items-center justify-between hover:bg-accent transition-colors">
                             <span className={selectedBank ? "text-foreground" : "text-muted-foreground"}>{selectedBankName}</span>
                             <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${showBankDropdown ? "rotate-180" : ""}`} />
                           </button>
@@ -642,14 +674,14 @@ const SendMoney = () => {
                         </div>
                       </>
                     ) : (
-                      <div className="flex justify-between text-muted-foreground"><span>Transfer fee ({transferMode === "bank" ? "1.5%" : "0.5%"})</span><span>₦{fee.toFixed(2)}</span></div>
+                      <div className="flex justify-between text-muted-foreground"><span>Transfer fee</span><span>₦{fee.toFixed(2)}</span></div>
                     )}
                     {scheduleType !== "now" && <div className="flex justify-between text-amber-600"><span>{scheduleType === "later" ? "Scheduled" : "Recurring"}</span><span>{scheduleType === "later" ? scheduleDate : recurringFrequency}</span></div>}
                     <div className="flex justify-between font-semibold text-foreground"><span>Total</span><span>₦{total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span></div>
                   </div>
                 )}
 
-                <Button onClick={() => setStep("confirm")} disabled={!isFormValid()} className="w-full h-12 rounded-xl gradient-brand text-primary-foreground font-semibold border-0 hover:opacity-90">Continue</Button>
+                <Button onClick={() => { if (transferMode === "bank") sendIdempotencyKeyRef.current = crypto.randomUUID(); setStep("confirm"); }} disabled={!isFormValid()} className="w-full h-12 rounded-xl gradient-brand text-primary-foreground font-semibold border-0 hover:opacity-90">Continue</Button>
               </div>
             </motion.div>
           )}
@@ -707,11 +739,9 @@ const SendMoney = () => {
                 <div className="mx-auto w-20 h-20 rounded-full bg-green-100 flex items-center justify-center mb-6">
                   <CheckCircle className="h-10 w-10 text-green-600" />
                 </div>
-                <h2 className="text-2xl font-bold text-foreground mb-2">
-                  {scheduleType === "now" ? "Transfer Successful!" : scheduleType === "later" ? "Transfer Scheduled!" : "Recurring Transfer Set!"}
-                </h2>
+                <h2 className="text-2xl font-bold text-foreground mb-2">Transfer successful</h2>
                 <p className="text-muted-foreground mb-6">
-                  {scheduleType === "now" ? `You sent ₦${Number(amount).toLocaleString()} to ${getRecipientDisplay()}` : scheduleType === "later" ? `Transfer scheduled for ${scheduleDate}` : `Will transfer ${recurringFrequency}ly`}
+                  You sent ₦{Number(amount).toLocaleString()} to {getRecipientDisplay()}
                 </p>
                 <div className="rounded-2xl bg-card border border-border p-6 shadow-card max-w-sm mx-auto mb-6">
                   <div className="space-y-2 text-sm text-left">

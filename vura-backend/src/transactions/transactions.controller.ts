@@ -70,6 +70,7 @@ export class TransactionsController {
       amount: number;
       description?: string;
       pin?: string;
+      idempotencyKey?: string;
     },
   ) {
     if (!body.pin) {
@@ -83,6 +84,7 @@ export class TransactionsController {
       body.amount,
       body.description,
       body.pin,
+      body.idempotencyKey,
     );
   }
 
@@ -145,7 +147,7 @@ export class TransactionsController {
       fee,
       stampDuty: 0,
       totalFee: fee,
-      provider: 'paystack',
+      provider: 'vpay',
     };
   }
 }

@@ -398,7 +398,7 @@ export class TransactionsService {
     if (!this.vpayService.isConfigured()) {
       throw new BadRequestException('Send to bank is not available.');
     }
-    return this.vpayService.nubanLookup(accountNumber, bankCode);
+    return await this.vpayService.nubanLookup(accountNumber, bankCode);
   }
 
   async getAccountBalance(userId: string) {
@@ -414,7 +414,8 @@ export class TransactionsService {
   }
 
   /**
-   * Send to bank (VPay outbound transfer). Requires VPAY_PUBLIC_KEY and VPAY_SECRET_KEY.
+   * Send to bank (VPay outbound transfer). Requires VPAY_PUBLIC_KEY, VPAY_USERNAME, VPAY_PASSWORD.
+   * Optional idempotencyKey: duplicate requests with same key return cached success without re-debiting.
    */
   async sendToBank(
     senderId: string,
@@ -424,17 +425,52 @@ export class TransactionsService {
     amount: number,
     description?: string,
     pin?: string,
+    idempotencyKey?: string,
   ) {
     if (!this.vpayService.isConfigured()) {
       throw new BadRequestException('Send to bank is not available.');
     }
 
+    const key = idempotencyKey?.trim() || uuidv4();
+    const existing = await this.prisma.transaction.findFirst({
+      where: { idempotencyKey: key, senderId },
+    });
+    if (existing) {
+      if (existing.status === 'SUCCESS') {
+        const meta = (existing.metadata as Record<string, unknown>) || {};
+        const fee = (meta.fee as number) ?? 0;
+        const amt = Number(existing.amount);
+        return {
+          success: true,
+          reference: existing.reference,
+          amount: amt,
+          fee,
+          totalDeduction: amt + fee,
+          accountName: (meta.accountName as string) || '',
+          transactionId: existing.id,
+        };
+      }
+      if (existing.status === 'PENDING') {
+        throw new BadRequestException('Transfer in progress. Please wait.');
+      }
+      throw new BadRequestException(
+        'This transfer previously failed. Please try again with a new transfer.',
+      );
+    }
+
     const nuban = accountNumber.replace(/\D/g, '');
     if (nuban.length !== 10) {
-      throw new BadRequestException('Invalid account number (must be 10 digits).');
+      throw new BadRequestException(
+        'Invalid account number (must be 10 digits).',
+      );
     }
     if (!bankCode?.trim()) {
       throw new BadRequestException('Bank is required.');
+    }
+    if (!accountName?.trim()) {
+      throw new BadRequestException(
+        'Account name is required. Verify the account number first.',
+      );
     }
     if (!Number.isFinite(amount) || amount <= 0) {
       throw new BadRequestException('Invalid amount.');
@@ -476,7 +512,6 @@ export class TransactionsService {
     }
 
     const reference = `VUR-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    const idempotencyKey = uuidv4();
 
     const transaction = await this.prisma.$transaction(async (tx) => {
       const t = await tx.transaction.create({
@@ -486,7 +521,7 @@ export class TransactionsService {
           currency: 'NGN',
           type: 'external_transfer',
           status: 'PENDING',
-          idempotencyKey,
+          idempotencyKey: key,
           reference,
           beforeBalance: beforeBalance,
           afterBalance: beforeBalance - total,

@@ -17,8 +17,17 @@ export class BankCodesController {
   }
 
   /**
+   * Health/config: whether send-to-bank is enabled (VPay configured). No keys or secrets exposed.
+   */
+  @Get('send-to-bank-status')
+  getSendToBankStatus() {
+    return { sendToBankEnabled: this.vpayService.isConfigured() };
+  }
+
+  /**
    * Banks for send-to-bank. VPay only: when configured returns VPay bank list and enables transfer.
-   * No Paystack in this flow.
+   * When VPay is not configured: success true, empty banks, transferAvailable false.
+   * When VPay fails (e.g. login/network): success false, message for retry.
    */
   @Get('for-send-to-bank')
   async getBanksForSendToBank() {
@@ -31,14 +40,25 @@ export class BankCodesController {
         message: 'Bank transfer is not available. Use @tag to send to other Vura users.',
       };
     }
-    const banks = await this.vpayService.getBankList();
-    return {
-      success: true,
-      banks,
-      transferAvailable: true,
-      provider: 'vpay',
-      message: undefined,
-    };
+    try {
+      const banks = await this.vpayService.getBankList();
+      return {
+        success: true,
+        banks,
+        transferAvailable: true,
+        provider: 'vpay',
+        message: undefined,
+      };
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Could not load bank list.';
+      return {
+        success: false,
+        banks: [],
+        transferAvailable: false,
+        provider: null,
+        message: message.includes('login') ? 'Bank service is temporarily unavailable. Please try again in a moment.' : 'Could not load banks. Please try again.',
+      };
+    }
   }
 
   /**
