@@ -148,8 +148,8 @@ const SendMoney = () => {
   useEffect(() => {
     const loadBanks = async () => {
       try {
-        // Use Paystack bank list so codes match verify-account and send-to-bank APIs
-        const res = await apiFetch('/bank-codes/paystack');
+        // Use for-send-to-bank so codes match verify-account and send-to-bank (Korapay when configured, else Paystack)
+        const res = await apiFetch('/bank-codes/for-send-to-bank');
         if (!res.ok) return;
         const data = await res.json();
         if (data?.success && Array.isArray(data.banks)) {

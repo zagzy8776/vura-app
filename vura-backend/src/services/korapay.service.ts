@@ -45,6 +45,29 @@ export class KorapayService {
   }
 
   /**
+   * List Nigerian banks for payouts (resolve/disburse). Use when Korapay is used for send-to-bank.
+   */
+  async listBanks(): Promise<{ code: string; name: string }[]> {
+    if (!this.isConfigured()) return [];
+    try {
+      const res = await axios.get<{
+        status: boolean;
+        data?: Array<{ code?: string; name?: string; slug?: string }>;
+      }>(`${KORAPAY_BASE}/misc/banks`, {
+        params: { countryCode: 'NG' },
+        headers: this.getHeaders(),
+        timeout: 15000,
+      });
+      if (!res.data.status || !Array.isArray(res.data.data)) return [];
+      return res.data.data
+        .filter((b) => b?.code && b?.name)
+        .map((b) => ({ code: String(b.code), name: String(b.name) }));
+    } catch {
+      return [];
+    }
+  }
+
+  /**
    * Create an NGN Virtual Bank Account (Korapay VBA).
    * Requires BVN in kyc. Bank code: 035 Wema, 070 Fidelity, 214 FCMB, 103 Globus, 107 Optimus, 104 Parallex. Sandbox: 000.
    */
