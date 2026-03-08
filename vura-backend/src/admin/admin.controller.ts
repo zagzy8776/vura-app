@@ -5,13 +5,13 @@ import {
   Body,
   Param,
   Query,
-  UseGuards,
   BadRequestException,
   Logger,
   Headers,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
 import { ConfigService } from '@nestjs/config';
+import { PaystackService } from '../services/paystack.service';
 import Decimal from 'decimal.js';
 import { v4 as uuid } from 'uuid';
 
@@ -23,6 +23,7 @@ export class AdminController {
   constructor(
     private prisma: PrismaService,
     private config: ConfigService,
+    private paystack: PaystackService,
   ) {
     const raw = this.config.get('ADMIN_SECRET', 'change-me-in-production') || '';
     this.adminSecret = (typeof raw === 'string' ? raw : String(raw)).trim();
@@ -37,7 +38,142 @@ export class AdminController {
   }
 
   /**
-   * Manually credit a user's wallet (admin only)
+   * Get business float balance (money available to credit to customers). Requires admin secret.
+   */
+  @Get('balance')
+  async getBusinessBalance(@Headers('authorization') authHeader: string) {
+    this.checkAdmin(authHeader);
+    const row = await this.prisma.businessBalance.findUnique({
+      where: { currency: 'NGN' },
+    });
+    const amount = row ? Number(row.amount) : 0;
+    return { currency: 'NGN', amount };
+  }
+
+  /**
+   * Top up business float. Record money received (e.g. bank transfer, cash) with a reference for accountability.
+   */
+  @Post('top-up')
+  async topUp(
+    @Headers('authorization') authHeader: string,
+    @Body() body: { amount: number; reference: string },
+  ) {
+    this.checkAdmin(authHeader);
+    const { amount, reference } = body;
+    if (!amount || amount <= 0 || amount > 50000000) {
+      throw new BadRequestException('Amount must be between ₦1 and ₦50,000,000');
+    }
+    if (!reference || String(reference).trim().length === 0) {
+      throw new BadRequestException('Reference is required (e.g. bank ref, tx hash) for accountability');
+    }
+    const ref = String(reference).trim();
+    const topUpAmount = new Decimal(amount);
+
+    const updated = await this.prisma.$transaction(async (prisma) => {
+      const existing = await prisma.businessBalance.findUnique({
+        where: { currency: 'NGN' },
+      });
+      const before = existing ? new Decimal(existing.amount.toString()) : new Decimal(0);
+      const after = before.add(topUpAmount);
+      await prisma.businessBalance.upsert({
+        where: { currency: 'NGN' },
+        create: {
+          id: uuid(),
+          currency: 'NGN',
+          amount: after.toNumber(),
+          lastUpdatedBy: 'admin_top_up',
+          updatedAt: new Date(),
+        },
+        update: {
+          amount: after.toNumber(),
+          lastUpdatedBy: 'admin_top_up',
+          updatedAt: new Date(),
+        },
+      });
+      return { before, after };
+    });
+
+    await this.prisma.auditLog.create({
+      data: {
+        action: 'ADMIN_TOP_UP',
+        userId: null,
+        actorType: 'admin',
+        metadata: {
+          amount: topUpAmount.toString(),
+          reference: ref,
+          currency: 'NGN',
+          before: updated.before.toString(),
+          after: updated.after.toString(),
+        },
+      },
+    });
+
+    this.logger.log(`Admin topped up business float: ₦${amount}, reference: ${ref}`);
+    return {
+      success: true,
+      message: `₦${amount.toLocaleString()} added to business float`,
+      data: {
+        reference: ref,
+        amount,
+        balanceBefore: updated.before.toFixed(2),
+        balanceAfter: updated.after.toFixed(2),
+      },
+    };
+  }
+
+  /**
+   * Initialize Paystack payment to top up business float. Admin pays by card/bank; on success webhook credits BusinessBalance.
+   */
+  @Post('top-up-paystack')
+  async topUpPaystack(
+    @Headers('authorization') authHeader: string,
+    @Body() body: { amount: number; reference?: string },
+  ) {
+    this.checkAdmin(authHeader);
+    const amount = body.amount;
+    const note = typeof body.reference === 'string' ? body.reference.trim() : '';
+
+    if (!amount || amount < 100 || amount > 50000000) {
+      throw new BadRequestException('Amount must be between ₦100 and ₦50,000,000');
+    }
+
+    const reference = `ADMIN-FLOAT-${uuid()}`;
+    const frontendUrl = this.config.get('FRONTEND_URL', 'https://vura-app.vercel.app');
+    const callbackUrl = `${frontendUrl.replace(/\/$/, '')}/admin?float_topup=success&ref=${reference}`;
+
+    await this.prisma.transaction.create({
+      data: {
+        reference,
+        idempotencyKey: reference,
+        amount: new Decimal(amount).toNumber(),
+        currency: 'NGN',
+        type: 'deposit',
+        status: 'PENDING',
+        metadata: {
+          type: 'admin_float_topup',
+          note: note || undefined,
+        },
+      },
+    });
+
+    const result = await this.paystack.initializeTransaction({
+      email: this.config.get('ADMIN_PAYSTACK_EMAIL', 'admin@vura.app'),
+      amount,
+      reference,
+      callbackUrl,
+      metadata: { type: 'admin_float_topup', note: note || undefined },
+    });
+
+    this.logger.log(`Admin float Paystack initialized: ₦${amount}, ref ${reference}`);
+    return {
+      success: true,
+      authorizationUrl: result.authorizationUrl,
+      reference,
+    };
+  }
+
+  /**
+   * Manually credit a user's wallet from business float (admin only). Deducts from float; fails if insufficient.
    */
   @Post('credit')
   async creditUser(
@@ -74,6 +210,24 @@ export class AdminController {
     const creditAmount = new Decimal(amount);
 
     const result = await this.prisma.$transaction(async (prisma) => {
+      const float = await prisma.businessBalance.findUnique({
+        where: { currency: 'NGN' },
+      });
+      const floatBalance = float ? new Decimal(float.amount.toString()) : new Decimal(0);
+      if (floatBalance.lt(creditAmount)) {
+        throw new BadRequestException(
+          `Insufficient business balance. Available: ₦${floatBalance.toFixed(2)}. Top up first (Admin → Top up business float).`,
+        );
+      }
+      await prisma.businessBalance.update({
+        where: { currency: 'NGN' },
+        data: {
+          amount: floatBalance.minus(creditAmount).toNumber(),
+          lastUpdatedBy: 'admin_credit',
+          updatedAt: new Date(),
+        },
+      });
+
       const balance = await prisma.balance.findUnique({
         where: { userId_currency: { userId, currency } },
       });

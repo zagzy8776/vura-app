@@ -338,6 +338,48 @@ export class WebhookController {
       if (transaction.status === 'SUCCESS') {
         return { status: 'already_processed' };
       }
+      const meta = transaction.metadata as Record<string, unknown> | null;
+      if (meta?.type === 'admin_float_topup') {
+        await this.prisma.$transaction(async (tx) => {
+          const row = await tx.businessBalance.findUnique({
+            where: { currency: 'NGN' },
+          });
+          const before = row
+            ? new Decimal(String(row.amount))
+            : new Decimal(0);
+          const after = before.add(amount);
+          await tx.businessBalance.upsert({
+            where: { currency: 'NGN' },
+            create: {
+              currency: 'NGN',
+              amount: after.toNumber(),
+              lastUpdatedBy: 'paystack_admin_float',
+            },
+            update: {
+              amount: after.toNumber(),
+              lastUpdatedBy: 'paystack_admin_float',
+            },
+          });
+          await tx.transaction.update({
+            where: { id: transaction.id },
+            data: {
+              status: 'SUCCESS',
+              beforeBalance: before.toNumber(),
+              afterBalance: after.toNumber(),
+            },
+          });
+        });
+        await this.prisma.auditLog.create({
+          data: {
+            action: 'ADMIN_FLOAT_TOPUP_PAYSTACK',
+            userId: null,
+            actorType: 'system',
+            metadata: { reference, amount: amount.toString(), currency: 'NGN' },
+          },
+        });
+        this.logger.log(`Paystack admin float top-up: ₦${amount.toString()}`, { reference });
+        return { status: 'success' };
+      }
       const userId = transaction.senderId ?? transaction.receiverId;
       if (!userId) {
         this.logger.error('Paystack charge: No userId on transaction', {

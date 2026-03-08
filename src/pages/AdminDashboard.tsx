@@ -24,7 +24,7 @@ import {
   ChevronRight,
   Banknote,
 } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 
 interface User {
   id: string;
@@ -99,6 +99,18 @@ export default function AdminDashboard() {
   const [verifyConfirm, setVerifyConfirm] = useState<User | null>(null);
   const [tier2Form, setTier2Form] = useState({ first: '', last: '', reason: '' });
   const [tier2Loading, setTier2Loading] = useState(false);
+  const [creditForm, setCreditForm] = useState<{ vuraTag: string; amount: string; reason: string }>({
+    vuraTag: '',
+    amount: '',
+    reason: '',
+  });
+  const [creditLoading, setCreditLoading] = useState(false);
+  const [businessBalance, setBusinessBalance] = useState<number | null>(null);
+  const [topUpForm, setTopUpForm] = useState({ amount: '', reference: '' });
+  const [topUpLoading, setTopUpLoading] = useState(false);
+  const [paystackForm, setPaystackForm] = useState({ amount: '', reference: '' });
+  const [paystackLoading, setPaystackLoading] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const authHeader = adminSecret ? `Bearer ${adminSecret}` : '';
 
@@ -136,11 +148,34 @@ export default function AdminDashboard() {
     adminApi('admin/stats/kyc', { headers: { Authorization: authHeader } })
       .then((res) => res.ok && res.json().then(setStats))
       .catch(() => {});
+    adminApi('admin/balance', { headers: { Authorization: authHeader } })
+      .then((res) => res.ok ? res.json() : { amount: 0 })
+      .then((d) => setBusinessBalance(d?.amount ?? 0))
+      .catch(() => setBusinessBalance(0));
   }, [adminSecret, page, authHeader]);
 
   useEffect(() => {
     if (selectedUser) setTier2Form({ first: selectedUser.legalFirstName || '', last: selectedUser.legalLastName || '', reason: '' });
   }, [selectedUser?.id]);
+
+  // After redirect from Paystack: show success and refetch balance
+  useEffect(() => {
+    if (!adminSecret) return;
+    const floatTopup = searchParams.get('float_topup');
+    const ref = searchParams.get('ref');
+    if (floatTopup === 'success' && ref) {
+      toast.success('Payment submitted. Your business float will update once Paystack confirms.');
+      setSearchParams((p) => {
+        const next = new URLSearchParams(p);
+        next.delete('float_topup');
+        next.delete('ref');
+        return next;
+      }, { replace: true });
+      adminApi('admin/balance', { headers: { Authorization: authHeader } })
+        .then((r) => r.ok && r.json().then((d) => setBusinessBalance(d?.amount ?? 0)))
+        .catch(() => {});
+    }
+  }, [adminSecret, searchParams, authHeader, setSearchParams]);
 
   const handleLogin = async () => {
     const secret = secretInput.trim();
@@ -284,6 +319,8 @@ export default function AdminDashboard() {
       if (res.ok) {
         toast.success(data.message || `₦${amount.toLocaleString()} credited to @${tag}`);
         setCreditForm({ vuraTag: '', amount: '', reason: '' });
+        adminApi('admin/balance', { headers: { Authorization: authHeader } })
+          .then((r) => r.ok && r.json().then((d) => setBusinessBalance(d?.amount ?? 0)));
       } else {
         toast.error(data.message || 'Credit failed');
       }
@@ -291,6 +328,73 @@ export default function AdminDashboard() {
       toast.error('Credit request failed');
     } finally {
       setCreditLoading(false);
+    }
+  };
+
+  const handleTopUp = async () => {
+    const amount = parseFloat(topUpForm.amount);
+    const reference = topUpForm.reference.trim();
+    if (!Number.isFinite(amount) || amount < 1 || amount > 50_000_000) {
+      toast.error('Enter a valid amount (₦1 – ₦50,000,000)');
+      return;
+    }
+    if (!reference) {
+      toast.error('Reference is required (e.g. bank ref, tx hash) for accountability');
+      return;
+    }
+    if (!authHeader) return;
+    setTopUpLoading(true);
+    try {
+      const res = await adminApi('admin/top-up', {
+        method: 'POST',
+        headers: { Authorization: authHeader, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount, reference }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        toast.success(data.message || `₦${amount.toLocaleString()} added to business float`);
+        setTopUpForm({ amount: '', reference: '' });
+        setBusinessBalance(data?.data?.balanceAfter != null ? parseFloat(data.data.balanceAfter) : (businessBalance ?? 0) + amount);
+        adminApi('admin/balance', { headers: { Authorization: authHeader } })
+          .then((r) => r.ok && r.json().then((d) => setBusinessBalance(d?.amount ?? 0)));
+      } else {
+        toast.error(data.message || 'Top-up failed');
+      }
+    } catch {
+      toast.error('Top-up request failed');
+    } finally {
+      setTopUpLoading(false);
+    }
+  };
+
+  const handleTopUpPaystack = async () => {
+    const amount = parseFloat(paystackForm.amount);
+    if (!Number.isFinite(amount) || amount < 100 || amount > 50_000_000) {
+      toast.error('Enter a valid amount (₦100 – ₦50,000,000)');
+      return;
+    }
+    if (!authHeader) return;
+    setPaystackLoading(true);
+    try {
+      const res = await adminApi('admin/top-up-paystack', {
+        method: 'POST',
+        headers: { Authorization: authHeader, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          amount,
+          reference: paystackForm.reference.trim() || undefined,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.authorizationUrl) {
+        toast.success('Redirecting to Paystack…');
+        window.location.href = data.authorizationUrl;
+        return;
+      }
+      toast.error(data.message || 'Could not start payment');
+    } catch {
+      toast.error('Request failed');
+    } finally {
+      setPaystackLoading(false);
     }
   };
 
@@ -413,23 +517,104 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* Credit user — e.g. after confirming crypto purchase */}
+        {/* Business float: top up first, then credit customers from it */}
         <Card className="shadow-sm mb-6">
           <CardHeader className="pb-3">
             <CardTitle className="text-lg flex items-center gap-2">
               <Banknote className="w-5 h-5" />
-              Credit user (manual)
+              Business float
             </CardTitle>
             <CardDescription>
-              Credit NGN to a user by @vuraTag. Use for crypto purchases or any manual credit after you confirm payment.
+              Money you have lodged (with a reference) for accountability. You can only credit customers from this balance.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center justify-between p-4 rounded-lg bg-muted/50">
+              <span className="text-sm font-medium text-muted-foreground">Available to send</span>
+              <span className="text-2xl font-bold tabular-nums">
+                ₦{businessBalance != null ? Number(businessBalance).toLocaleString('en-NG', { minimumFractionDigits: 2 }) : '—'}
+              </span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs">Amount to add (₦)</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  placeholder="e.g. 100000"
+                  value={topUpForm.amount}
+                  onChange={(e) => setTopUpForm((f) => ({ ...f, amount: e.target.value }))}
+                  className="mt-1"
+                />
+              </div>
+              <div>
+                <Label className="text-xs">Reference (required)</Label>
+                <Input
+                  placeholder="e.g. Bank ref, tx hash"
+                  value={topUpForm.reference}
+                  onChange={(e) => setTopUpForm((f) => ({ ...f, reference: e.target.value }))}
+                  className="mt-1"
+                />
+              </div>
+            </div>
+            <Button onClick={handleTopUp} disabled={topUpLoading}>
+              {topUpLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              Top up business float (record only)
+            </Button>
+            <div className="border-t pt-4 mt-4">
+              <p className="text-sm font-medium text-muted-foreground mb-2">Or pay with card/bank (Paystack)</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs">Amount (₦)</Label>
+                  <Input
+                    type="number"
+                    min={100}
+                    placeholder="e.g. 100000"
+                    value={paystackForm.amount}
+                    onChange={(e) => setPaystackForm((f) => ({ ...f, amount: e.target.value }))}
+                    className="mt-1"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">Note (optional)</Label>
+                  <Input
+                    placeholder="e.g. March float"
+                    value={paystackForm.reference}
+                    onChange={(e) => setPaystackForm((f) => ({ ...f, reference: e.target.value }))}
+                    className="mt-1"
+                  />
+                </div>
+              </div>
+              <Button
+                variant="secondary"
+                className="mt-2"
+                onClick={handleTopUpPaystack}
+                disabled={paystackLoading}
+              >
+                {paystackLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                Top up with Paystack
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Credit user — deducts from business float */}
+        <Card className="shadow-sm mb-6">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Banknote className="w-5 h-5" />
+              Credit a customer’s wallet
+            </CardTitle>
+            <CardDescription>
+              Add NGN to a <strong>customer’s</strong> Vura balance (e.g. after they paid you for crypto). Deducts from your business float above — top up first if needed.
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col sm:flex-row gap-3">
             <div className="flex-1 grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
-                <Label className="text-xs">@vuraTag</Label>
+                <Label className="text-xs">Customer’s @vuraTag</Label>
                 <Input
-                  placeholder="usertag"
+                  placeholder="the user to credit (e.g. johndoe)"
                   value={creditForm.vuraTag}
                   onChange={(e) => setCreditForm((f) => ({ ...f, vuraTag: e.target.value }))}
                   className="mt-1"
@@ -463,7 +648,7 @@ export default function AdminDashboard() {
               className="sm:self-end shrink-0"
             >
               {creditLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-              Credit user
+              Credit customer
             </Button>
           </CardContent>
         </Card>

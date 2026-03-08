@@ -157,6 +157,30 @@ model AuditLog {
   @@map("audit_logs")
 }
 
+// Business float: money lodged by admin (top-up with reference). Credits to customers deduct from this.
+model BusinessBalance {
+  id            String   @id @default(uuid())
+  currency      String   @unique // 'NGN'
+  amount        Decimal  @db.Decimal(18, 2) @default(0)
+  lastUpdatedBy String   @default("system") @map("last_updated_by")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@map("business_balances")
+}
+
+// Exchange Rates (Cached with Expiry)
+model ExchangeRate {
+  id          String   @id @default(uuid())
+  pair        String   // 'USDT_NGN', 'BTC_NGN', 'ETH_NGN'
+  rate        Decimal  @db.Decimal(18, 8)
+  provider    String   @default("yellowcard") // 'yellowcard', 'coingecko'
+  expiresAt   DateTime @map("expires_at") // 15-minute time-lock
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@unique([pair, provider])
+  @@map("exchange_rates")
+}
+
 // Idempotency Tracking (Enhanced for Crypto)
 model ProcessedWebhook {
   id            String   @id @default(uuid())
@@ -217,19 +241,6 @@ model CryptoDepositTransaction {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("crypto_deposit_transactions")
-}
-
-// Exchange Rates (Cached with Expiry)
-model ExchangeRate {
-  id          String   @id @default(uuid())
-  pair        String   // 'USDT_NGN', 'BTC_NGN', 'ETH_NGN'
-  rate        Decimal  @db.Decimal(18, 8)
-  provider    String   @default("yellowcard") // 'yellowcard', 'coingecko'
-  expiresAt   DateTime @map("expires_at") // 15-minute time-lock
-  createdAt   DateTime @default(now()) @map("created_at")
-
-  @@unique([pair, provider])
-  @@map("exchange_rates")
 }
 
 // EWS Rules Configuration
